@@ -255,6 +255,11 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   updates.
 - **Bumping a version:** raise `versionCode` (and `versionName`) in `app/build.gradle.kts`,
   then push a `v*` tag. CI derives `version.json` from `versionCode`.
+- **Never mark a release as a pre-release on GitHub**, however alpha the build is. The whole
+  distribution model hangs off `…/releases/latest/download/…`, and that path skips
+  pre-releases: marking one would 404 the install QR in the README *and* the `version.json`
+  every installed copy polls, silently freezing the fleet on whatever build it was running.
+  The stage belongs in `versionName`, which nothing parses.
 
 ### Auto-update
 - `UpdateWorker` (periodic, plus on launch and on regaining focus) runs `Updater`, which reads
