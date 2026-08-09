@@ -236,6 +236,26 @@
     <string name="about_source_title">Source</string>
     <string name="about_repository">Code and releases</string>
 
+    <string name="action_open">Open</string>
+    <string name="action_open_vpn_settings">VPN settings</string>
+    <string name="action_turn_on">Turn on</string>
+    <string name="status_retrying">The filter could not start. Trying again shortly.</string>
+    <string name="status_another_app">another app</string>
+    <string name="status_always_on_elsewhere">Another app is set as the always-on VPN, so Android will not hand the tunnel over.</string>
+    <string name="status_always_on_elsewhere_long">%1$s is set as the always-on VPN. Android will not let Malachi take over until that is turned off in VPN settings.</string>
+    <string name="home_always_on_suggestion">Set Malachi as your always-on VPN so filtering survives a reboot and no other app can quietly take the tunnel.</string>
+    <string name="settings_connection_title">Connection</string>
+    <string name="settings_always_on">Always-on VPN</string>
+    <string name="settings_always_on_hint">Android only runs one VPN at a time. Always-on reserves it for Malachi and brings the filter back after a reboot.</string>
+    <string name="settings_always_on_on">Malachi is the always-on VPN</string>
+    <string name="settings_always_on_off">Not set. Filtering still restarts after a reboot, but another VPN app can take over.</string>
+    <string name="settings_always_on_other">%1$s holds it. Malachi cannot run until that changes.</string>
+
+    <string name="action_got_it">Got it</string>
+    <string name="status_no_consent_long">Android refused the VPN permission, so nothing is being filtered. Tap Turn on to try again — or, if that keeps failing, check whether another app is set as your always-on VPN.</string>
+    <string name="status_no_consent_other_vpn">Another VPN app is running, and Android allows only one. Accepting Malachi\'s permission will replace it; if it is set as always-on, turn that off in VPN settings first.</string>
+    <string name="settings_always_on_unknown">Only Android can say whether this is set. Open VPN settings to check or change it.</string>
+
     <!-- Counts -->
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluded</item>

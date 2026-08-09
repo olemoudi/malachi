@@ -29,6 +29,7 @@ import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
 import dev.malachi.data.ThemeMode
 import dev.malachi.data.UpstreamDns
+import dev.malachi.net.VpnController
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.ChoiceRow
@@ -58,6 +59,7 @@ fun SettingsScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val theme by vm.themeMode.collectAsStateWithLifecycle()
     val update by vm.updateState.collectAsStateWithLifecycle()
+    val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
     var editingUpstream by remember { mutableStateOf(false) }
@@ -138,6 +140,33 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            item {
+                SectionHeader(
+                    title = stringResource(R.string.settings_connection_title),
+                    supporting = stringResource(R.string.settings_always_on_hint),
+                )
+            }
+            item {
+                ValueRow(
+                    title = stringResource(R.string.settings_always_on),
+                    // "Unknown" is the honest answer on a current Android and is what most
+                    // devices will show: the setting is readable by the system alone. Saying
+                    // "not set" instead would be a guess, and a wrong one for anyone who has
+                    // already turned it on.
+                    subtitle = when (val state = alwaysOn) {
+                        is VpnController.AlwaysOn.Malachi -> stringResource(R.string.settings_always_on_on)
+                        is VpnController.AlwaysOn.Other -> stringResource(
+                            R.string.settings_always_on_other,
+                            vm.alwaysOnOtherLabel() ?: state.packageName,
+                        )
+                        is VpnController.AlwaysOn.None -> stringResource(R.string.settings_always_on_off)
+                        is VpnController.AlwaysOn.Unknown -> stringResource(R.string.settings_always_on_unknown)
+                    },
+                    value = stringResource(R.string.action_open),
+                    onClick = vm::openVpnSettings,
+                )
             }
 
             item { SectionHeader(stringResource(R.string.settings_privacy_title)) }

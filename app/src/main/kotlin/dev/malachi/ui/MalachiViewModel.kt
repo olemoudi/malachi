@@ -16,6 +16,7 @@ import dev.malachi.data.MalachiSettings
 import dev.malachi.data.ThemeMode
 import dev.malachi.data.UpstreamDns
 import dev.malachi.filter.QueryLog
+import dev.malachi.filter.QueryLogState
 import dev.malachi.lists.ListUpdateWorker
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,7 +51,18 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MalachiSettings())
 
     val status = VpnStatus.status
-    val queryLog = QueryLog.state
+
+    /**
+     * The query log, rebuilt on subscribe.
+     *
+     * [QueryLog] deliberately publishes nothing while nobody is watching — that is what keeps a
+     * lookup from allocating a snapshot for an empty room — so opening the screen has to ask for
+     * one, or it would show whatever was current the last time somebody looked.
+     */
+    val queryLog: StateFlow<QueryLogState> = QueryLog.state
+        .onStart { QueryLog.publish() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QueryLogState())
+
     val listStates = app.filterRepository.listStates
     val refreshingLists = app.filterRepository.refreshing
     val updateState = UpdateCenter.state
@@ -81,6 +94,34 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         }
     }
 
+    /** Who holds the always-on VPN slot, as far as the platform lets us know. */
+    private val _alwaysOn = MutableStateFlow<VpnController.AlwaysOn>(VpnController.AlwaysOn.Unknown)
+    val alwaysOn: StateFlow<VpnController.AlwaysOn> = _alwaysOn.asStateFlow()
+
+    /** True when something other than us currently holds a VPN — this one really is observable. */
+    private val _anotherVpn = MutableStateFlow(false)
+    val anotherVpn: StateFlow<Boolean> = _anotherVpn.asStateFlow()
+
+    /**
+     * Re-reads what we can about the VPN situation. Called on every resume: the only way to
+     * change any of it is to leave for the system's settings and come back, so that return is
+     * exactly when what we are showing has gone stale.
+     */
+    fun refreshVpnEnvironment() {
+        _alwaysOn.value = VpnController.alwaysOn(app)
+        _anotherVpn.value = !VpnStatus.status.value.tunnelUp && VpnController.anotherVpnActive(app)
+    }
+
+    fun openVpnSettings() {
+        VpnController.openVpnSettings(app)
+    }
+
+    fun dismissAlwaysOnTip() = update { it.copy(alwaysOnTipDismissed = true) }
+
+    /** A display label for the app named in [VpnController.AlwaysOn.Other]. */
+    fun alwaysOnOtherLabel(): String? =
+        (_alwaysOn.value as? VpnController.AlwaysOn.Other)?.let { labelFor(it.packageName) }
+
     // ---- the filter itself -------------------------------------------------------------
 
     /**
@@ -94,11 +135,31 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     /** Called once the system's VPN dialog has been accepted (or was never needed). */
     fun confirmFilterEnabled() {
+        VpnStatus.starting()
         update { it.copy(filteringEnabled = true, pausedUntilMs = 0) }
         // The observer in MalachiApplication only reacts to a *change*, and starting from the
         // screen the user just touched is also the one context where a foreground service is
         // guaranteed to be allowed to start.
         runCatching { VpnController.start(app) }
+    }
+
+    /**
+     * The consent dialog came back refused, or was never worth showing.
+     *
+     * The switch goes back off — it would be a lie otherwise — but the reason is recorded so the
+     * screen can say what happened. Silently reverting was the whole bug: from the outside it
+     * was indistinguishable from a dead button.
+     */
+    fun filterConsentRefused() {
+        VpnStatus.consentRefused()
+        setFilterEnabled(false)
+    }
+
+    /** Refused before we even asked, because another app demonstrably owns the always-on slot. */
+    fun filterBlockedByAlwaysOn() {
+        VpnStatus.alwaysOnElsewhere()
+        setFilterEnabled(false)
+        refreshVpnEnvironment()
     }
 
     fun pause(minutes: Int = (MalachiVpnService.PAUSE_MILLIS / 60_000L).toInt()) = update {

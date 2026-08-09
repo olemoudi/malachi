@@ -16,8 +16,9 @@ data class QueryRecord(
 )
 
 /**
- * What the tunnel has seen, as a value. Separated from the singleton so the merge, the cap and
- * the grouping can be tested without a device.
+ * What the tunnel has seen, as an immutable value handed to the UI. Building one costs a copy of
+ * the whole buffer, which is why it is only built when somebody is actually looking (see
+ * [QueryLog]).
  */
 data class QueryLogState(
     val records: List<QueryRecord> = emptyList(),
@@ -37,62 +38,61 @@ data class QueryLogState(
         records.groupBy { it.packageName }.entries
             .sortedByDescending { entry -> entry.value.maxOf { it.lastSeenMs } }
             .map { it.key to it.value.sortedByDescending { r -> r.lastSeenMs } }
-
-    companion object {
-        /**
-         * Merges one sighting into [records], newest first, capped at [max].
-         *
-         * A pair is kept once with a count rather than appended per lookup: an app resolving the
-         * same tracker forty times in a minute is one fact, and forty lines of it would push the
-         * one domain you were looking for off the end of the list.
-         */
-        fun merge(records: List<QueryRecord>, record: QueryRecord, max: Int): List<QueryRecord> {
-            val existing = records.firstOrNull {
-                it.packageName == record.packageName && it.domain == record.domain
-            }
-            val merged = if (existing == null) {
-                record
-            } else {
-                // The newest verdict wins: a domain the user has just allowed should stop
-                // reading as blocked, while its history of sightings is kept.
-                record.copy(count = existing.count + record.count)
-            }
-            val rest = if (existing == null) records else records - existing
-            return (listOf(merged) + rest).take(max)
-        }
-    }
 }
 
 /**
  * The query log: which app asked for which domain, and what Malachi did about it.
  *
- * This is the feature that makes the rest usable. A blocklist that breaks an app leaves a user
- * with no way to find out *which* lookup broke it, and a tracker a list has missed is invisible
- * until something names it. The tunnel already parses the question and attributes the socket
- * before deciding, so this is a window onto work that was happening anyway.
+ * This is the feature that makes the rest usable — a list that breaks an app is untraceable
+ * without it — but it also sits on the hot path, called once per DNS lookup for the entire life
+ * of the process. So the shape of it is dictated by what it must *not* cost:
  *
- * What keeps it safe to have is what it refuses to be: it lives in this process and nowhere
- * else — no file, no database, nothing that survives a restart — and it holds at most
- * [MAX_RECORDS] pairs, so a chatty app can't grow it without bound. The counters are separate
- * from the records: they keep working when the log itself is switched off, because a user who
- * doesn't want a list of their own DNS traffic may still want to know that today's browsing
- * cost them four hundred ad lookups.
+ * - **Nothing is published while nobody is watching.** The records live in a mutable LRU map,
+ *   and the immutable snapshot the UI reads is only built when [state] has a subscriber. With
+ *   the app closed — which is essentially always — recording a lookup is a map put and two
+ *   increments, with no list copy and no flow emission to wake a collector.
+ * - **The counters are plain longs**, readable without building anything, because the ongoing
+ *   notification wants them and the notification must not allocate to show a number.
+ * - **Merging is O(1).** A LinkedHashMap in access order is both the index and the recency
+ *   order, so the oldest entry falls off the end by itself instead of being searched for.
+ *
+ * Nothing here is ever written to disk. The whole record dies with the process, which is what
+ * makes it acceptable for an app to keep a list of the domains its owner's phone has visited.
  */
 object QueryLog {
 
     const val MAX_RECORDS = 500
 
-    private val _state = MutableStateFlow(QueryLogState(sinceMs = System.currentTimeMillis()))
-    val state: StateFlow<QueryLogState> = _state.asStateFlow()
-
     private val lock = Any()
+
+    /**
+     * Access-ordered, so a repeat sighting moves to the front and the eldest entry is evicted
+     * automatically. Keyed by package and domain together: the same tracker in two apps is two
+     * facts, and per-app rules are written against exactly that pair.
+     */
+    private val records = object : LinkedHashMap<String, QueryRecord>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, QueryRecord>): Boolean =
+            size > MAX_RECORDS
+    }
+
+    @Volatile var blocked: Long = 0
+        private set
+
+    @Volatile var total: Long = 0
+        private set
+
+    @Volatile var sinceMs: Long = System.currentTimeMillis()
+        private set
+
+    private val _state = MutableStateFlow(QueryLogState(sinceMs = sinceMs))
+    val state: StateFlow<QueryLogState> = _state.asStateFlow()
 
     /** When false only the counters move; nothing is written down about individual lookups. */
     @Volatile var recording: Boolean = true
 
     /**
-     * Notes one decided lookup. Called from the tunnel's worker threads, so it stays cheap and
-     * never throws: a failure to log must not become a failure to resolve.
+     * Notes one decided lookup. Called from the tunnel's read loop, so it stays cheap and never
+     * throws: a failure to log must not become a failure to resolve.
      */
     fun record(
         domain: String,
@@ -101,39 +101,60 @@ object QueryLog {
         nowMs: Long = System.currentTimeMillis(),
     ) {
         synchronized(lock) {
-            val current = _state.value
-            val records = if (!recording) {
-                current.records
-            } else {
-                QueryLogState.merge(
-                    current.records,
-                    QueryRecord(
-                        domain = domain,
-                        packageName = packageName,
-                        blocked = verdict.blocked,
-                        source = verdict.source,
-                        detail = verdict.detail,
-                        count = 1,
-                        lastSeenMs = nowMs,
-                    ),
-                    MAX_RECORDS,
+            total++
+            if (verdict.blocked) blocked++
+            if (recording) {
+                val key = key(packageName, domain)
+                val existing = records[key]
+                records[key] = QueryRecord(
+                    domain = domain,
+                    packageName = packageName,
+                    // The newest verdict wins: a domain just allowed must stop reading as
+                    // blocked, while its history of sightings is kept.
+                    blocked = verdict.blocked,
+                    source = verdict.source,
+                    detail = verdict.detail,
+                    count = (existing?.count ?: 0) + 1,
+                    lastSeenMs = nowMs,
                 )
             }
-            _state.value = current.copy(
-                records = records,
-                blocked = current.blocked + if (verdict.blocked) 1 else 0,
-                total = current.total + 1,
-            )
         }
+        // The one branch that matters for battery: with no screen open there is no subscriber,
+        // so a lookup never builds a snapshot and never wakes a collector.
+        if (_state.subscriptionCount.value > 0) publish()
+    }
+
+    /** Rebuilds the immutable snapshot the UI reads. Call on subscribe; otherwise it is skipped. */
+    fun publish() {
+        _state.value = snapshot()
+    }
+
+    private fun snapshot(): QueryLogState = synchronized(lock) {
+        QueryLogState(
+            // Access order is oldest-first, and the UI wants newest-first.
+            records = records.values.reversed(),
+            blocked = blocked,
+            total = total,
+            sinceMs = sinceMs,
+        )
     }
 
     /** Forgets the sightings but keeps counting; the "clear" button on the log screen. */
     fun clearRecords() {
-        synchronized(lock) { _state.value = _state.value.copy(records = emptyList()) }
+        synchronized(lock) { records.clear() }
+        publish()
     }
 
     /** Forgets everything, counters included. Used when the filter starts a new session. */
     fun reset(nowMs: Long = System.currentTimeMillis()) {
-        synchronized(lock) { _state.value = QueryLogState(sinceMs = nowMs) }
+        synchronized(lock) {
+            records.clear()
+            blocked = 0
+            total = 0
+            sinceMs = nowMs
+        }
+        publish()
     }
+
+    private fun key(packageName: String?, domain: String) = "${packageName.orEmpty()}|$domain"
 }

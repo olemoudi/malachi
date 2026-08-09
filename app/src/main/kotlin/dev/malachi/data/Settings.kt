@@ -107,6 +107,16 @@ data class MalachiSettings(
 
     /** Wi-Fi-only self-update, for a phone on a small data plan. */
     val updateWifiOnly: Boolean = false,
+
+    /**
+     * The always-on suggestion has been dismissed.
+     *
+     * Persisted because whether always-on is *already* configured is something a normal app is
+     * not allowed to read on a current Android, so the suggestion can't be state-derived. Being
+     * dismissible for good is what keeps it from becoming a permanent nag aimed at people who
+     * did the thing months ago.
+     */
+    val alwaysOnTipDismissed: Boolean = false,
 ) {
     fun isPaused(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < pausedUntilMs
 

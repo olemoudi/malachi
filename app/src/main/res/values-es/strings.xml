@@ -235,6 +235,26 @@
     <string name="about_source_title">Código</string>
     <string name="about_repository">Código y versiones</string>
 
+    <string name="action_open">Abrir</string>
+    <string name="action_open_vpn_settings">Ajustes de VPN</string>
+    <string name="action_turn_on">Activar</string>
+    <string name="status_retrying">El filtro no pudo arrancar. Se reintentará en breve.</string>
+    <string name="status_another_app">otra app</string>
+    <string name="status_always_on_elsewhere">Otra app está configurada como VPN siempre activa, así que Android no cede el túnel.</string>
+    <string name="status_always_on_elsewhere_long">%1$s está configurada como VPN siempre activa. Android no dejará que Malachi tome el relevo hasta que la desactives en los ajustes de VPN.</string>
+    <string name="home_always_on_suggestion">Configura Malachi como tu VPN siempre activa para que el filtrado sobreviva a un reinicio y ninguna otra app pueda quedarse con el túnel.</string>
+    <string name="settings_connection_title">Conexión</string>
+    <string name="settings_always_on">VPN siempre activa</string>
+    <string name="settings_always_on_hint">Android solo ejecuta una VPN a la vez. La opción «siempre activa» la reserva para Malachi y recupera el filtro tras un reinicio.</string>
+    <string name="settings_always_on_on">Malachi es la VPN siempre activa</string>
+    <string name="settings_always_on_off">Sin configurar. El filtrado vuelve tras un reinicio, pero otra app de VPN puede tomar el relevo.</string>
+    <string name="settings_always_on_other">La tiene %1$s. Malachi no puede funcionar hasta que eso cambie.</string>
+
+    <string name="action_got_it">Entendido</string>
+    <string name="status_no_consent_long">Android denegó el permiso de VPN, así que no se está filtrando nada. Pulsa Activar para reintentarlo o, si sigue fallando, comprueba si otra app está configurada como VPN siempre activa.</string>
+    <string name="status_no_consent_other_vpn">Hay otra app de VPN en marcha y Android solo permite una. Aceptar el permiso de Malachi la sustituirá; si está como siempre activa, desactívala antes en los ajustes de VPN.</string>
+    <string name="settings_always_on_unknown">Solo Android sabe si esto está configurado. Abre los ajustes de VPN para comprobarlo o cambiarlo.</string>
+
     <!-- Recuentos -->
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluida</item>

@@ -52,9 +52,11 @@ class MalachiApplication : Application() {
             ListUpdateWorker.schedule(this@MalachiApplication, settings.listUpdateHours, settings.listUpdateWifiOnly)
         }
 
-        // Keep the app itself current: a periodic check, plus one now for this launch.
+        // Keep the app itself current. Deliberately the throttled variant: this process is
+        // restarted by the system more often than a user opens the app, and an unconditional
+        // check here would hit the network every time that happened.
         UpdateWorker.schedule(this)
-        UpdateWorker.runNow(this)
+        UpdateWorker.runIfStale(this)
 
         observeFilterSwitch()
     }

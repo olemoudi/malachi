@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
      */
     private val vpnConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) vm.confirmFilterEnabled() else vm.setFilterEnabled(false)
+            if (result.resultCode == RESULT_OK) vm.confirmFilterEnabled() else vm.filterConsentRefused()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,16 +59,31 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Catch up on updates whenever the app regains focus; throttled internally.
         UpdateWorker.runIfStale(this)
+        // The only way to change any of the VPN environment is to leave for the system settings
+        // and come back, so coming back is when what we show about it has gone stale.
+        vm.refreshVpnEnvironment()
     }
 
-    /** Asks for consent if it isn't already held, then turns the filter on. */
+    /**
+     * Asks for consent if it isn't already held, then turns the filter on.
+     *
+     * The always-on check comes first, and only fires when the platform actually told us who
+     * holds that slot. When another app holds it, Android refuses the handover and returns the
+     * consent dialog as *cancelled* — the same result as the user pressing Cancel — so asking
+     * would walk them through a dialog that cannot succeed and explain nothing. Where the
+     * platform won't say (which is most devices now), we ask anyway and explain afterwards.
+     */
     private fun requestVpnConsent() {
+        if (VpnController.alwaysOn(this) is VpnController.AlwaysOn.Other) {
+            vm.filterBlockedByAlwaysOn()
+            return
+        }
         val intent = VpnController.consentIntent(this)
         if (intent == null) {
             vm.confirmFilterEnabled()
             return
         }
-        runCatching { vpnConsent.launch(intent) }.onFailure { vm.setFilterEnabled(false) }
+        runCatching { vpnConsent.launch(intent) }.onFailure { vm.filterConsentRefused() }
     }
 
     /**

@@ -234,6 +234,35 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **Never hold a whole blocklist as text.** Lists reach a quarter of a million domains;
   they are streamed line by line into `DomainIndex.Builder` and kept as a sorted `LongArray`.
 
+### Platform facts learned the hard way (do not re-derive)
+- **The descriptor from `establish()` is non-blocking.** A stream-shaped read loop therefore
+  gets 0 back immediately whenever no packet is waiting and spins a core flat out — measured at
+  97% of one core on an idle phone with the screen off, which is a battery bug that no amount of
+  profiling elsewhere will explain. The read loop waits in `Os.poll()` and is woken for shutdown
+  by a self-pipe, because `poll()` is not interruptible and closing the tun does not wake it.
+  Never replace this with `FileInputStream.read`.
+- **`Settings.Secure.always_on_vpn_app` is not readable by a normal app** on a current Android;
+  it returns null whatever is configured. Treat "who holds always-on" as genuinely unknown
+  (`VpnController.AlwaysOn.Unknown`) rather than inferring "nobody does" — the latter tells
+  every user who already configured it that they haven't, forever.
+- **Whether *some* VPN is active is observable**, via a network with `TRANSPORT_VPN`. That is
+  what distinguishes "the user dismissed the dialog" from "another VPN holds the tunnel".
+- **`Os.pipe2` is not in the SDK; `Os.pipe()` is.**
+
+### Battery rules for the tunnel (this is an always-on process)
+- **No unconditional timers.** Anything periodic is gated on the screen being on, or it does not
+  exist. The notification refresh parks on a screen-state flow rather than ticking.
+- **Nothing on the hot path may allocate or IPC without earning it.** Attribution
+  (`getConnectionOwnerUid`) is a binder round trip and is skipped entirely unless the query log
+  is on or a per-app rule exists. Upstream sockets are pooled so `protect()` — another round
+  trip — happens once per socket, not once per lookup.
+- **The query log publishes nothing while nobody is watching** (`subscriptionCount == 0`).
+  Counters stay as plain longs so the notification can read them without building a snapshot.
+- **A blocked lookup never leaves the read loop**: no thread hand-off, no coroutine, no copy of
+  the packet.
+- Thread pools use `allowCoreThreadTimeOut(true)`; a phone that is not resolving anything must
+  hold no worker threads at all.
+
 ### Privacy constraints (non-negotiable)
 - The query log lives in memory only. No file, no database, nothing that survives the process.
 - Nothing is ever sent anywhere. The only outbound requests this app makes are: the blocklists

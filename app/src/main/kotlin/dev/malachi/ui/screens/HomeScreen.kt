@@ -21,7 +21,9 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -39,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.net.TunnelProblem
+import dev.malachi.net.VpnController
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.Screen
 import dev.malachi.ui.components.CardGroup
@@ -70,6 +73,8 @@ fun HomeScreen(
     val status by vm.status.collectAsStateWithLifecycle()
     val log by vm.queryLog.collectAsStateWithLifecycle()
     val listedDomains by vm.listedDomains.collectAsStateWithLifecycle()
+    val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
+    val anotherVpn by vm.anotherVpn.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
     LazyColumn(
@@ -97,23 +102,66 @@ fun HomeScreen(
             )
         }
 
-        // Everything that can make the switch lie, each with the one action that fixes it.
-        if (settings.filteringEnabled && !settings.isPaused() && !status.tunnelUp) {
+        // Everything that can make the switch lie, each with the one action that fixes it. Shown
+        // while the user wants the filter running, and also when they don't *because* something
+        // refused — a switch that sprang back with no explanation was the original bug here.
+        if (!status.tunnelUp && !settings.isPaused() && (settings.filteringEnabled || status.needsUser)) {
             item {
-                Warning(
-                    text = status.detail.ifEmpty { stringResource(R.string.status_starting) },
-                    action = if (status.problem == TunnelProblem.NO_APPS_SELECTED) {
-                        stringResource(R.string.home_choose_apps)
-                    } else {
-                        null
-                    },
-                    onAction = { onOpen(Screen.Apps) },
-                )
+                when (status.problem) {
+                    TunnelProblem.ALWAYS_ON_ELSEWHERE -> Notice(
+                        tone = Tone.Problem,
+                        text = stringResource(
+                            R.string.status_always_on_elsewhere_long,
+                            vm.alwaysOnOtherLabel() ?: stringResource(R.string.status_another_app),
+                        ),
+                        action = stringResource(R.string.action_open_vpn_settings),
+                        onAction = vm::openVpnSettings,
+                    )
+                    // Android says only "refused", so the card offers both readings: the likely
+                    // one (a dialog dismissed) with a retry, and the one nobody would guess
+                    // (another VPN holding the slot) with the screen that fixes it.
+                    TunnelProblem.NO_CONSENT -> Notice(
+                        tone = Tone.Problem,
+                        text = stringResource(
+                            if (anotherVpn) R.string.status_no_consent_other_vpn else R.string.status_no_consent_long,
+                        ),
+                        action = stringResource(R.string.action_turn_on),
+                        onAction = onRequestVpnConsent,
+                        secondary = stringResource(R.string.action_open_vpn_settings),
+                        onSecondary = vm::openVpnSettings,
+                    )
+                    TunnelProblem.NO_APPS_SELECTED -> Notice(
+                        tone = Tone.Problem,
+                        text = stringResource(R.string.status_no_apps_selected),
+                        action = stringResource(R.string.home_choose_apps),
+                        onAction = { onOpen(Screen.Apps) },
+                    )
+                    TunnelProblem.DISPLACED -> Notice(
+                        tone = Tone.Problem,
+                        text = stringResource(R.string.status_displaced),
+                        action = stringResource(R.string.action_open_vpn_settings),
+                        onAction = vm::openVpnSettings,
+                    )
+                    // Coming up is not a failure and must not be painted as one.
+                    TunnelProblem.STARTING, TunnelProblem.NONE -> Notice(
+                        tone = Tone.Working,
+                        text = stringResource(R.string.status_starting),
+                    )
+                    TunnelProblem.FAILED -> Notice(
+                        tone = Tone.Problem,
+                        text = if (status.retrying) {
+                            stringResource(R.string.status_retrying)
+                        } else {
+                            status.detail.ifEmpty { stringResource(R.string.status_tunnel_closed) }
+                        },
+                    )
+                }
             }
         }
         if (status.privateDnsActive) {
             item {
-                Warning(
+                Notice(
+                    tone = Tone.Problem,
                     text = stringResource(
                         R.string.warning_private_dns,
                         status.privateDnsHost ?: stringResource(R.string.warning_private_dns_automatic),
@@ -123,10 +171,30 @@ fun HomeScreen(
         }
         if (settings.filteringEnabled && listedDomains == 0) {
             item {
-                Warning(
+                Notice(
+                    tone = Tone.Problem,
                     text = stringResource(R.string.warning_no_lists),
                     action = stringResource(R.string.home_open_lists),
                     onAction = { onOpen(Screen.Lists) },
+                )
+            }
+        }
+        // Offered only once the filter actually works: always-on is what survives a reboot and
+        // stops another VPN quietly taking the tunnel, and it is the last thing to set up rather
+        // than a hurdle in front of the first run. Dismissible for good, because whether it is
+        // already configured is something this app is not allowed to find out.
+        if (status.tunnelUp &&
+            alwaysOn !is VpnController.AlwaysOn.Malachi &&
+            !settings.alwaysOnTipDismissed
+        ) {
+            item {
+                Notice(
+                    tone = Tone.Suggestion,
+                    text = stringResource(R.string.home_always_on_suggestion),
+                    action = stringResource(R.string.action_open_vpn_settings),
+                    onAction = vm::openVpnSettings,
+                    secondary = stringResource(R.string.action_got_it),
+                    onSecondary = vm::dismissAlwaysOnTip,
                 )
             }
         }
@@ -343,27 +411,68 @@ private fun Stat(value: String, label: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** A problem the user can do something about, stated plainly, with the action beside it. */
+/**
+ * How loudly a notice speaks. The distinction earns its keep: "coming up" and "another VPN is in
+ * the way" used to render identically in alarm red, which taught users to read the red card as
+ * noise — exactly when it was about to carry something they needed to act on.
+ */
+private enum class Tone { Problem, Working, Suggestion }
+
+/** Something worth saying, stated plainly, with its action or two beside it. */
 @Composable
-private fun Warning(text: String, action: String? = null, onAction: () -> Unit = {}) {
+private fun Notice(
+    tone: Tone,
+    text: String,
+    action: String? = null,
+    onAction: () -> Unit = {},
+    secondary: String? = null,
+    onSecondary: () -> Unit = {},
+) {
     val spacing = Tokens.spacing
-    MalachiCard(color = MaterialTheme.colorScheme.errorContainer) {
-        Row(Modifier.padding(spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Filled.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(spacing.md))
-            Text(
-                text,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f),
-            )
-            if (action != null) {
-                TextButton(onClick = onAction) { Text(action) }
+    val container = when (tone) {
+        Tone.Problem -> MaterialTheme.colorScheme.errorContainer
+        Tone.Working -> MaterialTheme.colorScheme.surfaceContainerHigh
+        Tone.Suggestion -> MaterialTheme.colorScheme.primaryContainer
+    }
+    val onContainer = when (tone) {
+        Tone.Problem -> MaterialTheme.colorScheme.onErrorContainer
+        Tone.Working -> MaterialTheme.colorScheme.onSurfaceVariant
+        Tone.Suggestion -> MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    MalachiCard(color = container) {
+        Column(Modifier.padding(spacing.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when (tone) {
+                    Tone.Working -> CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = onContainer,
+                    )
+                    else -> Icon(
+                        if (tone == Tone.Problem) Icons.Filled.Warning else Icons.Filled.VerifiedUser,
+                        contentDescription = null,
+                        tint = onContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(spacing.md))
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = onContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                // A single action sits beside the text; a pair gets its own row below, so a long
+                // explanation is never squeezed into a column two words wide.
+                if (action != null && secondary == null) {
+                    TextButton(onClick = onAction) { Text(action, color = onContainer) }
+                }
+            }
+            if (action != null && secondary != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onSecondary) { Text(secondary, color = onContainer) }
+                    TextButton(onClick = onAction) { Text(action, color = onContainer) }
+                }
             }
         }
     }

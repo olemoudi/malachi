@@ -4,15 +4,31 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Why the filter isn't running, when it isn't. */
+/**
+ * Why the filter isn't running, when it isn't.
+ *
+ * Every one of these looks identical from a settings screen — a switch that is on and a phone
+ * that isn't being filtered — so each is named separately, and each maps to exactly one thing
+ * the user can do about it.
+ */
 enum class TunnelProblem {
     NONE,
 
-    /** VPN permission has never been granted, or was withdrawn. */
+    /** Coming up. Not a problem; the UI must not paint it as one. */
+    STARTING,
+
+    /** VPN permission was refused, or was never granted. Needs the user to say yes. */
     NO_CONSENT,
 
     /** Another VPN app holds the one tunnel Android allows. */
     DISPLACED,
+
+    /**
+     * Another app is set as the device's always-on VPN. Android then refuses to hand the tunnel
+     * over at all, so the consent dialog is a dead end and only the system's VPN settings can
+     * clear it — which is why this is a separate state and not a flavour of [DISPLACED].
+     */
+    ALWAYS_ON_ELSEWHERE,
 
     /** "Only these apps" is selected and the list is empty, so there is nothing to filter. */
     NO_APPS_SELECTED,
@@ -23,18 +39,14 @@ enum class TunnelProblem {
 
 /**
  * What the filter is actually doing, as opposed to what the user asked for.
- *
- * Asking for a tunnel and having one are different things, and every way they diverge looks the
- * same from the settings screen: the switch is on and nothing is being filtered. Android allows
- * exactly one VPN at a time, consent can be withheld or withdrawn, and a system-wide Private DNS
- * setting routes lookups somewhere Malachi will never see them. All of it is published here so
- * the home screen can say which one is happening instead of showing a green light over a filter
- * that is off.
  */
 data class FilterStatus(
     val tunnelUp: Boolean = false,
     val problem: TunnelProblem = TunnelProblem.NONE,
     val detail: String = "",
+
+    /** True while a retry is pending, so the UI can say "retrying" instead of looking dead. */
+    val retrying: Boolean = false,
 
     /**
      * The system's Private DNS (DNS-over-TLS) is on. Lookups then leave the device encrypted to
@@ -47,7 +59,11 @@ data class FilterStatus(
     /** Human-readable upstream in use, for the home screen ("system", "1.1.1.1", …). */
     val upstream: String = "",
 ) {
-    val paused: Boolean get() = !tunnelUp && problem == TunnelProblem.NONE
+    /** True when the user has to do something before the filter can possibly run. */
+    val needsUser: Boolean
+        get() = problem == TunnelProblem.NO_CONSENT ||
+            problem == TunnelProblem.ALWAYS_ON_ELSEWHERE ||
+            problem == TunnelProblem.NO_APPS_SELECTED
 }
 
 /** Process-wide filter status; the tunnel writes, the UI reads. */
@@ -65,11 +81,43 @@ object VpnStatus {
         )
     }
 
-    internal fun down(problem: TunnelProblem = TunnelProblem.NONE, detail: String = "") {
-        _status.value = _status.value.copy(tunnelUp = false, problem = problem, detail = detail)
+    internal fun down(
+        problem: TunnelProblem = TunnelProblem.NONE,
+        detail: String = "",
+        retrying: Boolean = false,
+    ) {
+        _status.value = _status.value.copy(
+            tunnelUp = false,
+            problem = problem,
+            detail = detail,
+            retrying = retrying,
+        )
     }
 
     internal fun privateDns(active: Boolean, host: String?) {
         _status.value = _status.value.copy(privateDnsActive = active, privateDnsHost = host)
+    }
+
+    /**
+     * Recorded from the UI when the system's consent dialog comes back refused. Without it the
+     * switch would spring back with no explanation, which is indistinguishable from the app
+     * being broken — and was.
+     */
+    fun consentRefused() {
+        _status.value = FilterStatus(tunnelUp = false, problem = TunnelProblem.NO_CONSENT)
+    }
+
+    fun alwaysOnElsewhere() {
+        _status.value = FilterStatus(tunnelUp = false, problem = TunnelProblem.ALWAYS_ON_ELSEWHERE)
+    }
+
+    /** Clears a stale problem when the user asks for the filter again. */
+    fun starting() {
+        _status.value = _status.value.copy(
+            tunnelUp = false,
+            problem = TunnelProblem.STARTING,
+            detail = "",
+            retrying = false,
+        )
     }
 }

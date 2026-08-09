@@ -2,18 +2,30 @@ package dev.malachi.net
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.VpnService
+import android.provider.Settings
 import androidx.core.content.ContextCompat
+import dev.malachi.debug.DebugLog
 
 /**
- * The one place that starts and stops the filter.
+ * The one place that starts and stops the filter, and the one place that knows what can stand
+ * in the way of it starting.
  *
- * Android will not let an app establish a tunnel without an explicit, one-time consent dialog,
- * and that dialog can only be raised from an activity. So starting the filter is two steps —
- * ask, then start — and everything that wants to turn it on goes through here rather than each
- * caller reinventing which half it needs.
+ * Android allows exactly one VPN at a time and will not let an app establish a tunnel without
+ * an explicit consent dialog that only an activity can raise. Two things can make that dialog a
+ * dead end, and both are invisible from inside it: another app already holds the tunnel, or —
+ * worse — another app is configured as the device's *always-on* VPN, in which case the system
+ * refuses the handover outright and the dialog returns a cancel that looks exactly like the
+ * user having pressed cancel. Naming that difference is most of this file.
  */
 object VpnController {
+
+    private const val TAG = "MalachiVpn"
+
+    /** Secure settings key naming the package configured as the always-on VPN, if any. */
+    private const val ALWAYS_ON_VPN_APP = "always_on_vpn_app"
 
     /**
      * The consent dialog to launch, or null when consent is already held. Null is the common
@@ -22,7 +34,71 @@ object VpnController {
      */
     fun consentIntent(context: Context): Intent? = VpnService.prepare(context)
 
-    fun hasConsent(context: Context): Boolean = consentIntent(context) == null
+    fun hasConsent(context: Context): Boolean = runCatching { consentIntent(context) == null }.getOrDefault(false)
+
+    /**
+     * Who owns the device's always-on VPN slot — as far as we are allowed to know.
+     *
+     * [Unknown] is the normal answer on a current Android. The setting that holds this is
+     * readable by the system and by nobody else, and it was tempting to read it anyway and treat
+     * the null as "nobody has it": that produces an app which tells a user who has *already*
+     * configured always-on that they haven't, forever. A state we cannot observe is modelled as
+     * one we cannot observe.
+     */
+    sealed interface AlwaysOn {
+        data object Unknown : AlwaysOn
+        data object None : AlwaysOn
+        data object Malachi : AlwaysOn
+        data class Other(val packageName: String) : AlwaysOn
+    }
+
+    fun alwaysOn(context: Context): AlwaysOn {
+        val raw = runCatching {
+            Settings.Secure.getString(context.contentResolver, ALWAYS_ON_VPN_APP)
+        }.getOrNull() ?: return AlwaysOn.Unknown
+        return when {
+            raw.isBlank() -> AlwaysOn.None
+            raw == context.packageName -> AlwaysOn.Malachi
+            else -> AlwaysOn.Other(raw)
+        }
+    }
+
+    /**
+     * Whether some other app currently holds a VPN.
+     *
+     * Unlike the always-on setting this really is observable: a VPN shows up as a network with
+     * the VPN transport, and ours is only there while our own tunnel is up. It is what turns
+     * "the permission was refused" into "something else is holding the one tunnel Android has".
+     */
+    @Suppress("DEPRECATION") // No one-shot replacement exists; the alternative is a callback we
+    // would have to keep registered for the life of the app to answer a question asked twice.
+    fun anotherVpnActive(context: Context): Boolean = runCatching {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
+        cm.allNetworks.any { network ->
+            cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        }
+    }.getOrDefault(false)
+
+    /**
+     * The system's VPN settings, where always-on is turned on and another app's hold is
+     * released. There is no way to set always-on programmatically without being a device owner,
+     * so the honest thing is to take the user straight to the screen that can.
+     */
+    fun openVpnSettings(context: Context): Boolean = runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        true
+    }.getOrElse {
+        DebugLog.w(TAG, "no VPN settings screen on this device", it)
+        // Every device has the top-level settings app even when it hides the VPN page.
+        runCatching {
+            context.startActivity(
+                Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            true
+        }.getOrDefault(false)
+    }
 
     fun start(context: Context) {
         ContextCompat.startForegroundService(context, Intent(context, MalachiVpnService::class.java))
