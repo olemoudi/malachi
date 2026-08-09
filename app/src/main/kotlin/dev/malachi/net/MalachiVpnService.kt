@@ -73,8 +73,9 @@ import java.util.concurrent.TimeUnit
  * with no working DNS and no obvious culprit.
  *
  * **This service is alive for weeks at a time, so idle cost is the design constraint.** At rest
- * it is one thread blocked in `read()` on the tun — a parked syscall, not a poll — and nothing
- * else: no timer, no wakeup, no allocation. Every periodic thing here is either gated on the
+ * it is one thread parked in `poll()` on the tun — woken by the kernel when a packet arrives,
+ * never by a clock — and nothing else: no timer, no wakeup, no allocation. See [readLoop] for
+ * why it is `poll()` and not a read. Every periodic thing here is either gated on the
  * screen being on or removed outright. A lookup that is blocked never leaves the read loop; only
  * a lookup that has to be forwarded costs a thread hand-off, and the sockets it uses are pooled
  * so the per-query cost is a send and a receive rather than a socket, a bind and a `protect()`
