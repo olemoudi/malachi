@@ -21,6 +21,7 @@ import dev.malachi.lists.ListUpdateWorker
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.net.VpnStatus
+import dev.malachi.stats.StatsData
 import dev.malachi.update.UpdateCenter
 import dev.malachi.update.UpdateWorker
 import dev.malachi.update.Updater
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Everything the screens read and every edit they make.
@@ -62,6 +64,25 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     val queryLog: StateFlow<QueryLogState> = QueryLog.state
         .onStart { QueryLog.publish() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QueryLogState())
+
+    /**
+     * The persisted counters. Loaded when a screen asks rather than published per lookup: this
+     * is history, it changes slowly, and the tunnel must not pay to keep a UI that is usually
+     * closed up to date.
+     */
+    private val _stats = MutableStateFlow(StatsData())
+    val stats: StateFlow<StatsData> = _stats.asStateFlow()
+
+    fun refreshStats() {
+        viewModelScope.launch {
+            _stats.value = withContext(Dispatchers.IO) { app.statsStore.snapshot() }
+        }
+    }
+
+    fun clearStats() {
+        app.statsStore.clear()
+        refreshStats()
+    }
 
     val listStates = app.filterRepository.listStates
     val refreshingLists = app.filterRepository.refreshing
@@ -261,12 +282,26 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun scheduleUpdateCheck() = UpdateWorker.runNow(app)
 
-    /** Display label for a package, falling back to the package name itself. */
-    fun labelFor(packageName: String?): String = when (packageName) {
-        null -> ""
-        else -> apps.value.firstOrNull { it.packageName == packageName }?.label
+    /**
+     * Display label for a package, falling back to the package name itself.
+     *
+     * Memoised, and not as a micro-optimisation: this is called from inside composition, once
+     * per visible row and once per ranked app, and the fallback path is a synchronous
+     * PackageManager call — a binder round trip. Recomposing a screen full of rows was firing
+     * dozens of those on the main thread, which is enough to hold it long enough for the system
+     * to declare the app unresponsive. A label never changes while the app is installed, so one
+     * lookup per package for the life of the view model is the correct number.
+     */
+    private val labelCache = ConcurrentHashMap<String, String>()
+
+    fun labelFor(packageName: String?): String {
+        if (packageName == null) return ""
+        labelCache[packageName]?.let { return it }
+        val label = apps.value.firstOrNull { it.packageName == packageName }?.label
             ?: app.appInventory.label(packageName)
             ?: packageName
+        labelCache[packageName] = label
+        return label
     }
 
     private fun update(transform: (MalachiSettings) -> MalachiSettings) {

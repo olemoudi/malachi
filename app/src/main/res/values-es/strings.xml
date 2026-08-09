@@ -255,6 +255,25 @@
     <string name="status_no_consent_other_vpn">Hay otra app de VPN en marcha y Android solo permite una. Aceptar el permiso de Malachi la sustituirá; si está como siempre activa, desactívala antes en los ajustes de VPN.</string>
     <string name="settings_always_on_unknown">Solo Android sabe si esto está configurado. Abre los ajustes de VPN para comprobarlo o cambiarlo.</string>
 
+    <string name="stats_section_title">Estadísticas</string>
+    <string name="stats_window_today">Hoy</string>
+    <string name="stats_window_week">Esta semana</string>
+    <string name="stats_window_month">Este mes</string>
+    <string name="stats_window_all">Histórico</string>
+    <string name="stats_of_lookups">%1$s bloqueadas de %2$s consultas</string>
+    <string name="stats_none_yet">Todavía no hay consultas en este periodo</string>
+    <string name="stats_by_count">Más bloqueos</string>
+    <string name="stats_by_count_hint">Las apps que generan más consultas rechazadas.</string>
+    <string name="stats_by_rate">Mayor porcentaje de bloqueo</string>
+    <string name="stats_by_rate_hint">Las apps a las que se les rechazan más consultas en proporción. Requiere al menos %1$d consultas en el periodo, para que cuatro muestras no puedan declarar un 100%%.</string>
+    <string name="stats_no_apps">Todavía no hay nada que clasificar.</string>
+    <string name="stats_app_detail">%1$d bloqueadas de %2$d</string>
+    <string name="stats_reset">Reiniciar estadísticas</string>
+    <string name="activity_live_title">Registro en vivo</string>
+    <string name="activity_live_hint">Las últimas cientos de consultas. Solo en memoria, y desaparecen al detener el filtro.</string>
+
+    <string name="filter_notification_starting">Iniciando el filtro…</string>
+
     <!-- Recuentos -->
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluida</item>

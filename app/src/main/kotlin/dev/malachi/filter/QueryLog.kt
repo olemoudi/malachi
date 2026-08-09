@@ -51,8 +51,8 @@ data class QueryLogState(
  *   and the immutable snapshot the UI reads is only built when [state] has a subscriber. With
  *   the app closed — which is essentially always — recording a lookup is a map put and two
  *   increments, with no list copy and no flow emission to wake a collector.
- * - **The counters are plain longs**, readable without building anything, because the ongoing
- *   notification wants them and the notification must not allocate to show a number.
+ * - **The counters are plain longs**, readable without building anything, so a caller that wants
+ *   a number does not have to allocate a snapshot of five hundred records to get one.
  * - **Merging is O(1).** A LinkedHashMap in access order is both the index and the recency
  *   order, so the oldest entry falls off the end by itself instead of being searched for.
  *
@@ -62,6 +62,11 @@ data class QueryLogState(
 object QueryLog {
 
     const val MAX_RECORDS = 500
+
+    /** How often the snapshot may be rebuilt while a screen is watching. */
+    private const val MIN_PUBLISH_INTERVAL_MS = 500L
+
+    @Volatile private var lastPublishedMs = 0L
 
     private val lock = Any()
 
@@ -121,7 +126,17 @@ object QueryLog {
         }
         // The one branch that matters for battery: with no screen open there is no subscriber,
         // so a lookup never builds a snapshot and never wakes a collector.
-        if (_state.subscriptionCount.value > 0) publish()
+        //
+        // While somebody *is* watching, the floor matters just as much for a different reason:
+        // publishing per lookup recomposes the whole screen per lookup, and a burst of DNS —
+        // which is exactly what happens when an app launches — turns that into hundreds of
+        // recompositions a second on the main thread. The screen does not need to be more
+        // current than the eye.
+        if (_state.subscriptionCount.value == 0) return
+        val now = nowMs
+        if (now - lastPublishedMs < MIN_PUBLISH_INTERVAL_MS) return
+        lastPublishedMs = now
+        publish()
     }
 
     /** Rebuilds the immutable snapshot the UI reads. Call on subscribe; otherwise it is skipped. */

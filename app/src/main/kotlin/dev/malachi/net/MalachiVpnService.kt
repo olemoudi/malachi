@@ -75,8 +75,8 @@ import java.util.concurrent.TimeUnit
  * **This service is alive for weeks at a time, so idle cost is the design constraint.** At rest
  * it is one thread parked in `poll()` on the tun — woken by the kernel when a packet arrives,
  * never by a clock — and nothing else: no timer, no wakeup, no allocation. See [readLoop] for
- * why it is `poll()` and not a read. Every periodic thing here is either gated on the
- * screen being on or removed outright. A lookup that is blocked never leaves the read loop; only
+ * why it is `poll()` and not a read. There is no periodic work of any kind, and no ongoing
+ * notification to keep current. A lookup that is blocked never leaves the read loop; only
  * a lookup that has to be forwarded costs a thread hand-off, and the sockets it uses are pooled
  * so the per-query cost is a send and a receive rather than a socket, a bind and a `protect()`
  * round trip into the system server.
@@ -135,15 +135,6 @@ class MalachiVpnService : VpnService() {
     @Volatile private var wakeWrite: FileDescriptor? = null
     private var foregroundStarted = false
 
-    /** Drives the notification refresh; false parks it completely. */
-    private val screenOn = MutableStateFlow(true)
-
-    private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            screenOn.value = intent.action == Intent.ACTION_SCREEN_ON
-        }
-    }
-
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
             adoptNetwork(network, linkProperties)
@@ -160,17 +151,21 @@ class MalachiVpnService : VpnService() {
         app = application as MalachiApplication
         cm = getSystemService(ConnectivityManager::class.java)
         FilterNotifications.ensureChannel(this)
-        // Promoted before anything can fail: a service started with startForegroundService that
-        // doesn't reach startForeground within a few seconds is killed with an ANR-shaped crash.
-        promote(FilterNotifications.running(this, 0, 0))
         registerNetworkCallback()
-        registerScreenReceiver()
 
+        // No startForeground here, and none while filtering: once the tunnel is up the platform
+        // binds to this service as the active VPN and that is what keeps the process alive. The
+        // status bar already carries the system's VPN key, so a notification of our own would be
+        // a second permanent indicator saying the same thing.
         scope.launch { app.settingsStore.settings.collect { applySettings(it) } }
-        scope.launch { notificationLoop() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Started from the background, so the platform is owed a notification within seconds.
+        // It is taken away again the moment the tunnel is up; see demote().
+        if (intent?.getBooleanExtra(EXTRA_TRANSIENT_FOREGROUND, false) == true && tunnel == null) {
+            promote(FilterNotifications.starting(this))
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 scope.launch {
@@ -212,7 +207,9 @@ class MalachiVpnService : VpnService() {
         if (next.isPaused()) {
             cancelRetry()
             stopTunnel()
-            showNotification(FilterNotifications.paused(this, timeLabel(next.pausedUntilMs)))
+            // The one moment we do need to be a foreground service: there is no tunnel for the
+            // platform to hold on to, and the resume has to survive the next quarter of an hour.
+            promote(FilterNotifications.paused(this, timeLabel(next.pausedUntilMs)))
             // Nothing else would wake us: the settings flow has no reason to emit again just
             // because a moment in the future has arrived.
             resumeJob = scope.launch {
@@ -270,7 +267,8 @@ class MalachiVpnService : VpnService() {
         retryAttempt = 0
         QueryLog.reset()
         VpnStatus.up(upstreamLabel(), privateDnsActive, privateDnsHost)
-        showNotification(FilterNotifications.running(this, 0, 0))
+        demote()
+        FilterNotifications.cancelProblem(this)
         DebugLog.i(TAG, "tunnel up; upstream=${upstreamLabel()} scope=${settings.scopeMode}")
 
         // A dedicated thread rather than a coroutine: the read is a blocking syscall that only
@@ -456,6 +454,8 @@ class MalachiVpnService : VpnService() {
         val packageName = if (attributionNeeded) ownerPackage(udp) else null
         val verdict = app.filterRepository.decide(question.name, packageName)
         QueryLog.record(question.name, packageName, verdict)
+        // Counts only, never a domain: this is the half that survives a restart.
+        app.statsStore.record(packageName, verdict.blocked)
 
         if (verdict.blocked) {
             // Answered inline: no network, no thread, no wait.
@@ -647,18 +647,6 @@ class MalachiVpnService : VpnService() {
             .onFailure { DebugLog.w(TAG, "cannot watch the underlying network", it) }
     }
 
-    private fun registerScreenReceiver() {
-        screenOn.value = runCatching {
-            getSystemService(PowerManager::class.java).isInteractive
-        }.getOrDefault(true)
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_SCREEN_OFF)
-        }
-        runCatching { registerReceiver(screenReceiver, filter) }
-            .onFailure { DebugLog.w(TAG, "cannot watch the screen state", it) }
-    }
-
     private fun adoptNetwork(network: Network, linkProperties: LinkProperties) {
         networkDnsServers = linkProperties.dnsServers.orEmpty()
         privateDnsActive = linkProperties.isPrivateDnsActive
@@ -706,42 +694,13 @@ class MalachiVpnService : VpnService() {
     }
 
     /**
-     * Keeps the ongoing notification's counters roughly current.
-     *
-     * Gated on the screen: with the phone in a pocket this coroutine is parked on a flow that
-     * will not emit until the screen comes back, so the service contributes no timer and no
-     * wakeup at all. It used to tick every ten seconds forever — about eight and a half thousand
-     * needless wakeups a day, each one two IPCs, to redraw a number nobody was looking at.
+     * Drops out of the foreground once the tunnel is up, taking the notification with it. The
+     * platform's binding to the active VPN is what keeps the process alive from here.
      */
-    private suspend fun notificationLoop() {
-        var shownTotal = -1L
-        while (true) {
-            screenOn.first { it }
-            if (tunnel != null) {
-                val total = QueryLog.total
-                if (total != shownTotal) {
-                    shownTotal = total
-                    showNotification(FilterNotifications.running(this, QueryLog.blocked, total))
-                }
-            }
-            delay(NOTIFICATION_REFRESH_MS)
-        }
-    }
-
-    /**
-     * Updating the notification is a plain notify once the service is already foreground;
-     * startForeground is only for the first one. The two are not interchangeable — repeating
-     * startForeground re-runs the whole foreground-service bookkeeping in the system server.
-     */
-    private fun showNotification(notification: android.app.Notification) {
-        if (!foregroundStarted) {
-            promote(notification)
-            return
-        }
-        runCatching {
-            androidx.core.app.NotificationManagerCompat.from(this)
-                .notify(FilterNotifications.NOTIFICATION_ID, notification)
-        }
+    private fun demote() {
+        if (!foregroundStarted) return
+        runCatching { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) }
+        foregroundStarted = false
     }
 
     private fun promote(notification: android.app.Notification) {
@@ -777,7 +736,6 @@ class MalachiVpnService : VpnService() {
         retryAttempt++
         DebugLog.w(TAG, "filter not running: $message; retrying in ${wait / 1000}s")
         VpnStatus.down(problem, message, retrying = true)
-        showNotification(FilterNotifications.problem(this, message))
         retryJob = scope.launch {
             delay(wait)
             val current = app.settingsStore.current()
@@ -794,7 +752,8 @@ class MalachiVpnService : VpnService() {
     private fun reportProblem(problem: TunnelProblem, message: String) {
         DebugLog.w(TAG, "filter not running: $message")
         VpnStatus.down(problem, message)
-        showNotification(FilterNotifications.problem(this, message))
+        // Only for the states a person has to resolve; a retryable hiccup stays quiet.
+        FilterNotifications.postProblem(this, message)
     }
 
     private fun stopTunnel() {
@@ -809,6 +768,8 @@ class MalachiVpnService : VpnService() {
         output = null
         runCatching { pfd.close() }
         closePooledSockets()
+        // The flush cadence is a lookup count, so a tunnel that stops has to push what is left.
+        runCatching { app.statsStore.flush() }
         VpnStatus.down()
     }
 
@@ -830,7 +791,6 @@ class MalachiVpnService : VpnService() {
         stopTunnel()
         cancelRetry()
         runCatching { cm.unregisterNetworkCallback(networkCallback) }
-        runCatching { unregisterReceiver(screenReceiver) }
         scope.cancel()
         forwarders.shutdownNow()
         VpnStatus.down()
@@ -844,6 +804,9 @@ class MalachiVpnService : VpnService() {
         const val ACTION_STOP = "dev.malachi.net.STOP"
         const val ACTION_PAUSE = "dev.malachi.net.PAUSE"
         const val ACTION_RESUME = "dev.malachi.net.RESUME"
+
+        /** Set when the caller could only start us as a foreground service; see [demote]. */
+        const val EXTRA_TRANSIENT_FOREGROUND = "transient_foreground"
 
         /** How long the notification's pause action suspends filtering. */
         const val PAUSE_MILLIS = 15 * 60 * 1000L

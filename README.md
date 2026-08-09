@@ -21,10 +21,10 @@ QR always resolves to the newest release, so it never has to be reprinted.
 Your phone will warn you that the file comes from outside the Play Store, and Play Protect may
 offer to scan it first — that is normal for any app installed this way.
 
-> **Alpha software.** This is the first release, offered as-is. It filters DNS and nothing
-> else, so the worst it can do to a misbehaving app is make one hostname unreachable — and the
-> notification it runs under stops or pauses it in one tap if you need to rule it out. Read
-> *What it can't block* below before relying on it.
+> **Alpha software.** Offered as-is. It filters DNS and nothing else, so the worst it can do to
+> a misbehaving app is make one hostname unreachable, and the switch on the home screen turns it
+> off in one tap if you need to rule it out. Read *What it can't block* below before relying on
+> it.
 
 ## What it does
 
@@ -40,6 +40,11 @@ everywhere, but leave my banking app alone"), or filter nothing except a few app
 this one game filtered"). It is one switch read from either end rather than two features that
 can disagree. Apps out of scope are excluded by the platform when the tunnel is built, so their
 lookups never reach Malachi at all.
+
+**Statistics that go back.** Today, this week, this month and all time: what proportion of
+lookups was refused, which apps generate the most refusals, and which apps have the highest
+*rate* of them — a different question, and usually a different app. Only counts are kept, never
+a domain.
 
 **A query log you can act on.** Every lookup is shown with the app that made it and the reason
 for the verdict — which list blocked it, or which of your own rules. Any line is one tap from
@@ -78,9 +83,22 @@ light over nothing.
 
 ## Privacy
 
-The query log is held in memory and nowhere else — no file, no database, nothing that survives
-the filter stopping. Nothing is transmitted anywhere: the only outbound requests Malachi makes
-are the blocklists it downloads, its own `version.json`, and its own APK.
+**No domain is ever written down.** The query log — the one place a hostname appears — is held
+in memory and nowhere else, and it is gone when the filter stops. The statistics do survive
+restarts, but they are arithmetic: how many lookups an app made on a given day and how many were
+refused. You cannot reconstruct a single visited site from them, and "Reset statistics" clears
+them for good.
+
+Nothing is transmitted anywhere. The only outbound requests Malachi makes are the blocklists it
+downloads, its own `version.json`, and its own APK.
+
+**No permanent notification.** Android shows a VPN key in the status bar while the tunnel is up,
+which is the honest indicator; a second one of our own would only be noise. A notification
+appears while filtering is paused, and if the filter stops and needs you.
+
+**It does not grow on disk.** Every file has a bound: the blocklists are pruned to what you
+subscribe to, the debug log is capped at 128 KB, the statistics keep 90 days of detail, and a
+downloaded update is deleted once installed.
 
 ## Building
 

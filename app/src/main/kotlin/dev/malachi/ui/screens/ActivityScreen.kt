@@ -43,6 +43,7 @@ import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.AppIcon
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiTopBar
+import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 
@@ -56,15 +57,21 @@ private enum class ActivityFilter { ALL, BLOCKED, ALLOWED }
  * about. An app misbehaving, a tracker no list has caught, a site broken by an over-eager rule —
  * all three look identical from outside, and all three are one tap from a fix here.
  *
- * Nothing on this screen is stored anywhere. The records live in the tunnel's process and are
- * gone when it stops, which is what makes it acceptable for an app to keep a list of the
- * domains its owner's phone has been visiting.
+ * The screen has two halves with deliberately different memories. The **live log** is a window
+ * onto the last few hundred lookups: it names domains, it lives in the tunnel's process, and it
+ * is gone when the filter stops — which is what makes it acceptable for an app to hold a list of
+ * the sites its owner's phone has been visiting. The **statistics** above it survive restarts
+ * but are only arithmetic: counts per app per day, never a domain, so nothing about where
+ * somebody has been can be reconstructed from what is written down.
  */
 @Composable
 fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit) {
     val log by vm.queryLog.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
+
+    // History is read when the screen opens; nothing publishes it per lookup.
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.refreshStats() }
 
     var filter by remember { mutableStateOf(ActivityFilter.ALL) }
     var query by remember { mutableStateOf("") }
@@ -95,6 +102,15 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit) {
             contentPadding = PaddingValues(spacing.screen, 0.dp, spacing.screen, spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
+            item { SectionHeader(stringResource(R.string.stats_section_title)) }
+            item { StatsPanel(vm) }
+            item {
+                SectionHeader(
+                    title = stringResource(R.string.activity_live_title),
+                    supporting = stringResource(R.string.activity_live_hint),
+                )
+            }
+
             if (!settings.queryLogEnabled) {
                 item {
                     MalachiCard(color = MaterialTheme.colorScheme.secondaryContainer) {

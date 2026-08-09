@@ -36,6 +36,12 @@ tasks.register<JacocoReport>("jacocoAggregatedReport") {
                         "dev/malachi/data/DomainInput*",
                         "dev/malachi/lists/BlocklistCatalog*",
                         "dev/malachi/filter/QueryLog*",
+                        "dev/malachi/stats/StatsData*",
+                        "dev/malachi/stats/StatsWindow*",
+                        "dev/malachi/stats/Counts*",
+                        "dev/malachi/stats/DayStats*",
+                        "dev/malachi/stats/AppStat*",
+                        "dev/malachi/stats/WindowStats*",
                         "dev/malachi/update/UpdateInfo*",
                     )
                 }

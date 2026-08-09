@@ -55,6 +55,13 @@ internal object LogFormat {
 object DebugLog {
     private const val MAX_ENTRIES = 500
     private const val MAX_FILE_BYTES = 128 * 1024
+    private const val TRIM_TO_BYTES = 64 * 1024
+
+    /**
+     * A single entry's ceiling. One pathological stack trace could otherwise be most of the log,
+     * pushing out every line of context that made it explicable.
+     */
+    private const val MAX_ENTRY_CHARS = 4_000
     private const val FILE_NAME = "debug-log.txt"
 
     private val mutable = MutableStateFlow<List<LogEntry>>(emptyList())
@@ -87,7 +94,8 @@ object DebugLog {
             'W' -> Log.w(tag, message, t)
             else -> Log.i(tag, message)
         }
-        val body = if (t != null) "$message\n${Log.getStackTraceString(t)}" else message
+        val body = (if (t != null) "$message\n${Log.getStackTraceString(t)}" else message)
+            .let { if (it.length > MAX_ENTRY_CHARS) it.take(MAX_ENTRY_CHARS) + "… (truncated)" else it }
         val entry = LogEntry(System.currentTimeMillis(), level, tag, body)
         mutable.value = LogFormat.cap(mutable.value, entry, MAX_ENTRIES)
         val f = file ?: return
@@ -103,12 +111,26 @@ object DebugLog {
         io.execute { runCatching { f.writeText("") } }
     }
 
+    /**
+     * Appends, then trims if the file has outgrown its cap.
+     *
+     * Trimming targets [TRIM_TO_BYTES] rather than the cap itself, which matters more than it
+     * looks: trimming back to exactly the limit means the very next line exceeds it again, and
+     * the file is rewritten in full on every subsequent append for the rest of the install.
+     * Dropping to half leaves headroom for thousands of lines between rewrites.
+     *
+     * The line count alone was not a cap at all — five hundred stack traces are megabytes — so
+     * the bytes are what decide, and the count is only a ceiling on how much is kept.
+     */
     private fun appendCapped(f: File, entry: LogEntry) {
         f.appendText(LogFormat.serialize(entry) + "\n")
-        if (f.length() > MAX_FILE_BYTES) {
-            val kept = f.readLines().takeLast(MAX_ENTRIES)
-            f.writeText(kept.joinToString("\n", postfix = "\n"))
+        if (f.length() <= MAX_FILE_BYTES) return
+        val kept = ArrayDeque(f.readLines().takeLast(MAX_ENTRIES))
+        var bytes = kept.sumOf { it.length + 1L }
+        while (kept.size > 1 && bytes > TRIM_TO_BYTES) {
+            bytes -= kept.removeFirst().length + 1L
         }
+        f.writeText(kept.joinToString("\n", postfix = "\n"))
     }
 
     private fun readTail(f: File): List<LogEntry> {

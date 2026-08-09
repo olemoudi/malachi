@@ -7,26 +7,34 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import dev.malachi.MainActivity
 import dev.malachi.R
 
 /**
- * The ongoing notification the filter runs under.
+ * Malachi posts a notification only when there is something to say.
  *
- * A foreground service is the price of a process that must survive being backgrounded, and its
- * notification is the only continuous surface Malachi has. It is used for exactly what belongs
- * there: whether filtering is on, how much it has done, and one tap to stop or pause it — so a
- * user who suspects Malachi of breaking something can rule it out without hunting through
- * settings. Low importance and silent: an always-present notification that ever makes a sound
- * is one the user will turn off, taking the service's reliability with it.
+ * There used to be a permanent one counting blocked lookups. It was removed on purpose: Android
+ * already shows a VPN key in the status bar for as long as the tunnel is up, so a second
+ * always-present indicator said nothing the system wasn't saying, and it kept a counter live —
+ * and the phone awake to redraw it — for a number nobody reads.
+ *
+ * What is left is genuinely transient. A pause has to be visible and reversible, and it is also
+ * what keeps the service alive across those fifteen minutes with no tunnel for the platform to
+ * hold. A filter that has stopped and cannot restart itself has to say so, or the app is lying
+ * by omission — and that one is dismissible, because it is news, not a status.
  */
 object FilterNotifications {
 
     const val CHANNEL = "malachi_filter"
+
+    /** The foreground-service slot, used only while filtering is paused. */
     const val NOTIFICATION_ID = 41
 
+    /** A separate slot so dismissing a problem can't disturb the pause notification. */
+    private const val PROBLEM_ID = 42
+
     fun ensureChannel(context: Context) {
-        val nm = context.getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL,
             context.getString(R.string.filter_channel_name),
@@ -35,38 +43,43 @@ object FilterNotifications {
             description = context.getString(R.string.filter_channel_description)
             setShowBadge(false)
         }
-        nm.createNotificationChannel(channel)
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    /** The running notification. [blocked] and [total] are counts since the filter started. */
-    fun running(context: Context, blocked: Long, total: Long): Notification =
+    /**
+     * Shown for the moment it takes to re-establish the tunnel after the process was killed.
+     * Android will not let a background caller start a service without one, so this exists to
+     * be paid and immediately withdrawn rather than to be read.
+     */
+    fun starting(context: Context): Notification =
         base(context)
-            .setContentTitle(context.getString(R.string.filter_notification_active))
-            .setContentText(
-                if (total == 0L) {
-                    context.getString(R.string.filter_notification_no_queries)
-                } else {
-                    context.getString(R.string.filter_notification_counts, blocked, total)
-                },
-            )
-            .addAction(0, context.getString(R.string.action_pause), serviceAction(context, MalachiVpnService.ACTION_PAUSE, 1))
-            .addAction(0, context.getString(R.string.action_stop), serviceAction(context, MalachiVpnService.ACTION_STOP, 2))
+            .setOngoing(true)
+            .setContentTitle(context.getString(R.string.filter_notification_starting))
             .build()
 
-    /** Shown while filtering is suspended, so the pause is never silent or unexplained. */
+    /** Shown while filtering is suspended, so a pause is never silent or unexplained. */
     fun paused(context: Context, untilLabel: String): Notification =
         base(context)
+            .setOngoing(true)
             .setContentTitle(context.getString(R.string.filter_notification_paused))
             .setContentText(context.getString(R.string.filter_notification_paused_until, untilLabel))
             .addAction(0, context.getString(R.string.action_resume), serviceAction(context, MalachiVpnService.ACTION_RESUME, 3))
             .build()
 
-    /** Shown when the tunnel could not be established; [reason] is already user-facing text. */
-    fun problem(context: Context, reason: String): Notification =
-        base(context)
+    /** The filter has stopped and needs a person. Dismissible: it is an event, not a state. */
+    fun postProblem(context: Context, reason: String) {
+        val notification = base(context)
             .setContentTitle(context.getString(R.string.filter_notification_not_running))
             .setContentText(reason)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(reason))
+            .setAutoCancel(true)
             .build()
+        runCatching { NotificationManagerCompat.from(context).notify(PROBLEM_ID, notification) }
+    }
+
+    fun cancelProblem(context: Context) {
+        runCatching { NotificationManagerCompat.from(context).cancel(PROBLEM_ID) }
+    }
 
     private fun base(context: Context) = NotificationCompat.Builder(context, CHANNEL)
         .setSmallIcon(R.drawable.ic_shield)
@@ -77,7 +90,6 @@ object FilterNotifications {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             ),
         )
-        .setOngoing(true)
         .setSilent(true)
         .setShowWhen(false)
         .setPriority(NotificationCompat.PRIORITY_LOW)

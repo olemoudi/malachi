@@ -85,6 +85,8 @@ class FilterRepository(
         try {
             val sources = BlocklistCatalog.enabled(settingsStore.current().listChoices)
             val changed = blocklistStore.refresh(sources, force)
+            // Pruning takes the whole subscribed set, never the subset just fetched.
+            blocklistStore.prune(sources)
             if (changed) reloadLists() else _listStates.value = blocklistStore.states()
         } finally {
             _refreshing.value = false
@@ -100,9 +102,14 @@ class FilterRepository(
      */
     suspend fun downloadMissingLists() {
         val sources = BlocklistCatalog.enabled(settingsStore.current().listChoices)
+        // Cheap, and the only thing that clears the files of a list that has been switched off.
+        blocklistStore.prune(sources)
         val states = blocklistStore.states()
         val missing = sources.filter { states[it.id]?.isDownloaded != true }
-        if (missing.isEmpty()) return
+        if (missing.isEmpty()) {
+            _listStates.value = states
+            return
+        }
         DebugLog.i(TAG, "downloading ${missing.size} list(s) that aren't on disk yet")
         _refreshing.value = true
         try {

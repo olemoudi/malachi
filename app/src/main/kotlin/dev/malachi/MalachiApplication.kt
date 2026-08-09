@@ -8,9 +8,13 @@ import dev.malachi.debug.DebugLog
 import dev.malachi.filter.FilterRepository
 import dev.malachi.lists.BlocklistStore
 import dev.malachi.lists.ListUpdateWorker
+import dev.malachi.net.FilterWatchdogWorker
 import dev.malachi.net.VpnController
+import dev.malachi.stats.StatsStore
+import dev.malachi.update.Updater
 import dev.malachi.update.UpdateWorker
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -32,6 +36,8 @@ class MalachiApplication : Application() {
         private set
     lateinit var filterRepository: FilterRepository
         private set
+    lateinit var statsStore: StatsStore
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -42,6 +48,9 @@ class MalachiApplication : Application() {
         appInventory = AppInventory(this)
         blocklistStore = BlocklistStore(this)
         filterRepository = FilterRepository(settingsStore, blocklistStore, scope)
+        statsStore = StatsStore(this)
+
+        pruneStorage()
 
         // A subscribed list that was never downloaded is a filter that blocks nothing while
         // saying it is on. This covers the first run and any install whose files were cleared.
@@ -58,7 +67,38 @@ class MalachiApplication : Application() {
         UpdateWorker.schedule(this)
         UpdateWorker.runIfStale(this)
 
+        // Puts the filter back if something killed the process while it should have been
+        // running. Does nothing at all in the normal case; see FilterWatchdogWorker.
+        FilterWatchdogWorker.schedule(this)
+
         observeFilterSwitch()
+    }
+
+    /**
+     * Throws away anything on disk that has outlived its purpose.
+     *
+     * This app is meant to run for months without being opened, and the failure mode of that is
+     * not a crash — it is a phone that quietly has a gigabyte less free space than it did. The
+     * standing rule is that every file Malachi writes has a bound: the blocklists are pruned
+     * against the subscribed set, the debug log and the statistics are capped by construction,
+     * and the only genuinely large file — a downloaded APK — is cleared here.
+     *
+     * The update APK normally deletes itself when the install reaches a terminal state, but a
+     * successful self-update restarts the process before that receiver runs, so roughly every
+     * update leaves forty-odd megabytes behind. A day is long enough for any install that was
+     * genuinely in flight, and the file is re-downloadable in any case.
+     */
+    private fun pruneStorage() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val apk = java.io.File(cacheDir, Updater.APK_FILE)
+                val age = System.currentTimeMillis() - apk.lastModified()
+                if (apk.exists() && age > STALE_APK_MILLIS) {
+                    DebugLog.i(TAG, "removing a stale update download (${apk.length()} bytes)")
+                    apk.delete()
+                }
+            }.onFailure { DebugLog.w(TAG, "could not prune the cache", it) }
+        }
     }
 
     /**
@@ -109,5 +149,8 @@ class MalachiApplication : Application() {
 
     private companion object {
         const val TAG = "Malachi"
+
+        /** How long a downloaded APK may sit in the cache before it is assumed abandoned. */
+        const val STALE_APK_MILLIS = 24 * 60 * 60 * 1000L
     }
 }

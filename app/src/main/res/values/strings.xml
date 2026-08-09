@@ -256,6 +256,25 @@
     <string name="status_no_consent_other_vpn">Another VPN app is running, and Android allows only one. Accepting Malachi\'s permission will replace it; if it is set as always-on, turn that off in VPN settings first.</string>
     <string name="settings_always_on_unknown">Only Android can say whether this is set. Open VPN settings to check or change it.</string>
 
+    <string name="stats_section_title">Statistics</string>
+    <string name="stats_window_today">Today</string>
+    <string name="stats_window_week">This week</string>
+    <string name="stats_window_month">This month</string>
+    <string name="stats_window_all">All time</string>
+    <string name="stats_of_lookups">%1$s blocked of %2$s lookups</string>
+    <string name="stats_none_yet">No lookups in this period yet</string>
+    <string name="stats_by_count">Most blocked</string>
+    <string name="stats_by_count_hint">The apps generating the most refused lookups.</string>
+    <string name="stats_by_rate">Highest block rate</string>
+    <string name="stats_by_rate_hint">The apps whose lookups are refused most often. Needs at least %1$d lookups in the period, so a handful of samples can\'t claim 100%%.</string>
+    <string name="stats_no_apps">Nothing to rank yet.</string>
+    <string name="stats_app_detail">%1$d blocked of %2$d</string>
+    <string name="stats_reset">Reset statistics</string>
+    <string name="activity_live_title">Live log</string>
+    <string name="activity_live_hint">The last few hundred lookups. Held in memory only, and gone when the filter stops.</string>
+
+    <string name="filter_notification_starting">Starting the filter…</string>
+
     <!-- Counts -->
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluded</item>

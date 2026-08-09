@@ -264,9 +264,30 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   hold no worker threads at all.
 
 ### Privacy constraints (non-negotiable)
-- The query log lives in memory only. No file, no database, nothing that survives the process.
+- **A domain never touches disk.** The query log lives in memory only and dies with the process.
+  The statistics persist *counts* — per app, per day — and must never gain a hostname field, a
+  "recent domains" cache, or anything else from which browsing could be reconstructed.
 - Nothing is ever sent anywhere. The only outbound requests this app makes are: the blocklists
   it downloads, `version.json`, and its own APK.
+
+### Storage rules (this app runs for months without being opened)
+- **Every file Malachi writes has a bound, enforced in code, not by habit.** Blocklists are
+  pruned against the subscribed set (`BlocklistStore.prune`, which takes the *whole* set — it
+  used to be folded into `refresh` and deleted every already-downloaded list whenever one new
+  list was fetched). The debug log is capped by bytes and trimmed to half the cap so it isn't
+  rewritten on every append. Statistics keep `RETAINED_DAYS` of detail with per-day and
+  all-time app tables capped. A downloaded APK is deleted once stale.
+- Adding anything that writes to disk means adding its bound in the same change.
+
+### Notifications
+- **There is no ongoing notification while filtering**, and adding one back is a regression.
+  Android's own VPN key is the indicator. Notifications exist only for: a pause (which is also
+  what keeps the service alive with no tunnel), a stopped filter that needs the user, and the
+  transient one the platform demands when the watchdog has to start the service from the
+  background — withdrawn immediately by `demote()`.
+- Removing the foreground service cost automatic recovery from a hard process kill: START_STICKY
+  did not bring it back in testing. `FilterWatchdogWorker` covers that, and always-on VPN covers
+  it properly, which is why the app asks for it.
 
 ### Distribution & releases
 - GitHub remote: `https://github.com/olemoudi/malachi.git`.

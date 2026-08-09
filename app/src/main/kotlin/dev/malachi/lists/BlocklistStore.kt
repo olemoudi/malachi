@@ -111,19 +111,35 @@ class BlocklistStore(private val context: Context) {
                         if (after.entries != before.entries || after.exceptions != before.exceptions) changed = true
                     }
                 }
-                // Drop the compiled form of anything no longer subscribed: a 2 MB file per list
-                // adds up, and a stale index is exactly the kind of thing that comes back to
-                // life later and blocks something nobody can explain.
-                val keep = sources.map { it.id }.toSet()
-                previous.keys.filterNot { it in keep }.forEach { id ->
-                    blockFile(id).delete()
-                    allowFile(id).delete()
-                    previous.remove(id)
-                }
                 writeStates(previous.values.toList())
                 changed
             }
         }
+
+    /**
+     * Deletes the compiled form of anything not in [keep], plus any temporary file a kill left
+     * behind. A 2 MB index per list adds up, and a stale one is exactly the sort of thing that
+     * comes back to life later and blocks something nobody can explain.
+     *
+     * Deliberately separate from [refresh], and taking the *whole* subscribed set rather than
+     * whichever subset is being fetched. It used to be folded into refresh, which meant that
+     * downloading one newly enabled list deleted the compiled indexes of every list already on
+     * disk — they were then silently re-downloaded on the next periodic refresh, so the only
+     * visible symptom was a filter that went briefly empty and a lot of wasted traffic.
+     */
+    suspend fun prune(keep: List<BlocklistSource>) = withContext(Dispatchers.IO) {
+        val wanted = keep.map { it.id }.toSet()
+        val states = states().toMutableMap()
+        states.keys.filterNot { it in wanted }.forEach { id ->
+            blockFile(id).delete()
+            allowFile(id).delete()
+            states.remove(id)
+        }
+        runCatching {
+            dir.listFiles { f -> f.name.endsWith(".tmp") }?.forEach { it.delete() }
+        }
+        writeStates(states.values.toList())
+    }
 
     private fun refreshOne(source: BlocklistSource, previous: ListState, force: Boolean): ListState {
         val compiled = blockFile(source.id).exists()

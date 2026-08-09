@@ -100,8 +100,38 @@ object VpnController {
         }.getOrDefault(false)
     }
 
-    fun start(context: Context) {
-        ContextCompat.startForegroundService(context, Intent(context, MalachiVpnService::class.java))
+    /**
+     * Starts the filter, preferring the way that costs the user nothing.
+     *
+     * A plain service start first, because `startForegroundService` is a promise to post a
+     * notification within five seconds that the system enforces with a crash — and there is no
+     * notification to post while filtering. Most callers are somewhere that is allowed: the
+     * screen the user just touched, or inside a receiver's `onReceive`.
+     *
+     * The exception is the watchdog, which by definition runs in the background and would be
+     * refused. That path falls back to a foreground start and pays for a notification that is
+     * withdrawn the moment the tunnel is up.
+     */
+    fun start(context: Context): Boolean {
+        val intent = Intent(context, MalachiVpnService::class.java)
+        runCatching {
+            context.startService(intent)
+            return true
+        }
+        // Refused because we are in the background — which happens exactly once, on the recovery
+        // path, when the watchdog finds the filter dead. The platform will only allow a start
+        // from here if we promise a notification, so we promise one and take it straight back
+        // down as soon as the tunnel is up (see MalachiVpnService.demote).
+        return runCatching {
+            ContextCompat.startForegroundService(
+                context,
+                intent.putExtra(MalachiVpnService.EXTRA_TRANSIENT_FOREGROUND, true),
+            )
+            true
+        }.getOrElse {
+            DebugLog.w(TAG, "could not start the filter service from here", it)
+            false
+        }
     }
 
     fun stop(context: Context) {
