@@ -1,0 +1,111 @@
+package dev.malachi
+
+import android.app.Application
+import dev.malachi.data.AppInventory
+import dev.malachi.data.SettingsStore
+import dev.malachi.data.ThemeStore
+import dev.malachi.debug.DebugLog
+import dev.malachi.filter.FilterRepository
+import dev.malachi.lists.BlocklistStore
+import dev.malachi.lists.ListUpdateWorker
+import dev.malachi.net.VpnController
+import dev.malachi.update.UpdateWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+
+/** Process-wide dependency container. Manual wiring — the graph is small enough to read. */
+class MalachiApplication : Application() {
+
+    val scope = CoroutineScope(SupervisorJob())
+
+    lateinit var settingsStore: SettingsStore
+        private set
+    lateinit var themeStore: ThemeStore
+        private set
+    lateinit var appInventory: AppInventory
+        private set
+    lateinit var blocklistStore: BlocklistStore
+        private set
+    lateinit var filterRepository: FilterRepository
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        DebugLog.init(this)
+
+        settingsStore = SettingsStore(this)
+        themeStore = ThemeStore(this)
+        appInventory = AppInventory(this)
+        blocklistStore = BlocklistStore(this)
+        filterRepository = FilterRepository(settingsStore, blocklistStore, scope)
+
+        // A subscribed list that was never downloaded is a filter that blocks nothing while
+        // saying it is on. This covers the first run and any install whose files were cleared.
+        scope.launch { runCatching { filterRepository.downloadMissingLists() } }
+
+        scope.launch {
+            val settings = settingsStore.current()
+            ListUpdateWorker.schedule(this@MalachiApplication, settings.listUpdateHours, settings.listUpdateWifiOnly)
+        }
+
+        // Keep the app itself current: a periodic check, plus one now for this launch.
+        UpdateWorker.schedule(this)
+        UpdateWorker.runNow(this)
+
+        observeFilterSwitch()
+    }
+
+    /**
+     * Starts and stops the tunnel service when the *intent* to filter changes.
+     *
+     * `drop(1)` skips the first emission on purpose: that one is just the stored value being
+     * read at process start, and acting on it would be a background foreground-service start —
+     * which Android refuses, and punishes. The service is started deliberately instead, by the
+     * screen the user touched or by [dev.malachi.net.BootReceiver] in a context that allows it.
+     */
+    private fun observeFilterSwitch() {
+        scope.launch {
+            settingsStore.settings
+                .map { it.filteringEnabled }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { enabled ->
+                    if (enabled) {
+                        runCatching { VpnController.start(this@MalachiApplication) }
+                            .onFailure { DebugLog.e(TAG, "could not start the filter service", it) }
+                    } else {
+                        VpnController.stop(this@MalachiApplication)
+                    }
+                }
+        }
+
+        // The refresh schedule is a setting, so it has to be re-applied when it changes rather
+        // than only at launch.
+        scope.launch {
+            settingsStore.settings
+                .map { it.listUpdateHours to it.listUpdateWifiOnly }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { (hours, wifiOnly) ->
+                    ListUpdateWorker.schedule(this@MalachiApplication, hours, wifiOnly)
+                }
+        }
+
+        // Switching a list on has to actually fetch it; nothing else would.
+        scope.launch {
+            settingsStore.settings
+                .map { it.listChoices }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { runCatching { filterRepository.downloadMissingLists() } }
+        }
+    }
+
+    private companion object {
+        const val TAG = "Malachi"
+    }
+}

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Painted behind the activity before Compose draws, so launch can't flash white. -->
+    <color name="malachi_window_bg">#EDF2F1</color>
+    <!-- Launcher icon backdrop (deep ink, kin of the dark-theme background). -->
+    <color name="ic_launcher_background">#08201E</color>
+</resources>

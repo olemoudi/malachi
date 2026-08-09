@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Malachi</string>
+
+    <!-- Common actions -->
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_close">Close</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_check">Check</string>
+    <string name="action_enable">Turn on</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_pause_15">Pause for 15 minutes</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_block">Block</string>
+    <string name="action_allow">Allow</string>
+    <string name="action_block_everywhere">Block everywhere</string>
+    <string name="action_allow_everywhere">Allow everywhere</string>
+    <string name="action_block_here">Block here</string>
+    <string name="action_allow_here">Allow here</string>
+    <string name="action_block_in_app">Block only in %1$s</string>
+    <string name="action_allow_in_app">Allow only in %1$s</string>
+    <string name="back">Back</string>
+
+    <!-- Home -->
+    <string name="state_protected">Protected</string>
+    <string name="state_protected_subtitle">Ads and trackers are being filtered</string>
+    <string name="state_off">Off</string>
+    <string name="state_off_subtitle">Nothing is being filtered</string>
+    <string name="state_starting">Starting…</string>
+    <string name="state_paused">Paused</string>
+    <string name="state_paused_until">Filtering resumes at %1$s</string>
+    <string name="state_blocked_share">of lookups blocked</string>
+    <string name="home_section_activity">Since the filter started</string>
+    <string name="home_section_manage">Manage</string>
+    <string name="home_choose_apps">Choose apps</string>
+    <string name="home_open_lists">Lists</string>
+    <string name="stat_blocked">Blocked</string>
+    <string name="stat_allowed">Allowed</string>
+    <string name="stat_on_lists">On lists</string>
+    <string name="stat_since">Counting since %1$s</string>
+
+    <!-- Navigation -->
+    <string name="nav_apps">Apps</string>
+    <string name="nav_lists">Blocklists</string>
+    <string name="nav_activity">Activity</string>
+    <string name="nav_activity_subtitle">What each app has been looking up</string>
+    <string name="nav_rules">My rules</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_settings_subtitle">Blocking, resolver, updates</string>
+
+    <!-- Filter status -->
+    <string name="status_starting">Bringing the filter up…</string>
+    <string name="status_no_consent">Malachi does not have VPN permission. Turn the filter on again to grant it.</string>
+    <string name="status_displaced">Another VPN app is running. Android allows only one at a time.</string>
+    <string name="status_no_apps_selected">No apps are selected, so nothing is being filtered.</string>
+    <string name="status_tunnel_closed">The filter stopped unexpectedly.</string>
+    <string name="warning_private_dns">Private DNS is on (%1$s), so lookups leave the phone encrypted and Malachi never sees them. Turn Private DNS off in Android settings for filtering to work.</string>
+    <string name="warning_private_dns_automatic">automatic</string>
+    <string name="warning_no_lists">No blocklist has been downloaded yet, so nothing is being blocked.</string>
+
+    <!-- Notification -->
+    <string name="filter_channel_name">Filter status</string>
+    <string name="filter_channel_description">Shows whether ad and tracker filtering is running.</string>
+    <string name="filter_notification_active">Filtering ads and trackers</string>
+    <string name="filter_notification_no_queries">No lookups yet</string>
+    <string name="filter_notification_counts">%1$d of %2$d lookups blocked</string>
+    <string name="filter_notification_paused">Filtering paused</string>
+    <string name="filter_notification_paused_until">Resumes at %1$s</string>
+    <string name="filter_notification_not_running">Filtering is not running</string>
+
+    <!-- Apps -->
+    <string name="apps_mode_title">Which apps</string>
+    <string name="apps_mode_all_except">Every app except…</string>
+    <string name="apps_mode_all_except_subtitle">Filter everything, and switch off the apps that should be left alone.</string>
+    <string name="apps_mode_only_selected">Only these apps</string>
+    <string name="apps_mode_only_selected_subtitle">Filter nothing except the apps you switch on.</string>
+    <string name="apps_list_title">Apps</string>
+    <string name="apps_list_hint_all_except">Switched off means this app\'s lookups bypass the filter entirely.</string>
+    <string name="apps_list_hint_only_selected">Switched on means this app is filtered; everything else is untouched.</string>
+    <string name="apps_search">Search apps</string>
+    <string name="apps_show_system">Show system apps</string>
+    <string name="apps_show_system_subtitle">Background services and preinstalled components, which is where trackers usually live.</string>
+    <string name="apps_loading">Reading the installed apps…</string>
+    <string name="apps_summary_all">Every app is filtered</string>
+
+    <!-- App detail -->
+    <string name="app_detail_filtered">Filter this app</string>
+    <string name="app_detail_filtered_subtitle">When off, this app\'s DNS never reaches Malachi.</string>
+    <string name="app_detail_rules_title">Rules for this app</string>
+    <string name="app_detail_rules_hint">These beat your global rules and every blocklist, for this app only.</string>
+    <string name="app_detail_seen_title">Recently looked up</string>
+    <string name="app_detail_seen_hint">What this app has actually been resolving. Tap an icon to write a rule for it.</string>
+    <string name="app_detail_seen_empty">Nothing seen from this app yet. Open it and come back.</string>
+
+    <!-- Activity / query log -->
+    <string name="activity_filter_all">All</string>
+    <string name="activity_filter_blocked">Blocked</string>
+    <string name="activity_filter_allowed">Allowed</string>
+    <string name="activity_search">Search domains</string>
+    <string name="activity_empty">Nothing yet. Lookups appear here as apps make them.</string>
+    <string name="activity_no_matches">No lookups match that.</string>
+    <string name="activity_system">System</string>
+    <string name="activity_disabled">The query log is off, so nothing is being recorded.</string>
+    <string name="verdict_blocked_by_list">Blocked by %1$s</string>
+    <string name="verdict_blocked_your_rule">Blocked by your rule</string>
+    <string name="verdict_blocked_app_rule">Blocked by an app rule</string>
+    <string name="verdict_allowed">Allowed</string>
+    <string name="verdict_allowed_your_rule">Allowed by your rule</string>
+    <string name="verdict_allowed_app_rule">Allowed by an app rule</string>
+    <string name="verdict_allowed_exception">Excepted by %1$s</string>
+
+    <!-- Rules -->
+    <string name="rules_add_title">Add a rule</string>
+    <string name="rules_add_hint">A rule covers the domain and everything under it. Paste a URL and Malachi will take the hostname out of it.</string>
+    <string name="rules_domain_label">Domain</string>
+    <string name="rules_domain_invalid">That doesn\'t look like a domain.</string>
+    <string name="rules_blocked_title">Always blocked</string>
+    <string name="rules_blocked_hint">Blocked even when no list mentions them.</string>
+    <string name="rules_blocked_empty">Nothing here yet.</string>
+    <string name="rules_allowed_title">Never blocked</string>
+    <string name="rules_allowed_hint">Allowed even when a list blocks them — this is how you fix something a list broke.</string>
+    <string name="rules_allowed_empty">Nothing here yet.</string>
+    <string name="rules_per_app_title">Per-app rules</string>
+    <string name="rules_per_app_hint">Written from an app\'s own screen; they apply to that app alone.</string>
+    <string name="rules_per_app_empty">Nothing here yet.</string>
+
+    <!-- Blocklists -->
+    <string name="lists_schedule_title">Updates</string>
+    <string name="lists_schedule_every">Refresh every</string>
+    <string name="lists_schedule_every_subtitle">Tap to cycle. Only what changed is downloaded.</string>
+    <string name="lists_schedule_hours">%1$d h</string>
+    <string name="lists_wifi_only">Wi-Fi only</string>
+    <string name="lists_wifi_only_subtitle">A full list can be tens of megabytes on the first download.</string>
+    <string name="lists_category_ads">Ads</string>
+    <string name="lists_category_ads_hint">The everyday job. Both of these are on by default.</string>
+    <string name="lists_category_privacy">Trackers</string>
+    <string name="lists_category_privacy_hint">Analytics and telemetry rather than visible advertising.</string>
+    <string name="lists_category_security">Malware and phishing</string>
+    <string name="lists_category_security_hint">Known-bad domains. Large, and updated constantly.</string>
+    <string name="lists_category_extras">Broader lists</string>
+    <string name="lists_category_extras_hint">More coverage, more chance of breaking something. Add one at a time.</string>
+    <string name="lists_entries_updated">%1$s domains · updated %2$s</string>
+    <string name="lists_pending">Waiting to download…</string>
+    <string name="lists_last_error">Last refresh failed: %1$s</string>
+    <string name="lists_about">%1$s · about %2$s domains</string>
+    <string name="list_adguard_dns">Ads and trackers, tuned for DNS blocking and deliberately conservative. The best single list to start from.</string>
+    <string name="list_adaway">Mobile ad providers, small and specific. Catches in-app ad SDKs a desktop-derived list can miss.</string>
+    <string name="list_easyprivacy">The tracking half of EasyList: analytics, beacons and telemetry.</string>
+    <string name="list_yoyo">A long-running, hand-curated list of ad and tracking servers.</string>
+    <string name="list_oisd_small">\"Block, don\'t break\" — a widely used general list that avoids anything known to cause trouble.</string>
+    <string name="list_oisd_big">The full OISD list. Much broader, and more likely to need an exception now and then.</string>
+    <string name="list_hagezi_pro">Ads, tracking, telemetry, scam and crypto-mining domains in one large list.</string>
+    <string name="list_hagezi_tif">Phishing, malware and fraud domains from threat-intelligence feeds. Very large.</string>
+    <string name="list_stevenblack">The unified hosts file: several well-known sources merged and de-duplicated.</string>
+    <string name="list_someonewhocares">A hand-maintained hosts file, curated for decades.</string>
+    <string name="list_unknown">A subscribed list.</string>
+
+    <!-- Settings: what a blocked lookup answers -->
+    <string name="settings_block_answer_title">Answer for blocked lookups</string>
+    <string name="settings_block_answer_hint">What an app is told when Malachi refuses a domain. If something behaves oddly, this is the first thing to try.</string>
+    <string name="block_answer_null">Empty address</string>
+    <string name="block_answer_null_hint">The app believes the name resolved and fails to connect. Most ad code gives up quietly. Recommended.</string>
+    <string name="block_answer_nxdomain">Name does not exist</string>
+    <string name="block_answer_nxdomain_hint">Cleaner in theory, but some apps read it as a broken network and retry in a loop.</string>
+    <string name="block_answer_refused">Refused</string>
+    <string name="block_answer_refused_hint">Unambiguous when you are debugging; some resolvers respond by trying another server.</string>
+
+    <!-- Settings: upstream resolver -->
+    <string name="settings_upstream_title">Resolver</string>
+    <string name="settings_upstream_hint">Where lookups Malachi allows are sent.</string>
+    <string name="upstream_system">Whatever the network provides</string>
+    <string name="upstream_system_hint">Follows the Wi-Fi or mobile network you are on. The safest default.</string>
+    <string name="upstream_cloudflare">Cloudflare</string>
+    <string name="upstream_google">Google</string>
+    <string name="upstream_quad9">Quad9</string>
+    <string name="upstream_adguard">AdGuard DNS</string>
+    <string name="upstream_custom">Custom</string>
+    <string name="upstream_custom_hint">Set your own resolver addresses.</string>
+    <string name="upstream_custom_label">Addresses</string>
+    <string name="upstream_custom_dialog_hint">IP addresses only, separated by commas. Host names are not accepted — resolving one would need the resolver you are configuring.</string>
+
+    <!-- Settings: bypass guard -->
+    <string name="settings_bypass_title">Apps that go around the filter</string>
+    <string name="settings_bypass_hint">An app with a resolver hard-coded into it never asks the system which one to use. Catching those means routing those addresses through Malachi, which can break their other traffic.</string>
+    <string name="bypass_off">Off</string>
+    <string name="bypass_off_hint">Only lookups that follow the system resolver. Nothing can break because of Malachi.</string>
+    <string name="bypass_system">Also this network\'s resolvers</string>
+    <string name="bypass_system_hint">Catches apps that address the router or the carrier\'s resolver directly. Recommended.</string>
+    <string name="bypass_public">Also well-known public resolvers</string>
+    <string name="bypass_public_hint">Catches apps that hard-code 8.8.8.8 and the like. Their encrypted DNS will stop working, which is the point — and occasionally the problem.</string>
+
+    <!-- Settings: the rest -->
+    <string name="settings_privacy_title">Privacy</string>
+    <string name="settings_query_log">Record the query log</string>
+    <string name="settings_query_log_hint">Kept in memory only, never written to disk, and gone when the filter stops. Counters keep working either way.</string>
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="theme_system">Follow the system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_updates_title">App updates</string>
+    <string name="settings_updates_hint">Malachi installs its own updates from GitHub Releases.</string>
+    <string name="settings_update_wifi_only">Update over Wi-Fi only</string>
+    <string name="settings_update_wifi_only_hint">Skips the download on a metered connection until Wi-Fi is available.</string>
+    <string name="settings_check_update">Check for updates</string>
+    <string name="settings_diagnostics_title">Diagnostics</string>
+    <string name="settings_debug_log">Debug log</string>
+    <string name="settings_debug_log_hint">What the tunnel, the lists and the updater have been doing.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_hint">Version %1$s</string>
+    <string name="debug_log_empty">Nothing logged yet.</string>
+
+    <!-- Updates -->
+    <string name="update_channel_name">Updates</string>
+    <string name="update_ready_title">Malachi update ready</string>
+    <string name="update_ready_text">Tap to install it.</string>
+    <string name="update_idle">Checked automatically every 12 hours</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_up_to_date">You are on the newest release</string>
+    <string name="update_downloading">Downloading %1$s…</string>
+    <string name="update_pending">Waiting for you to confirm the install</string>
+    <string name="update_failed">Last attempt failed (%1$s)</string>
+
+    <!-- About -->
+    <string name="about_version">Version %1$s (build %2$d)</string>
+    <string name="about_tagline">A DNS-level ad and tracker blocker. It runs as a local VPN that carries nothing but DNS: no traffic leaves the phone through Malachi, and nothing is sent anywhere.</string>
+    <string name="about_limits_title">What it cannot block</string>
+    <string name="about_limit_doh">Apps using encrypted DNS (DoH or DoT) of their own, unless the bypass guard is set high enough to cut them off.</string>
+    <string name="about_limit_hardcoded_ip">Content fetched from an IP address with no lookup at all.</string>
+    <string name="about_limit_in_page">Ads served from the same domain as the content around them — DNS cannot tell the two apart.</string>
+    <string name="about_limit_one_vpn">Anything, while another VPN app is running. Android allows only one.</string>
+    <string name="about_source_title">Source</string>
+    <string name="about_repository">Code and releases</string>
+
+    <!-- Counts -->
+    <plurals name="apps_summary_excluded">
+        <item quantity="one">%d app excluded</item>
+        <item quantity="other">%d apps excluded</item>
+    </plurals>
+    <plurals name="apps_summary_only">
+        <item quantity="one">Only %d app filtered</item>
+        <item quantity="other">Only %d apps filtered</item>
+    </plurals>
+    <plurals name="apps_rule_count">
+        <item quantity="one">%d rule</item>
+        <item quantity="other">%d rules</item>
+    </plurals>
+    <plurals name="lists_domains_blocked">
+        <item quantity="one">%s domain on the enabled lists</item>
+        <item quantity="other">%s domains on the enabled lists</item>
+    </plurals>
+    <plurals name="rules_count">
+        <item quantity="one">%d rule of your own</item>
+        <item quantity="other">%d rules of your own</item>
+    </plurals>
+    <plurals name="verdict_seen">
+        <item quantity="one">seen once</item>
+        <item quantity="other">seen %d times</item>
+    </plurals>
+</resources>

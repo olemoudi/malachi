@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Malachi's mark: a guardian shield with a prohibition sign inside it — protection plus refusal,
+  which is precisely what a DNS blocker does. White shield, amber sign, so the two read apart at
+  launcher size. Artwork sits inside the 66dp safe zone of the 108dp adaptive canvas.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Shield: rounded-top badge tapering to a soft point. -->
+    <path
+        android:pathData="M32,37 Q32,31 38,31 L70,31 Q76,31 76,37 L76,55 Q76,70 54,81 Q32,70 32,55 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeLineJoin="round" />
+    <!-- Prohibition sign: ring plus bar, the universal "no". -->
+    <path
+        android:pathData="M54,40 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0"
+        android:strokeColor="#FFC77D"
+        android:strokeWidth="5" />
+    <path
+        android:pathData="M45.5,48.5 L62.5,31.5"
+        android:strokeColor="#FFC77D"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+</vector>
