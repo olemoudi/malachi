@@ -13,6 +13,7 @@ import dev.malachi.net.VpnController
 import dev.malachi.stats.StatsStore
 import dev.malachi.update.Updater
 import dev.malachi.update.UpdateWorker
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,7 +25,19 @@ import kotlinx.coroutines.launch
 /** Process-wide dependency container. Manual wiring — the graph is small enough to read. */
 class MalachiApplication : Application() {
 
-    val scope = CoroutineScope(SupervisorJob())
+    /**
+     * The application-wide scope, with a handler that turns a stray exception into a log line.
+     *
+     * Without one, an uncaught exception in *any* coroutine launched here reaches the default
+     * thread handler and takes the process down — a supervisor job stops siblings being
+     * cancelled, it does not stop the crash. For a process expected to stay up for months,
+     * every background task is a chance to be wrong once, and being wrong once should not cost
+     * the whole filter.
+     */
+    val scope = CoroutineScope(
+        SupervisorJob() +
+            CoroutineExceptionHandler { _, error -> DebugLog.e(TAG, "background task failed", error) },
+    )
 
     lateinit var settingsStore: SettingsStore
         private set
@@ -70,6 +83,10 @@ class MalachiApplication : Application() {
         // Puts the filter back if something killed the process while it should have been
         // running. Does nothing at all in the normal case; see FilterWatchdogWorker.
         FilterWatchdogWorker.schedule(this)
+        // Whatever brought this process back — a worker, a broadcast, the launcher — is also
+        // the earliest moment we can notice the filter is missing, so we look now rather than
+        // waiting for the periodic check to come round.
+        scope.launch { FilterWatchdogWorker.restoreIfNeeded(this@MalachiApplication) }
 
         observeFilterSwitch()
     }

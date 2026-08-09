@@ -62,6 +62,12 @@ round trip rather than twenty megabytes.
 domain beats a less specific one, so allowing `cdn.example.com` while blocking `example.com`
 does what it looks like it does. Tomorrow's list refresh cannot overwrite a decision you made.
 
+**It comes back.** A low-memory kill, a reboot, or its own update all restore the filter without
+you opening anything; after a reboot that can take a couple of minutes, and Malachi says so
+rather than pretending otherwise. Setting it as your always-on VPN makes recovery immediate and
+is the only thing that survives a force-stop. Updates are checked every twelve hours whether or
+not you ever open the app, and a new version announces itself with a notification.
+
 **Honest about its own state.** Only one VPN can run on Android at a time, consent can be
 withdrawn, and the system's Private DNS setting sends lookups somewhere Malachi will never see
 them. All of those look identical from a settings screen — a switch that is on and a filter

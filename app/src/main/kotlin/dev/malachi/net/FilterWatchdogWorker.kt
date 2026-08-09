@@ -32,25 +32,37 @@ import java.util.concurrent.TimeUnit
 class FilterWatchdogWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val app = applicationContext as? MalachiApplication ?: return Result.success()
-        val settings = runCatching { app.settingsStore.current() }.getOrNull() ?: return Result.success()
-
-        if (!settings.isFiltering()) return Result.success()
-        if (VpnStatus.status.value.tunnelUp) return Result.success()
-        if (!VpnController.hasConsent(applicationContext)) {
-            // Nothing to be done from here; the user has to grant it in the app.
-            DebugLog.i(TAG, "watchdog: filtering is on but consent is missing")
-            return Result.success()
-        }
-
-        DebugLog.w(TAG, "watchdog: the filter should be running and isn't; restarting it")
-        VpnController.start(applicationContext)
+        restoreIfNeeded(applicationContext)
         return Result.success()
     }
 
     companion object {
         private const val TAG = "MalachiVpn"
         private const val PERIODIC = "malachi-filter-watchdog"
+
+        /**
+         * Restarts the filter if it should be running and isn't.
+         *
+         * Called both from the periodic check and from `Application.onCreate`, and the second
+         * one matters more: *anything* that revives this process — a worker, a broadcast, the
+         * user opening the app — passes through there, so recovery usually happens at the first
+         * sign of life rather than at the next half-hour boundary. The periodic job is the floor
+         * for a phone where nothing else wakes the app at all.
+         */
+        suspend fun restoreIfNeeded(context: Context) {
+            val app = context.applicationContext as? MalachiApplication ?: return
+            val settings = runCatching { app.settingsStore.current() }.getOrNull() ?: return
+
+            if (!settings.isFiltering()) return
+            if (VpnStatus.status.value.tunnelUp) return
+            if (!VpnController.hasConsent(context)) {
+                // Nothing to be done from here; the user has to grant it in the app.
+                DebugLog.i(TAG, "watchdog: filtering is on but VPN consent is missing")
+                return
+            }
+            DebugLog.w(TAG, "watchdog: the filter should be running and isn't; restarting it")
+            VpnController.start(context)
+        }
 
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<FilterWatchdogWorker>(30, TimeUnit.MINUTES).build()

@@ -64,9 +64,9 @@ object QueryLog {
     const val MAX_RECORDS = 500
 
     /** How often the snapshot may be rebuilt while a screen is watching. */
-    private const val MIN_PUBLISH_INTERVAL_MS = 500L
+    private const val MIN_PUBLISH_INTERVAL_NANOS = 500_000_000L
 
-    @Volatile private var lastPublishedMs = 0L
+    @Volatile private var lastPublishedNanos = 0L
 
     private val lock = Any()
 
@@ -133,9 +133,11 @@ object QueryLog {
         // recompositions a second on the main thread. The screen does not need to be more
         // current than the eye.
         if (_state.subscriptionCount.value == 0) return
-        val now = nowMs
-        if (now - lastPublishedMs < MIN_PUBLISH_INTERVAL_MS) return
-        lastPublishedMs = now
+        // A monotonic clock, not the wall clock: an NTP correction that steps the wall clock
+        // backwards would otherwise stop the screen updating until real time caught up.
+        val now = System.nanoTime()
+        if (now - lastPublishedNanos < MIN_PUBLISH_INTERVAL_NANOS) return
+        lastPublishedNanos = now
         publish()
     }
 

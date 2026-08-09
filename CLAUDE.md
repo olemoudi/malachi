@@ -279,6 +279,23 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   all-time app tables capped. A downloaded APK is deleted once stale.
 - Adding anything that writes to disk means adding its bound in the same change.
 
+### Recovery, as measured (not as assumed)
+
+Verified on an emulator; re-verify if the start paths change.
+
+| What happens | Does the filter come back | How |
+| --- | --- | --- |
+| `kill -9` (low-memory kill) | yes | not by START_STICKY — that was tested and does not fire. The next thing that revives the process runs `FilterWatchdogWorker.restoreIfNeeded` from `Application.onCreate`; the periodic job is the floor |
+| Reboot | yes, after up to ~3 minutes | `BootReceiver`. `BOOT_COMPLETED` is delivered in batches and is not prompt; that gap is unfiltered DNS |
+| App update | yes | `MY_PACKAGE_REPLACED`, same receiver |
+| Another VPN takes the tunnel | yes, when it lets go | `onRevoke` schedules a backoff retry |
+| Force-stop (user or vendor battery manager) | **no** | Android puts the package in the stopped state: no broadcasts, no jobs, until somebody launches the app. Nothing in an app can defeat this. Always-on VPN is the only answer, which is why the app asks |
+
+Two rules follow. Anything that starts the service must go through `VpnController.start`, which tries
+a plain start and falls back to a transient foreground one — a background caller is refused
+otherwise. And `Application.onCreate` must stay the place where recovery is noticed, because it is
+the one path every revival has in common.
+
 ### Notifications
 - **There is no ongoing notification while filtering**, and adding one back is a regression.
   Android's own VPN key is the indicator. Notifications exist only for: a pause (which is also

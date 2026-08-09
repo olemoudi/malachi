@@ -48,17 +48,19 @@ class StatsStore(context: Context) {
                 null
             } ?: StatsData(sinceEpochDay = today().toEpochDay())
 
-            synchronized(lock) {
-                // Anything already recorded while this read was in flight belongs to today and
-                // is folded in rather than dropped.
-                history = loaded.withoutDay(currentDay)
-                loaded.days.firstOrNull { it.epochDay == currentDay }?.let { existing ->
-                    todayCounts += existing.counts
-                    for ((pkg, counts) in existing.apps) {
-                        todayApps[pkg] = (todayApps[pkg] ?: Counts()) + counts
+            runCatching {
+                synchronized(lock) {
+                    // Anything already recorded while this read was in flight belongs to today
+                    // and is folded in rather than dropped.
+                    history = loaded.withoutDay(currentDay)
+                    loaded.days.firstOrNull { it.epochDay == currentDay }?.let { existing ->
+                        todayCounts += existing.counts
+                        for ((pkg, counts) in existing.apps) {
+                            todayApps[pkg] = (todayApps[pkg] ?: Counts()) + counts
+                        }
                     }
                 }
-            }
+            }.onFailure { DebugLog.w(TAG, "could not adopt the stored statistics", it) }
         }
     }
 
@@ -118,12 +120,25 @@ class StatsStore(context: Context) {
         io.execute { runCatching { file.delete() } }
     }
 
-    /** Folds the finished day into the history and starts a new one. */
+    /**
+     * Folds the finished day into the history and starts a new one.
+     *
+     * The new day is *resumed* rather than started from zero, because the day number can move
+     * backwards: a timezone change on a flight, and daylight saving twice a year, both do it.
+     * Starting fresh would have the next flush write an empty record over a day that already
+     * had counts, quietly losing them — which is the sort of bug that only shows up in
+     * October, on one phone, once.
+     */
     private fun rollOverLocked(newDay: Long) {
         history = mergedLocked().pruned(LocalDate.ofEpochDay(newDay))
         currentDay = newDay
-        todayCounts = Counts()
+        val existing = history.days.firstOrNull { it.epochDay == newDay }
+        todayCounts = existing?.counts ?: Counts()
         todayApps.clear()
+        existing?.apps?.forEach { (pkg, counts) -> todayApps[pkg] = counts }
+        // Held once, in memory, and merged back on read; leaving the copy in history too would
+        // double every number for this day.
+        if (existing != null) history = history.copy(days = history.days.filterNot { it.epochDay == newDay })
     }
 
     private fun mergedLocked(): StatsData {

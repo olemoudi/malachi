@@ -274,6 +274,9 @@
 
     <string name="filter_notification_starting">Iniciando el filtro…</string>
 
+    <string name="update_found_title">Malachi %1$s ya está disponible</string>
+    <string name="update_found_text">Se está instalando. Toca para abrir Malachi.</string>
+
     <!-- Recuentos -->
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluida</item>

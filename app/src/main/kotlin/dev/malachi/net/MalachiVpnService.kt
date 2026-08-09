@@ -32,6 +32,7 @@ import dev.malachi.filter.QueryLog
 import dev.malachi.filter.dns.DnsMessage
 import dev.malachi.filter.dns.IpPacket
 import dev.malachi.filter.dns.UdpDatagram
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,7 +84,15 @@ import java.util.concurrent.TimeUnit
  */
 class MalachiVpnService : VpnService() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * Same reasoning as the application scope: a stray exception in here would otherwise reach
+     * the default handler and kill the filter. Logged and survived instead — the settings
+     * collector in particular runs for the entire life of the tunnel.
+     */
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            CoroutineExceptionHandler { _, error -> DebugLog.e(TAG, "service task failed", error) },
+    )
 
     /**
      * Forwarding is blocking I/O with a timeout, and a burst of lookups when an app launches can
@@ -150,7 +159,7 @@ class MalachiVpnService : VpnService() {
         super.onCreate()
         app = application as MalachiApplication
         cm = getSystemService(ConnectivityManager::class.java)
-        FilterNotifications.ensureChannel(this)
+        runCatching { FilterNotifications.ensureChannel(this) }
         registerNetworkCallback()
 
         // No startForeground here, and none while filtering: once the tunnel is up the platform
@@ -432,8 +441,11 @@ class MalachiVpnService : VpnService() {
                     .onFailure { DebugLog.w(TAG, "dropped a packet we could not handle", it) }
             }
         } finally {
+            // Only if it is still ours: a tunnel that restarted while this loop was winding down
+            // has already installed its own pipe, and clearing that one would leave its reader
+            // parked in poll() with no way to be woken.
+            if (wakeWrite === wake?.get(1)) wakeWrite = null
             wake?.forEach { fd -> runCatching { Os.close(fd) } }
-            wakeWrite = null
             if (tunnel === pfd) {
                 stopTunnel()
                 scheduleRetry(TunnelProblem.FAILED, getString(R.string.status_tunnel_closed))

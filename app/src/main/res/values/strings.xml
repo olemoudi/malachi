@@ -275,6 +275,9 @@
 
     <string name="filter_notification_starting">Starting the filter…</string>
 
+    <string name="update_found_title">Malachi %1$s is available</string>
+    <string name="update_found_text">Installing it now. Tap to open Malachi.</string>
+
     <!-- Counts -->
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluded</item>

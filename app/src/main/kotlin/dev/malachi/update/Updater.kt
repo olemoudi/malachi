@@ -92,6 +92,9 @@ class Updater(private val context: Context) {
             UpdateCenter.report(UpdateUiState.UpToDate(current))
             return@withContext UpdateCheckOutcome.UP_TO_DATE
         }
+        // Announced as soon as it is found, not when it finishes: the download and install can
+        // fail, and "there is a new version" is true either way.
+        UpdateNotifications.notifyUpdateFound(context, info.versionName.ifBlank { info.versionCode.toString() })
         if (!trustedApkUrl(info.apk)) {
             DebugLog.e(TAG, "refusing an APK url outside the release host: ${info.apk}")
             UpdateCenter.report(UpdateUiState.Failed("untrusted url"))
