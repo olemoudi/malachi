@@ -4,12 +4,14 @@ import android.app.Application
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import dev.malachi.MalachiApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
@@ -37,6 +39,24 @@ class VpnServiceLifecycleTest {
         get() = ApplicationProvider.getApplicationContext<Application>() as MalachiApplication
 
     private val hasConsent: Boolean get() = VpnController.hasConsent(app)
+
+    /**
+     * Skips the tunnel cases when VPN consent is missing — unless the harness said it granted
+     * it, in which case the run is expected to exercise them and quietly skipping would be the
+     * worst outcome: a green tick over a suite that tested nothing. CI passes
+     * `-Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true`.
+     */
+    private fun requireConsent() {
+        if (hasConsent) return
+        val expected = InstrumentationRegistry.getArguments().getString("requireVpnConsent") == "true"
+        if (expected) {
+            fail(
+                "VPN consent was expected but is not granted. The harness has to run: " +
+                    "adb shell appops set dev.malachi ACTIVATE_VPN allow",
+            )
+        }
+        assumeTrue("VPN consent has not been granted to this build", false)
+    }
 
     @Before
     fun quiet() {
@@ -117,7 +137,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun theTunnelComesUpAndReportsItself() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         app.settingsStore.update { it.copy(filteringEnabled = true, pausedUntilMs = 0) }
         startService()
@@ -129,7 +149,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun stoppingJoinsTheReadLoopBeforeTheDescriptorGoes() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         app.settingsStore.update { it.copy(filteringEnabled = true, pausedUntilMs = 0) }
         startService()
@@ -147,7 +167,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun repeatedCyclesDoNotLeakDescriptors() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         // One cycle first, so anything allocated once — the pipe, the pools — is already there.
         app.settingsStore.update { it.copy(filteringEnabled = true) }
@@ -185,7 +205,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun changingARuleDoesNotTearTheTunnelDown() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         app.settingsStore.update { it.copy(filteringEnabled = true) }
         assertTrue(awaitTunnel(up = true))
@@ -202,7 +222,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun changingTheAppScopeDoesRebuildIt() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         app.settingsStore.update { it.copy(filteringEnabled = true, excludedApps = emptySet()) }
         assertTrue(awaitTunnel(up = true))
@@ -220,7 +240,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun aPauseTakesTheTunnelDownAndKeepsTheServiceAlive() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         app.settingsStore.update { it.copy(filteringEnabled = true) }
         assertTrue(awaitTunnel(up = true))
@@ -236,7 +256,7 @@ class VpnServiceLifecycleTest {
 
     @Test
     fun aPauseThatHasExpiredEndsWithTheFilterRunningAgain() = runBlocking {
-        assumeTrue("VPN consent has not been granted to this build", hasConsent)
+        requireConsent()
 
         app.settingsStore.update { it.copy(filteringEnabled = true) }
         assertTrue(awaitTunnel(up = true))

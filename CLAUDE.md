@@ -392,7 +392,11 @@ the one path every revival has in common.
   `SoakTest` is where that lives; a test that sleeps is a test nobody runs.
 - **Instrumented tests need VPN consent, which no test can grant itself:**
   `adb shell appops set dev.malachi ACTIVATE_VPN allow`. Without it the tunnel cases skip
-  themselves (`assumeTrue`) rather than fail, so a run that looks green may have exercised
-  nothing — check the skip count. They are not part of CI, which has no emulator.
+  themselves rather than fail, so a run that looks green may have exercised nothing. CI passes
+  `-Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true`, which turns that skip
+  into a failure — a grant that silently stops working must not read as a pass.
+- **They run in their own workflow (`instrumented.yml`), on an emulator, and do not gate the
+  release.** An emulator is slow and occasionally sulks, and a broken filter has to stay
+  publishable in a hurry. It reports on the commit; `release.yml` does not wait for it.
 - Avoid Android dependencies in anything testable. Logic that needs a device (the tunnel, the
   UI) stays thin and delegates to something that doesn't.

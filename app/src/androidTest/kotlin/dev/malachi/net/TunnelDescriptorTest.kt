@@ -71,25 +71,31 @@ class TunnelDescriptorTest {
     fun closingTheTunDoesNotWakeAPollWaitingOnIt() {
         // The reason the self-pipe exists at all. If closing the descriptor were enough, the
         // read loop could be stopped by closing it and the pipe would be dead weight.
+        //
+        // No timeout on the poll and no sleeping before the close: the descriptor is closed only
+        // once this thread has been *seen* inside poll, because a poll that had not started yet
+        // would return POLLNVAL on an already-closed descriptor and prove nothing at all.
         val pipe = Os.pipe()
-        val entering = CountDownLatch(1)
         val woke = CountDownLatch(1)
         val waiter = Thread {
             val fds = arrayOf(StructPollfd().apply { fd = pipe[0]; events = OsConstants.POLLIN.toShort() })
-            entering.countDown()
-            runCatching { Os.poll(fds, 4_000) }
+            runCatching { Os.poll(fds, -1) }
             woke.countDown()
         }.apply { isDaemon = true; start() }
 
-        // Wait until the thread is at the call, and then some: a poll that has not started yet
-        // would return POLLNVAL on a descriptor already closed, which proves nothing.
-        assertTrue(entering.await(5, TimeUnit.SECONDS))
-        Thread.sleep(750)
+        val deadline = System.nanoTime() + 10_000L * 1_000_000
+        while (System.nanoTime() < deadline && waiter.stackTrace.none { it.methodName == "poll" }) {
+            Thread.sleep(20)
+        }
+        assertTrue("the waiting thread never reached poll()", waiter.stackTrace.any { it.methodName == "poll" })
+
         runCatching { Os.close(pipe[0]) }
 
-        // It is still sitting there: only the timeout will release it.
-        assertTrue("poll returned as soon as the descriptor was closed", !woke.await(1_500, TimeUnit.MILLISECONDS))
-        waiter.join(6_000)
+        // Nothing else can release it: there is no timeout to expire, so if it returns at all it
+        // returned because of the close.
+        assertTrue("poll returned when its descriptor was closed", !woke.await(2, TimeUnit.SECONDS))
+        // Left parked on purpose — it is a daemon thread and there is no way to release a poll
+        // whose only descriptor is gone, which is the whole point being made.
         runCatching { Os.close(pipe[1]) }
     }
 

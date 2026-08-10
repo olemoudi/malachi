@@ -1,0 +1,79 @@
+name: Instrumented tests
+
+# The tunnel's own tests, on a real Android. They cannot run in the ordinary CI job — there is
+# no device there — and the three bugs they last caught (a leaked read loop per on/off cycle, a
+# stop that swallowed a start, a tunnel announced before anything was reading it) were all
+# invisible to a JVM test. So they get an emulator of their own.
+#
+# Deliberately a separate workflow rather than a step in `CI`: an emulator is slow and
+# occasionally sulks, and a filter that is broken must still be publishable in a hurry. This
+# reports on the commit; it does not gate the release.
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '.github/badges/**'
+      - 'README.md'
+      - 'CLAUDE.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # Without this the emulator falls back to software rendering and takes long enough to hit
+      # the job timeout.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build the app and the test APK
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+
+      - name: Run them on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            # VPN consent cannot be granted from inside a test, and without it every tunnel case
+            # skips itself — which would be a green tick over a suite that exercised nothing.
+            # Granted here, and `requireVpnConsent` below turns a skip into a failure so that a
+            # grant which silently stopped working cannot go unnoticed.
+            ./gradlew :app:installDebug :app:installDebugAndroidTest
+            adb shell appops set dev.malachi ACTIVATE_VPN allow
+            adb shell appops get dev.malachi ACTIVATE_VPN
+            ./gradlew :app:connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true
+
+      - name: Keep the report when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-report
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: ignore

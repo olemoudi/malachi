@@ -904,11 +904,6 @@ class MalachiVpnService : VpnService() {
 
     /**
      * The system took the tunnel away — another VPN was started, or the user withdrew consent.
-     * Without handling it the service would keep "running" over a dead descriptor and the app
-     * would show a filter that was quietly filtering nothing.
-     */
-    /**
-     * The system took the tunnel away — another VPN was started, or the user withdrew consent.
      *
      * Deliberately *not* calling through to `super`, whose implementation is `stopSelf()`. That
      * destroys the service, and `onDestroy` cancels the very retry scheduled two lines earlier —
@@ -920,9 +915,17 @@ class MalachiVpnService : VpnService() {
      * read loop.
      */
     override fun onRevoke() {
+        // *Which* tunnel was revoked matters. Establishing a new one revokes the old one, so a
+        // rebuild — changing the app scope, or the bypass guard — delivers this for a descriptor
+        // we have already replaced. Acting on it unconditionally meant waiting for the lock the
+        // rebuild was holding and then tearing down the tunnel that rebuild had just brought up,
+        // and scheduling a retry to build a third: a filter that flapped every time the user
+        // edited which apps it covered. Measured as two read loops alive at once.
+        val revoked = tunnel ?: return
         DebugLog.w(TAG, "VPN consent revoked or taken over by another app")
         scope.launch {
             synchronized(tunnelLock) {
+                if (tunnel !== revoked) return@launch
                 stopTunnel()
                 // Retried rather than reported: the usual cause is another VPN connecting, and
                 // that is exactly the kind of thing that stops again on its own.
