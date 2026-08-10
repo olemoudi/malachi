@@ -382,6 +382,23 @@ class MalachiVpnService : VpnService() {
             // Generous for a link that carries nothing but DNS: it lets a large DNSSEC or EDNS
             // answer through in one piece instead of forcing a TCP retry this tunnel can't serve.
             .setMtu(MTU)
+            // Lets an app that binds a socket to a *particular* network reach it, instead of
+            // being held inside a tunnel that has no route there.
+            //
+            // Without this, Android's rule is absolute: "applications cannot bypass the VPN",
+            // whatever the VPN actually routes. Android Auto has to open a socket to the head
+            // unit over the link it is plugged into, so it is refused before it starts and
+            // reports a communication error blaming "a VPN". The route table is irrelevant —
+            // ours carries two sentinel addresses and trips it exactly like one carrying
+            // everything.
+            //
+            // What it costs: an app that deliberately binds to the underlying network resolves
+            // through that network's resolver and is not filtered. That is a real hole and it is
+            // narrow — ordinary apps, and the ad SDKs inside them, ask the system resolver and
+            // land in the tun as before. The bypass guard still catches a hardcoded 8.8.8.8,
+            // because hardcoding a resolver and binding to a network are different things and
+            // trackers do the first, not the second.
+            .allowBypass()
             .addAddress(TUN_IPV4, 32)
             .addDnsServer(DNS_IPV4)
             .addRoute(DNS_IPV4, 32)

@@ -299,11 +299,20 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   hold no worker threads at all.
 
 ### Apps that a VPN breaks
-- **Android Auto refuses to start whenever any VPN is up** — "communication error 21", and its
-  own message blames the VPN without naming one. Nothing about the routes changes it; a tunnel
-  that carries two sentinel addresses trips it exactly like a full one. The only remedy is
-  `addDisallowedApplication`, so `com.google.android.projection.gearhead` is exempted once by
-  `MalachiSettings.withKnownIncompatibleAppsExempted` and the choice is then the user's.
+- **`allowBypass()` is why Android Auto works.** Without it Android's rule is absolute —
+  "applications cannot bypass the VPN" — and an app that binds a socket to a particular network
+  is refused, whatever the tunnel actually routes. Android Auto has to reach the head unit over
+  the link it is plugged into, so it fails before it starts and reports communication error 21
+  blaming "a VPN" without naming one. This was diagnosed from a user pointing out that AdGuard
+  in always-on mode never did it: the route table is not the difference, this call is.
+  What it costs is narrow and real — an app that deliberately binds to the underlying network
+  resolves through that network's resolver and is not filtered. Ordinary apps, and the ad SDKs
+  inside them, ask the system resolver and are unaffected; the bypass guard still catches a
+  hardcoded `8.8.8.8`, because hardcoding a resolver and binding to a network are different
+  things and trackers do the first.
+- **Android Auto is also exempted from the tunnel**, once, by
+  `MalachiSettings.withKnownIncompatibleAppsExempted` — belt and braces while the fix above is
+  unverified against a real car, and the choice is then the user's.
 - **A default value would not have reached anybody.** An install that already exists has its
   exclusions stored as an explicit list, so this is a one-time migration behind a flag rather
   than a change to a field's default — and it is applied once, so somebody who decides they
