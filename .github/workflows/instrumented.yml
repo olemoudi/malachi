@@ -65,8 +65,9 @@ jobs:
             ./gradlew :app:installDebug :app:installDebugAndroidTest
             adb shell appops set dev.malachi ACTIVATE_VPN allow
             adb shell appops get dev.malachi ACTIVATE_VPN
-            ./gradlew :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true
+            # One line on purpose: the action feeds this script to sh in a way that does not
+            # survive a backslash continuation, and the only symptom is `Task '\' not found`.
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true
 
       - name: Keep the report when something fails
         if: failure()
