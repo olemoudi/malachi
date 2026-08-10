@@ -40,7 +40,7 @@ class ListUpdateWorker(context: Context, params: WorkerParameters) : CoroutineWo
 
     companion object {
         private const val TAG = "MalachiLists"
-        private const val PERIODIC = "malachi-lists-periodic"
+        internal const val PERIODIC = "malachi-lists-periodic"
         private const val IMMEDIATE = "malachi-lists-now"
         private const val KEY_FORCE = "force"
         private const val MAX_RETRIES = 4

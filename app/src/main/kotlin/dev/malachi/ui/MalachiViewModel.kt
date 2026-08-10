@@ -22,6 +22,7 @@ import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.net.VpnStatus
 import dev.malachi.stats.StatsData
+import dev.malachi.stats.StatsWindow
 import dev.malachi.update.UpdateCenter
 import dev.malachi.update.UpdateWorker
 import dev.malachi.update.Updater
@@ -79,8 +80,9 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         }
     }
 
-    fun clearStats() {
-        app.statsStore.clear()
+    /** Forgets one window of statistics; see [dev.malachi.stats.StatsStore.clear]. */
+    fun clearStats(window: StatsWindow) {
+        app.statsStore.clear(window)
         refreshStats()
     }
 

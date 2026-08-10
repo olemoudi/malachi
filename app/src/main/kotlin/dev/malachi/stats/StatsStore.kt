@@ -163,16 +163,37 @@ class StatsStore(private val directory: File) {
         done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
     }
 
-    /** Forgets every counter, on disk as well as in memory. */
-    fun clear() {
+    /**
+     * Forgets the counters in [window], on disk as well as in memory.
+     *
+     * Scoped rather than all-or-nothing because the button that reaches this is one tap on a
+     * screen people scroll through, and "forget today" is almost always what they meant. The
+     * all-time totals are reduced to match, since they are carried separately from the per-day
+     * detail and would otherwise keep counting lookups the app now says it never saw.
+     */
+    fun clear(window: StatsWindow = StatsWindow.ALL) {
         synchronized(lock) {
-            history = StatsData(sinceEpochDay = today().toEpochDay())
-            setDayLocked(today().toEpochDay())
-            todayCounts = Counts()
-            todayApps.clear()
+            val today = today()
+            if (window == StatsWindow.ALL) {
+                history = StatsData(sinceEpochDay = today.toEpochDay())
+                setDayLocked(today.toEpochDay())
+                todayCounts = Counts()
+                todayApps.clear()
+            } else {
+                val remaining = mergedLocked().withoutWindow(window, today)
+                history = remaining.withoutDay(currentDay)
+                val stillToday = remaining.days.firstOrNull { it.epochDay == currentDay }
+                todayCounts = stillToday?.counts ?: Counts()
+                todayApps.clear()
+                stillToday?.apps?.forEach { (pkg, counts) -> todayApps[pkg] = counts }
+            }
             sinceLastFlush = 0
         }
-        io.execute { runCatching { file.delete() } }
+        if (window == StatsWindow.ALL) {
+            io.execute { runCatching { file.delete() } }
+        } else {
+            flush()
+        }
     }
 
     /**

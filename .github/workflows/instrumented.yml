@@ -5,11 +5,13 @@ name: Instrumented tests
 # stop that swallowed a start, a tunnel announced before anything was reading it) were all
 # invisible to a JVM test. So they get an emulator of their own.
 #
-# Deliberately a separate workflow rather than a step in `CI`: an emulator is slow and
-# occasionally sulks, and a filter that is broken must still be publishable in a hurry. This
-# reports on the commit; it does not gate the release.
+# Its own workflow so that `CI` stays fast, but `release.yml` calls it before publishing: a
+# build whose tunnel tests are red must not reach a phone that updates itself. That costs a few
+# minutes on every release and is the right trade — the alternative, which shipped once, is an
+# app that installs itself over a red run.
 
 on:
+  workflow_call:
   push:
     branches: [ main ]
     paths-ignore:
@@ -52,7 +54,12 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          # AOSP, not google_apis. Play Services on the Play image spends the first minute of
+          # every boot doing its own work, and the logcat from a failed run showed it holding
+          # locks for twenty-five and forty-two seconds at a stretch — long enough that a test
+          # waiting on a VPN to establish times out for reasons that have nothing to do with the
+          # VPN. Malachi uses nothing from GMS.
+          target: default
           arch: x86_64
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none

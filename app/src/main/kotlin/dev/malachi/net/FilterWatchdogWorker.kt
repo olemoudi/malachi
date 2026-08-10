@@ -38,7 +38,7 @@ class FilterWatchdogWorker(context: Context, params: WorkerParameters) : Corouti
 
     companion object {
         private const val TAG = "MalachiVpn"
-        private const val PERIODIC = "malachi-filter-watchdog"
+        internal const val PERIODIC = "malachi-filter-watchdog"
 
         /**
          * Restarts the filter if it should be running and isn't.

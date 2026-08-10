@@ -122,13 +122,62 @@ class StatsStoreTest {
     }
 
     @Test
+    fun `forgetting today keeps the days before it`() {
+        val store = openStore()
+        val today = LocalDate.now(zone)
+        store.record("com.example.app", wasBlocked = true, nowMs = noonOn(today.minusDays(2)))
+        store.record("com.example.app", wasBlocked = true, nowMs = noonOn(today))
+        store.record("com.example.app", wasBlocked = false, nowMs = noonOn(today))
+        store.flush()
+        store.awaitIdle()
+
+        store.clear(StatsWindow.TODAY)
+        store.awaitIdle()
+
+        val snapshot = store.snapshot()
+        assertEquals(1, snapshot.allTime.total)
+        assertEquals(0, snapshot.window(StatsWindow.TODAY, today).counts.total)
+        // And it survived the trip through the disk, rather than only the in-memory copy.
+        assertEquals(1, openStore().snapshot().allTime.total)
+    }
+
+    @Test
+    fun `forgetting this week leaves last month alone`() {
+        val store = openStore()
+        val today = LocalDate.now(zone)
+        store.record("com.example.app", wasBlocked = true, nowMs = noonOn(today.minusDays(40)))
+        store.record("com.example.app", wasBlocked = true, nowMs = noonOn(today))
+        store.flush()
+        store.awaitIdle()
+
+        store.clear(StatsWindow.WEEK)
+        store.awaitIdle()
+
+        assertEquals(1, store.snapshot().allTime.total)
+        assertEquals(0, store.snapshot().window(StatsWindow.TODAY, today).counts.total)
+    }
+
+    @Test
+    fun `recording after forgetting today starts from zero rather than from a negative`() {
+        val store = openStore()
+        val today = LocalDate.now(zone)
+        repeat(4) { store.record("com.example.app", wasBlocked = true, nowMs = noonOn(today)) }
+        store.clear(StatsWindow.TODAY)
+        store.record("com.example.app", wasBlocked = true, nowMs = noonOn(today))
+        store.awaitIdle()
+
+        assertEquals(1, store.snapshot().window(StatsWindow.TODAY, today).counts.total)
+        assertEquals(1, store.snapshot().allTime.total)
+    }
+
+    @Test
     fun `clearing forgets the file as well as the memory`() {
         val store = openStore()
         repeat(3) { store.record("com.example.app", wasBlocked = true) }
         store.flush()
         store.awaitIdle()
 
-        store.clear()
+        store.clear(StatsWindow.ALL)
         store.awaitIdle()
 
         assertEquals(0, store.snapshot().allTime.total)

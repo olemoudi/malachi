@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.malachi.MalachiApplication
+import dev.malachi.lists.BlocklistCatalog
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -60,8 +61,28 @@ class VpnServiceLifecycleTest {
 
     @Before
     fun quiet() {
-        runBlocking { app.settingsStore.update { it.copy(filteringEnabled = false, pausedUntilMs = 0) } }
-        awaitTunnel(up = false)
+        runBlocking {
+            app.settingsStore.update {
+                it.copy(
+                    filteringEnabled = false,
+                    pausedUntilMs = 0,
+                    // No lists. A fresh install fetches twenty megabytes of them in the
+                    // background, and an emulator busy doing that makes every wait below a
+                    // coin toss. The tunnel does not need a single rule to establish, which is
+                    // the only thing these tests are about.
+                    listChoices = BlocklistCatalog.sources.associate { source -> source.id to false },
+                )
+            }
+        }
+        // Asserted, not hoped for. A test that inherits a tunnel somebody else left up fails
+        // somewhere in the middle and blames the wrong thing; this fails at the door and says so.
+        // Generous: the app downloads its blocklists in the background on a fresh install, and
+        // an emulator busy doing that takes its time about everything else.
+        assertTrue("started with a tunnel left up by an earlier test", awaitTunnel(up = false, timeoutMs = 60_000))
+        assertTrue(
+            "started with a read loop left running by an earlier test",
+            awaitReaders(0, timeoutMs = 30_000).isEmpty(),
+        )
     }
 
     @After

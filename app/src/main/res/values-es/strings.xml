@@ -269,6 +269,24 @@
     <string name="stats_no_apps">Todavía no hay nada que clasificar.</string>
     <string name="stats_app_detail">%1$d bloqueadas de %2$d</string>
     <string name="stats_reset">Reiniciar estadísticas</string>
+    <string name="stats_since">Contando desde el %1$s</string>
+    <string name="stats_trend_title">Día a día</string>
+    <string name="stats_trend_hint">Consultas rechazadas cada día. Un hueco es un día en que el filtro no vio nada.</string>
+    <string name="stats_trend_busiest">Día con más actividad: %1$s, %2$s bloqueadas</string>
+    <string name="stats_delta_more">%1$d%% más consultas que %2$s</string>
+    <string name="stats_delta_fewer">%1$d%% menos consultas que %2$s</string>
+    <string name="stats_delta_same">Más o menos igual que %1$s</string>
+    <string name="stats_delta_new">No hay nada registrado de %1$s con lo que comparar</string>
+    <string name="stats_period_yesterday">ayer</string>
+    <string name="stats_period_last_week">la semana pasada</string>
+    <string name="stats_period_last_month">el mes pasado</string>
+    <string name="stats_reset_title">Restablecer estadísticas</string>
+    <string name="stats_reset_message">¿Qué contadores quieres olvidar? No se puede deshacer, y los totales históricos se reducen en consecuencia.</string>
+    <string name="stats_reset_scope_today">Hoy</string>
+    <string name="stats_reset_scope_week">Esta semana</string>
+    <string name="stats_reset_scope_month">Este mes</string>
+    <string name="stats_reset_scope_all">Todo</string>
+    <string name="stats_apps_seen">%1$d apps han consultado algo</string>
     <string name="activity_live_title">Registro en vivo</string>
     <string name="activity_live_hint">Las últimas cientos de consultas. Solo en memoria, y desaparecen al detener el filtro.</string>
 

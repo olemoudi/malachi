@@ -395,8 +395,15 @@ the one path every revival has in common.
   themselves rather than fail, so a run that looks green may have exercised nothing. CI passes
   `-Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true`, which turns that skip
   into a failure — a grant that silently stops working must not read as a pass.
-- **They run in their own workflow (`instrumented.yml`), on an emulator, and do not gate the
-  release.** An emulator is slow and occasionally sulks, and a broken filter has to stay
-  publishable in a hurry. It reports on the commit; `release.yml` does not wait for it.
+- **They run in their own workflow (`instrumented.yml`), on an emulator, and `release.yml`
+  calls it before publishing.** They did not gate the release once, and a build whose tunnel
+  tests were red installed itself onto a phone that updates automatically. A few minutes on
+  every release is the cheaper mistake.
+- **The instrumented fixture turns the blocklists off.** A fresh install fetches twenty
+  megabytes of them in the background and an emulator busy doing that makes every timing
+  assertion a coin toss; the tunnel needs no rule at all to establish.
+- **The image is AOSP (`target: default`), not `google_apis`.** Play Services holds locks for
+  twenty-five and forty-two seconds at a stretch on a freshly booted Play image, which is long
+  enough to time out a test that is waiting on a VPN. Malachi uses nothing from GMS.
 - Avoid Android dependencies in anything testable. Logic that needs a device (the tunnel, the
   UI) stays thin and delegates to something that doesn't.

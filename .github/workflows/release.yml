@@ -9,7 +9,13 @@ permissions:
   contents: write
 
 jobs:
+  # The gate. A release installs itself onto phones that never asked, so a build whose tunnel
+  # tests are red must not get that far — it did once, and the owner's phone updated to it.
+  instrumented:
+    uses: ./.github/workflows/instrumented.yml
+
   build-and-release:
+    needs: instrumented
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

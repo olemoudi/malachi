@@ -270,6 +270,24 @@
     <string name="stats_no_apps">Nothing to rank yet.</string>
     <string name="stats_app_detail">%1$d blocked of %2$d</string>
     <string name="stats_reset">Reset statistics</string>
+    <string name="stats_since">Counting since %1$s</string>
+    <string name="stats_trend_title">Day by day</string>
+    <string name="stats_trend_hint">Lookups refused each day. A gap is a day the filter saw nothing.</string>
+    <string name="stats_trend_busiest">Busiest day: %1$s, %2$s blocked</string>
+    <string name="stats_delta_more">%1$d%% more lookups than %2$s</string>
+    <string name="stats_delta_fewer">%1$d%% fewer lookups than %2$s</string>
+    <string name="stats_delta_same">About the same as %1$s</string>
+    <string name="stats_delta_new">Nothing recorded for %1$s to compare against</string>
+    <string name="stats_period_yesterday">yesterday</string>
+    <string name="stats_period_last_week">last week</string>
+    <string name="stats_period_last_month">last month</string>
+    <string name="stats_reset_title">Reset statistics</string>
+    <string name="stats_reset_message">Which counters should be forgotten? This cannot be undone, and the all-time totals are reduced to match.</string>
+    <string name="stats_reset_scope_today">Today</string>
+    <string name="stats_reset_scope_week">This week</string>
+    <string name="stats_reset_scope_month">This month</string>
+    <string name="stats_reset_scope_all">Everything</string>
+    <string name="stats_apps_seen">%1$d apps looked something up</string>
     <string name="activity_live_title">Live log</string>
     <string name="activity_live_hint">The last few hundred lookups. Held in memory only, and gone when the filter stops.</string>
 

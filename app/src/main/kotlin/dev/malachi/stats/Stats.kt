@@ -102,6 +102,89 @@ data class StatsData(
     }
 
     /**
+     * The window immediately before [window], the same length, for a "…than last week" line.
+     *
+     * Only meaningful for the calendar windows: [StatsWindow.ALL] has nothing before it, and its
+     * total includes days whose detail has been pruned, so a comparison would be arithmetic on
+     * numbers of different kinds. Null says so rather than inventing one.
+     */
+    fun previousWindow(window: StatsWindow, today: LocalDate): WindowStats? {
+        if (window == StatsWindow.ALL) return null
+        val from = startOf(window, today)
+        val previousFrom = when (window) {
+            StatsWindow.TODAY -> from.minusDays(1)
+            StatsWindow.WEEK -> from.minusWeeks(1)
+            StatsWindow.MONTH -> from.minusMonths(1)
+            StatsWindow.ALL -> return null
+        }
+        // The day before this window began is the last day of the one before it, so the two
+        // never overlap even when a month is shorter than the one before it.
+        return between(previousFrom, from.minusDays(1))
+    }
+
+    /**
+     * Every day from [from] to [to], with the days nothing was recorded present and zero.
+     *
+     * The gaps matter: a chart drawn from only the days that have entries silently closes up the
+     * days the filter was off, which is exactly the shape somebody is looking for when they ask
+     * why yesterday looks strange.
+     */
+    fun dailySeries(from: LocalDate, to: LocalDate): List<DayStats> {
+        val byDay = days.associateBy { it.epochDay }
+        return generateSequence(from) { if (it < to) it.plusDays(1) else null }
+            .map { date -> byDay[date.toEpochDay()] ?: DayStats(date.toEpochDay()) }
+            .toList()
+    }
+
+    /** The totals over a closed range of days, both ends included. */
+    fun between(from: LocalDate, to: LocalDate): WindowStats {
+        val included = days.filter { it.epochDay >= from.toEpochDay() && it.epochDay <= to.toEpochDay() }
+        val apps = HashMap<String, Counts>()
+        var counts = Counts()
+        for (day in included) {
+            counts += day.counts
+            for ((pkg, appCounts) in day.apps) apps[pkg] = (apps[pkg] ?: Counts()) + appCounts
+        }
+        return WindowStats(counts, apps.map { AppStat(it.key, it.value) })
+    }
+
+    /**
+     * Everything except the days in [window], with the all-time totals reduced to match.
+     *
+     * This is "reset today" and its siblings. The all-time counters are carried separately from
+     * the per-day detail rather than summed from it, so forgetting a day means subtracting it
+     * from them explicitly — otherwise clearing this week would leave a percentage computed from
+     * lookups the app now says it never saw.
+     */
+    fun withoutWindow(window: StatsWindow, today: LocalDate): StatsData {
+        if (window == StatsWindow.ALL) return StatsData(sinceEpochDay = today.toEpochDay())
+        val from = startOf(window, today).toEpochDay()
+        val dropped = days.filter { it.epochDay >= from }
+        if (dropped.isEmpty()) return this
+
+        var removed = Counts()
+        val remainingApps = HashMap(allTimeApps)
+        for (day in dropped) {
+            removed += day.counts
+            for ((pkg, counts) in day.apps) {
+                val left = remainingApps[pkg] ?: Counts()
+                remainingApps[pkg] = Counts(
+                    (left.blocked - counts.blocked).coerceAtLeast(0),
+                    (left.total - counts.total).coerceAtLeast(0),
+                )
+            }
+        }
+        return copy(
+            days = days.filterNot { it.epochDay >= from },
+            allTime = Counts(
+                (allTime.blocked - removed.blocked).coerceAtLeast(0),
+                (allTime.total - removed.total).coerceAtLeast(0),
+            ),
+            allTimeApps = remainingApps.filterValues { it.total > 0 },
+        )
+    }
+
+    /**
      * Drops detail that has aged out and trims the per-app tables.
      *
      * This is the whole answer to "does it still fit on the phone in a year": the file cannot
@@ -133,6 +216,14 @@ data class StatsData(
         const val RETAINED_DAYS = 90L
         const val MAX_APPS_PER_DAY = 40
         const val MAX_ALL_TIME_APPS = 200
+
+        /** How many days of history the chart shows for each window. */
+        fun chartDays(window: StatsWindow): Long = when (window) {
+            StatsWindow.TODAY -> 7
+            StatsWindow.WEEK -> 7
+            StatsWindow.MONTH -> 30
+            StatsWindow.ALL -> RETAINED_DAYS
+        }
 
         /** Calendar-based, because "this week" means the week you are in, not the last 7 days. */
         fun startOf(window: StatsWindow, today: LocalDate): LocalDate = when (window) {
