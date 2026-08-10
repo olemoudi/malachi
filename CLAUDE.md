@@ -362,6 +362,11 @@ the one path every revival has in common.
   updates.
 - **Bumping a version:** raise `versionCode` (and `versionName`) in `app/build.gradle.kts`,
   then push a `v*` tag. CI derives `version.json` from `versionCode`.
+- **Never tag the coverage-badge commit.** CI pushes `chore: update coverage badge [skip ci]`
+  after every green run, and GitHub honours `[skip ci]` for *every* event on that commit — so a
+  tag that lands on it produces no Release run at all, silently: no failure, no run, nothing to
+  look at. Cut the tag on a commit of your own (an empty `chore: cut vX.Y.Z` will do) and check
+  that the Release workflow actually started.
 - **Never mark a release as a pre-release on GitHub**, however alpha the build is. The whole
   distribution model hangs off `…/releases/latest/download/…`, and that path skips
   pre-releases: marking one would 404 the install QR in the README *and* the `version.json`
