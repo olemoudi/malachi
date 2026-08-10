@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.net.TunnelProblem
@@ -84,9 +85,19 @@ fun HomeScreen(
     val today = remember { LocalDate.now() }
     val todayCounts = remember(stats) { stats.window(StatsWindow.TODAY, today).counts }
 
-    // The statistics live on disk and are read when somebody looks, never published per lookup.
-    // Looking is this screen appearing — and the filter coming up or going down, which is when
-    // the numbers have most likely moved since the last look.
+    // The statistics are read when somebody looks, never published per lookup — the tunnel must
+    // not pay to keep a screen that is usually closed up to date.
+    //
+    // "Looking" has to mean coming back, not just arriving. A LaunchedEffect fires when the
+    // screen is composed and never again: leaving for another app, generating a few lookups and
+    // returning takes seconds and recomposes nothing, so the card sat there showing the count
+    // from before the trip. LifecycleResumeEffect runs on every resume, and immediately if the
+    // screen is composed while already resumed.
+    LifecycleResumeEffect(Unit) {
+        vm.refreshStats()
+        onPauseOrDispose { }
+    }
+    // And when the filter comes up or goes down, which moves them while the screen is open.
     LaunchedEffect(status.tunnelUp) { vm.refreshStats() }
     val listedDomains by vm.listedDomains.collectAsStateWithLifecycle()
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()

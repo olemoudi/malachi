@@ -73,8 +73,12 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
-    // History is read when the screen opens; nothing publishes it per lookup.
-    androidx.compose.runtime.LaunchedEffect(Unit) { vm.refreshStats() }
+    // Read on every resume rather than once when the screen opens: coming back from another app
+    // is exactly when these numbers have moved and nothing has recomposed.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        vm.refreshStats()
+        onPauseOrDispose { }
+    }
 
     var filter by remember { mutableStateOf(ActivityFilter.ALL) }
     var query by remember { mutableStateOf("") }
