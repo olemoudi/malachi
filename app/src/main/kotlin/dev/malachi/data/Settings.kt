@@ -127,13 +127,13 @@ data class MalachiSettings(
     val updateWifiOnly: Boolean = false,
 
     /**
-     * Whether the one-time exemption for apps a VPN is known to break has been applied.
+     * Which migrations have been applied to this blob.
      *
-     * A flag rather than a default, because a default only reaches a fresh install: an existing
-     * one has `excludedApps` stored as an explicit list, and adding to the field's default value
-     * changes nothing for it. See [withKnownIncompatibleAppsExempted].
+     * Adding a field never needs one — every field has a default and the decoder ignores keys it
+     * does not know — but *undoing* something a past version wrote to a user's settings does,
+     * and a boolean per correction accumulates in the stored JSON forever. See [migrated].
      */
-    val incompatibleAppsExempted: Boolean = false,
+    val settingsVersion: Int = 0,
 
     /**
      * The always-on suggestion has been dismissed.
@@ -146,25 +146,23 @@ data class MalachiSettings(
     val alwaysOnTipDismissed: Boolean = false,
 ) {
     /**
-     * Exempts, once, the apps that a VPN is known to break.
+     * Brings the stored settings up to date, once per correction.
      *
-     * Android Auto refuses to start at all when it detects a VPN — "communication error 21",
-     * and its own message names the VPN as the cause. It is not fussy about *which* one, and
-     * nothing a filter does to its routes changes that, so the only thing that can help is
-     * putting Android Auto outside the tunnel entirely.
-     *
-     * Applied once and then remembered, so somebody who decides they would rather filter their
-     * car than use it can switch it back on and not have this undo them at the next launch. The
-     * list is deliberately one entry long: exempting Google Play Services would fix more things
-     * and quietly stop filtering a great deal of what this app exists to filter.
+     * **1 — the Android Auto exemption is withdrawn.** For a few hours this app put Android Auto
+     * outside the tunnel, on the theory that Android Auto cannot run alongside any VPN. That was
+     * wrong: what stopped it was this tunnel not calling `allowBypass()`, so an app could not
+     * reach a network it binds to — and Android Auto has to reach the head unit it is plugged
+     * into. With the bypass allowed it works filtered, confirmed on the car that reported it, so
+     * the exemption buys nothing and costs a filtered app. Left alone it would have sat there
+     * unexplained for the life of the install.
      */
-    fun withKnownIncompatibleAppsExempted(): MalachiSettings =
-        if (incompatibleAppsExempted) {
+    fun migrated(): MalachiSettings =
+        if (settingsVersion >= CURRENT_VERSION) {
             this
         } else {
             copy(
-                excludedApps = excludedApps + INCOMPATIBLE_WITH_A_VPN,
-                incompatibleAppsExempted = true,
+                excludedApps = excludedApps - ANDROID_AUTO,
+                settingsVersion = CURRENT_VERSION,
             )
         }
 
@@ -202,10 +200,10 @@ data class MalachiSettings(
     }
 
     companion object {
-        /** Android Auto. Its own error message tells the user to turn the VPN off. */
-        const val ANDROID_AUTO = "com.google.android.projection.gearhead"
+        /** Bump when [migrated] gains a step. */
+        const val CURRENT_VERSION = 1
 
-        /** Apps that will not work while any VPN is up, whatever that VPN actually routes. */
-        val INCOMPATIBLE_WITH_A_VPN = setOf(ANDROID_AUTO)
+        /** Android Auto — filtered like everything else; see [migrated]. */
+        const val ANDROID_AUTO = "com.google.android.projection.gearhead"
     }
 }

@@ -39,7 +39,6 @@
     <string name="home_section_manage">Manage</string>
     <string name="home_choose_apps">Choose apps</string>
     <string name="home_open_lists">Lists</string>
-    <string name="apps_breaks_with_vpn">Turned off because this app refuses to run while any VPN is on</string>
     <string name="stat_blocked">Blocked</string>
     <string name="stat_allowed">Allowed</string>
     <string name="stat_on_lists">On lists</string>

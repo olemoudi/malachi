@@ -310,9 +310,9 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   inside them, ask the system resolver and are unaffected; the bypass guard still catches a
   hardcoded `8.8.8.8`, because hardcoding a resolver and binding to a network are different
   things and trackers do the first.
-- **Android Auto is also exempted from the tunnel**, once, by
-  `MalachiSettings.withKnownIncompatibleAppsExempted` — belt and braces while the fix above is
-  unverified against a real car, and the choice is then the user's.
+- **Android Auto is filtered like everything else.** It was briefly exempted from the tunnel as
+  belt and braces; the car it was reported from then confirmed it works filtered, so
+  `MalachiSettings.migrated` withdraws that exclusion. `allowBypass()` was the whole fix.
 - **There is no list of which apps used the bypass, and there cannot be one.** An app that
   bypasses never reaches this process; that is what bypassing means. `allowBypass()` is also a
   property of the whole tunnel, not something granted per app — the only per-app lever Android
@@ -416,6 +416,12 @@ the one path every revival has in common.
   `ignoreUnknownKeys`, so additive changes need no migration. For a *non-additive* change
   (renaming or repurposing a field), migrate the old JSON in `SettingsStore.decode` — never
   break an existing install.
+- **Undoing something a past version wrote into a user's settings does need one**, and it goes in
+  `MalachiSettings.migrated` behind `settingsVersion` — not a boolean per correction, which
+  accumulates in the stored blob forever. A field default only ever reaches a fresh install.
+- **DataStore skips the write when the value is unchanged**, so a migration that returns the
+  settings untouched leaves no trace on disk. That is correct, and it means "the file did not
+  change" is not on its own evidence that the migration failed to run.
 
 ### Testing
 - Run `./gradlew test` before cutting a release; `./gradlew jacocoAggregatedReport` refreshes

@@ -65,13 +65,11 @@ class MalachiApplication : Application() {
 
         pruneStorage()
 
-        // Applied here rather than as a field default: an install that already exists has its
-        // exclusions stored as an explicit list, and a new default would never reach it. Once,
-        // and remembered — see MalachiSettings.withKnownIncompatibleAppsExempted.
+        // Corrections to what a past version wrote into the user's settings. A field default
+        // only ever reaches a fresh install; this reaches the ones that already exist.
         scope.launch {
-            runCatching {
-                settingsStore.update { it.withKnownIncompatibleAppsExempted() }
-            }.onFailure { DebugLog.w(TAG, "could not exempt the apps a VPN breaks", it) }
+            runCatching { settingsStore.update { it.migrated() } }
+                .onFailure { DebugLog.w(TAG, "could not migrate the stored settings", it) }
         }
 
         // A subscribed list that was never downloaded is a filter that blocks nothing while

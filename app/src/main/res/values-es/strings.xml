@@ -38,7 +38,6 @@
     <string name="home_section_manage">Gestionar</string>
     <string name="home_choose_apps">Elegir apps</string>
     <string name="home_open_lists">Listas</string>
-    <string name="apps_breaks_with_vpn">Desactivada porque esta app se niega a funcionar con cualquier VPN activa</string>
     <string name="stat_blocked">Bloqueadas</string>
     <string name="stat_allowed">Permitidas</string>
     <string name="stat_on_lists">En las listas</string>

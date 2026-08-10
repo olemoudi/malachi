@@ -128,57 +128,56 @@ class SettingsTest {
         assertTrue(rule.block)
     }
 
-    // ---- the apps a VPN breaks ---------------------------------------------------------
+    // ---- migrations ---------------------------------------------------------------------
 
     @Test
-    fun `android auto is exempted once, and only once`() {
-        // Android Auto refuses to start while any VPN is up and says so itself; nothing about
-        // the routes changes that, so the only thing that helps is being outside the tunnel.
+    fun `the android auto exemption is withdrawn from an install that has it`() {
+        // A past version put Android Auto outside the tunnel, believing no VPN could coexist
+        // with it. The real cause was this tunnel not allowing an app to reach a network it
+        // binds to; with that allowed, Android Auto works filtered — confirmed on the car that
+        // reported it. Left alone the exclusion would sit there unexplained forever.
+        val asShipped = MalachiSettings(
+            excludedApps = setOf(MalachiSettings.ANDROID_AUTO, "com.bank.app"),
+            settingsVersion = 0,
+        )
+        val migrated = asShipped.migrated()
+
+        assertTrue(MalachiSettings.ANDROID_AUTO !in migrated.excludedApps)
+        assertTrue("com.bank.app" in migrated.excludedApps)
+        assertEquals(MalachiSettings.CURRENT_VERSION, migrated.settingsVersion)
+    }
+
+    @Test
+    fun `a migration runs once and then leaves the settings alone`() {
+        // Somebody who decides to exclude Android Auto for their own reasons must not have it
+        // undone at every launch.
+        val migrated = MalachiSettings(excludedApps = setOf(MalachiSettings.ANDROID_AUTO)).migrated()
+        val theirOwnChoice = migrated.copy(excludedApps = setOf(MalachiSettings.ANDROID_AUTO))
+
+        assertEquals(theirOwnChoice, theirOwnChoice.migrated())
+        assertTrue(MalachiSettings.ANDROID_AUTO in theirOwnChoice.migrated().excludedApps)
+    }
+
+    @Test
+    fun `a fresh install is migrated without being changed`() {
         val fresh = MalachiSettings()
-        val exempted = fresh.withKnownIncompatibleAppsExempted()
-
-        assertTrue(MalachiSettings.ANDROID_AUTO in exempted.excludedApps)
-        assertTrue(exempted.incompatibleAppsExempted)
-        // Idempotent: running again changes nothing.
-        assertEquals(exempted, exempted.withKnownIncompatibleAppsExempted())
+        val migrated = fresh.migrated()
+        assertEquals(fresh.copy(settingsVersion = MalachiSettings.CURRENT_VERSION), migrated)
+        assertTrue(migrated.excludedApps.isEmpty())
     }
 
     @Test
-    fun `somebody who chooses to filter their car is not undone at the next launch`() {
-        // The exemption is a one-time nudge, not a policy. Having been applied and then
-        // reversed by hand, it must stay reversed.
-        val afterTheUserPutItBack = MalachiSettings()
-            .withKnownIncompatibleAppsExempted()
-            .let { it.copy(excludedApps = it.excludedApps - MalachiSettings.ANDROID_AUTO) }
-
-        assertEquals(afterTheUserPutItBack, afterTheUserPutItBack.withKnownIncompatibleAppsExempted())
-        assertTrue(MalachiSettings.ANDROID_AUTO !in afterTheUserPutItBack.excludedApps)
+    fun `migrating is idempotent`() {
+        val once = MalachiSettings(excludedApps = setOf(MalachiSettings.ANDROID_AUTO)).migrated()
+        assertEquals(once, once.migrated().migrated())
     }
 
     @Test
-    fun `exempting keeps every other exclusion the user made`() {
-        val mine = MalachiSettings(excludedApps = setOf("com.bank.app", "com.example.game"))
-        val exempted = mine.withKnownIncompatibleAppsExempted()
-
-        assertTrue("com.bank.app" in exempted.excludedApps)
-        assertTrue("com.example.game" in exempted.excludedApps)
-        assertEquals(3, exempted.excludedApps.size)
-    }
-
-    @Test
-    fun `exempting an app changes the shape of the tunnel`() {
-        // The app scope is baked into the tun at establish(), so this has to be a rebuild or the
-        // exemption would not take effect until something else happened to cause one.
-        val before = MalachiSettings()
-        val after = before.withKnownIncompatibleAppsExempted()
-        assertTrue(before.tunnelShape() != after.tunnelShape())
-    }
-
-    @Test
-    fun `the exemption list stays short on purpose`() {
-        // Google Play Services would fix more and quietly stop filtering most of what this app
-        // exists to filter. If this ever grows, it should be a decision and not a drift.
-        assertEquals(setOf(MalachiSettings.ANDROID_AUTO), MalachiSettings.INCOMPATIBLE_WITH_A_VPN)
+    fun `withdrawing the exemption rebuilds the tunnel`() {
+        // The app scope is baked into the tun at establish(), so Android Auto stays unfiltered
+        // until something causes a rebuild — and this has to be that something.
+        val before = MalachiSettings(excludedApps = setOf(MalachiSettings.ANDROID_AUTO))
+        assertTrue(before.tunnelShape() != before.migrated().tunnelShape())
     }
 
     // ---- letting an app out of the tunnel ----------------------------------------------
