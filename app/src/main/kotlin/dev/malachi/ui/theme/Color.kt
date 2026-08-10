@@ -132,11 +132,14 @@ internal val DarkRoles = Roles(
     onError = 0xFF3A0906,
     errorContainer = 0xFF6B1A14,
     onErrorContainer = 0xFFFFDAD5,
-    // Deep teal here too, not the palette's bright mint: the card is a filled block of colour
-    // with white on it, and that reads the same way in both themes.
-    heroStart = 0xFF11655D,
-    heroEnd = 0xFF0A3F3A,
-    onHero = 0xFFFFFFFF,
+    // The mint stays. What changes is what is drawn on it: white on this was 1.8:1 — the state
+    // of the filter, the figure, and the pause action all sat on a bright card in a colour that
+    // barely showed. Dark content on a light card is what a dark theme does with a light accent
+    // anyway, and it keeps the one piece of colour this app has instead of turning it into
+    // another dark rectangle.
+    heroStart = 0xFF4FD5C7,
+    heroEnd = 0xFF2BB5A7,
+    onHero = 0xFF00312D,
 )
 
 val MalachiLightColors: ColorScheme = lightColorScheme(
