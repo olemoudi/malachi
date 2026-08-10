@@ -42,6 +42,18 @@ internal data class Roles(
     val onError: Long,
     val errorContainer: Long,
     val onErrorContainer: Long,
+
+    /**
+     * The two ends of the one gradient in the app, and what is drawn on it.
+     *
+     * Roles of their own rather than a shade of `primary`, which is what they used to be, because
+     * a gradient computed from another role is a background no test can see: in the dark palette
+     * `primary` is a bright mint and the card drew white on it at 1.8:1. Named here, the pair is
+     * checked like everything else.
+     */
+    val heroStart: Long,
+    val heroEnd: Long,
+    val onHero: Long,
 )
 
 /**
@@ -87,6 +99,9 @@ internal val LightRoles = Roles(
     onError = 0xFFFFFFFF,
     errorContainer = 0xFFFFDAD5,
     onErrorContainer = 0xFF410E0A,
+    heroStart = 0xFF0C7269,
+    heroEnd = 0xFF06413C,
+    onHero = 0xFFFFFFFF,
 )
 
 internal val DarkRoles = Roles(
@@ -117,6 +132,11 @@ internal val DarkRoles = Roles(
     onError = 0xFF3A0906,
     errorContainer = 0xFF6B1A14,
     onErrorContainer = 0xFFFFDAD5,
+    // Deep teal here too, not the palette's bright mint: the card is a filled block of colour
+    // with white on it, and that reads the same way in both themes.
+    heroStart = 0xFF11655D,
+    heroEnd = 0xFF0A3F3A,
+    onHero = 0xFFFFFFFF,
 )
 
 val MalachiLightColors: ColorScheme = lightColorScheme(

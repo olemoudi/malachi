@@ -38,7 +38,9 @@ import dev.malachi.stats.StatsData
 import dev.malachi.stats.StatsWindow
 import dev.malachi.stats.WindowStats
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.components.ActionChoices
 import dev.malachi.ui.components.AppIcon
+import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.SectionHeader
@@ -158,7 +160,7 @@ fun StatsPanel(vm: MalachiViewModel) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             // Opens a dialog rather than doing it: this sits at the bottom of a screen people
             // scroll through, and it used to throw away months of counters on one stray tap.
-            TextButton(onClick = { resetting = true }) { Text(stringResource(R.string.stats_reset)) }
+            SecondaryAction(text = stringResource(R.string.stats_reset), onClick = { resetting = true })
         }
     }
 
@@ -327,15 +329,19 @@ private fun ResetDialog(onDismiss: () -> Unit, onReset: (StatsWindow) -> Unit) {
                     stringResource(R.string.stats_reset_message),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Spacer(Modifier.height(Tokens.spacing.sm))
-                listOf(
-                    StatsWindow.TODAY to R.string.stats_reset_scope_today,
-                    StatsWindow.WEEK to R.string.stats_reset_scope_week,
-                    StatsWindow.MONTH to R.string.stats_reset_scope_month,
-                    StatsWindow.ALL to R.string.stats_reset_scope_all,
-                ).forEach { (scope, label) ->
-                    TextButton(onClick = { onReset(scope) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(label), Modifier.fillMaxWidth())
+                Spacer(Modifier.height(Tokens.spacing.md))
+                ActionChoices {
+                    listOf(
+                        StatsWindow.TODAY to R.string.stats_reset_scope_today,
+                        StatsWindow.WEEK to R.string.stats_reset_scope_week,
+                        StatsWindow.MONTH to R.string.stats_reset_scope_month,
+                        StatsWindow.ALL to R.string.stats_reset_scope_all,
+                    ).forEach { (scope, label) ->
+                        SecondaryAction(
+                            text = stringResource(label),
+                            onClick = { onReset(scope) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }

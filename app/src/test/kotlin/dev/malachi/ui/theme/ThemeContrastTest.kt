@@ -48,6 +48,13 @@ class ThemeContrastTest {
         Pair("text on the accent", { it.onPrimary }, { it.primary }, 4.5),
         Pair("text on the amber", { it.onSecondary }, { it.secondary }, 4.5),
         Pair("text on the error", { it.onError }, { it.error }, 4.5),
+        // The hero card: a filled gradient with the state of the filter on it, and the pause
+        // action. Both ends are checked, because a gradient is only as legible as its worst end —
+        // and this pair is here at all because the gradient used to be computed from `primary`,
+        // which no test could see. In the dark palette that made it a bright mint with white on
+        // it, at 1.8:1.
+        Pair("the hero's text at the light end of its gradient", { it.onHero }, { it.heroStart }, 4.5),
+        Pair("the hero's text at the dark end of its gradient", { it.onHero }, { it.heroEnd }, 4.5),
         Pair("text on the accent container", { it.onPrimaryContainer }, { it.primaryContainer }, 4.5),
         Pair("text on the amber container", { it.onSecondaryContainer }, { it.secondaryContainer }, 4.5),
         Pair("text on the error container", { it.onErrorContainer }, { it.errorContainer }, 4.5),
@@ -93,7 +100,7 @@ class ThemeContrastTest {
         assertTrue(LightRoles.javaClass == DarkRoles.javaClass)
         // And nothing is left at its Compose default by accident.
         val fields = Roles::class.java.declaredFields.filter { it.type == Long::class.java }
-        assertTrue(fields.size >= 27, "the palette lost a role: ${fields.size}")
+        assertTrue(fields.size >= 30, "the palette lost a role: ${fields.size}")
     }
 
     @Test

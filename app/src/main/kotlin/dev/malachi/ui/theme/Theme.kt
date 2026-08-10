@@ -7,7 +7,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -48,6 +47,7 @@ fun MalachiTheme(
     CompositionLocalProvider(
         LocalSpacing provides Spacing(),
         LocalMotion provides Motion(),
+        LocalRoles provides if (darkTheme) DarkRoles else LightRoles,
     ) {
         MaterialTheme(
             colorScheme = if (darkTheme) MalachiDarkColors else MalachiLightColors,
@@ -70,7 +70,15 @@ object Tokens {
      */
     val heroBrush: Brush
         @Composable get() {
-            val primary = MaterialTheme.colorScheme.primary
-            return Brush.linearGradient(listOf(primary, lerp(primary, Color(0xFF042E2B), 0.45f)))
+            val roles = LocalRoles.current
+            return Brush.linearGradient(listOf(Color(roles.heroStart), Color(roles.heroEnd)))
         }
+
+    /** What is legible on [heroBrush]. Checked against both ends of it by ThemeContrastTest. */
+    val onHero: Color
+        @Composable get() = Color(LocalRoles.current.onHero)
+
+    /** The deep end of [heroBrush], for a filled control that has to sit on the gradient. */
+    val heroContainer: Color
+        @Composable get() = Color(LocalRoles.current.heroEnd)
 }

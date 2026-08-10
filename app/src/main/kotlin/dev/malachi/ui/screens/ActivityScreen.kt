@@ -40,7 +40,10 @@ import dev.malachi.R
 import dev.malachi.filter.QueryRecord
 import dev.malachi.filter.RuleSource
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.components.ActionChoices
 import dev.malachi.ui.components.AppIcon
+import dev.malachi.ui.components.PrimaryAction
+import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.SectionHeader
@@ -121,9 +124,13 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = { vm.setQueryLogEnabled(true) }) {
-                                Text(stringResource(R.string.action_enable))
-                            }
+                            Spacer(Modifier.width(spacing.sm))
+                            PrimaryAction(
+                                text = stringResource(R.string.action_enable),
+                                onClick = { vm.setQueryLogEnabled(true) },
+                                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                                container = MaterialTheme.colorScheme.secondaryContainer,
+                            )
                         }
                     }
                 }
@@ -268,20 +275,30 @@ private fun DomainActions(
         onDismissRequest = onDismiss,
         title = { Text(record.domain, style = MonoSmall) },
         text = {
-            Column {
-                TextButton(onClick = onBlockEverywhere, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.action_block_everywhere), Modifier.fillMaxWidth())
-                }
-                TextButton(onClick = onAllowEverywhere, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.action_allow_everywhere), Modifier.fillMaxWidth())
-                }
+            // Four things to do, each one a button. Stacked as text they read as a paragraph
+            // somebody forgot to format rather than as the list of choices they are.
+            ActionChoices {
+                SecondaryAction(
+                    text = stringResource(R.string.action_block_everywhere),
+                    onClick = onBlockEverywhere,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SecondaryAction(
+                    text = stringResource(R.string.action_allow_everywhere),
+                    onClick = onAllowEverywhere,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 if (record.packageName != null) {
-                    TextButton(onClick = onBlockHere, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.action_block_in_app, appLabel), Modifier.fillMaxWidth())
-                    }
-                    TextButton(onClick = onAllowHere, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.action_allow_in_app, appLabel), Modifier.fillMaxWidth())
-                    }
+                    SecondaryAction(
+                        text = stringResource(R.string.action_block_in_app, appLabel),
+                        onClick = onBlockHere,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SecondaryAction(
+                        text = stringResource(R.string.action_allow_in_app, appLabel),
+                        onClick = onAllowHere,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         },

@@ -28,3 +28,12 @@ data class Motion(
 
 val LocalSpacing = staticCompositionLocalOf { Spacing() }
 val LocalMotion = staticCompositionLocalOf { Motion() }
+
+/**
+ * The palette behind the current theme.
+ *
+ * Provided rather than derived from `isSystemInDarkTheme()`, because the theme is the user's
+ * setting and can be forced against the system's — anything reading the system directly is right
+ * two times out of three.
+ */
+internal val LocalRoles = staticCompositionLocalOf { LightRoles }

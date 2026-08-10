@@ -47,6 +47,8 @@ import dev.malachi.ui.Screen
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.CardPosition
 import dev.malachi.ui.components.MalachiCard
+import dev.malachi.ui.components.PrimaryAction
+import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.cardPosition
@@ -302,13 +304,13 @@ private fun PowerCard(
                 .fillMaxWidth()
                 .padding(spacing.xl),
         ) {
-            val onHero = if (active) Color.White else MaterialTheme.colorScheme.onSurface
+            val onHero = if (active) Tokens.onHero else MaterialTheme.colorScheme.onSurface
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Filled.Shield,
                         contentDescription = null,
-                        tint = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (active) onHero else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(28.dp),
                     )
                     Spacer(Modifier.width(spacing.md))
@@ -333,7 +335,7 @@ private fun PowerCard(
                                 else -> stringResource(R.string.state_off_subtitle)
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (active) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (active) onHero.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
@@ -341,9 +343,9 @@ private fun PowerCard(
                         onCheckedChange = onToggle,
                         colors = if (active) {
                             SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Color.White.copy(alpha = 0.35f),
-                                checkedBorderColor = Color.White.copy(alpha = 0.6f),
+                                checkedThumbColor = onHero,
+                                checkedTrackColor = onHero.copy(alpha = 0.35f),
+                                checkedBorderColor = onHero.copy(alpha = 0.6f),
                             )
                         } else {
                             SwitchDefaults.colors()
@@ -353,21 +355,33 @@ private fun PowerCard(
 
                 if (active && blockedPercent > 0) {
                     Spacer(Modifier.height(spacing.lg))
-                    Text("$blockedPercent%", style = NumberDisplay, color = Color.White)
+                    Text("$blockedPercent%", style = NumberDisplay, color = onHero)
                     Text(
                         stringResource(R.string.state_blocked_share),
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.8f),
+                        color = onHero.copy(alpha = 0.85f),
                     )
                 }
 
                 if (filtering) {
-                    Spacer(Modifier.height(spacing.sm))
+                    Spacer(Modifier.height(spacing.md))
                     Row {
+                        // On the gradient, so it takes the hero's own foreground. As a plain
+                        // TextButton it drew itself in `primary` — teal on teal, about 1:1, which
+                        // is the reason this action was hard to read at all.
                         if (pausedUntilMs > 0) {
-                            TextButton(onClick = onResume) { Text(stringResource(R.string.action_resume)) }
+                            PrimaryAction(
+                                text = stringResource(R.string.action_resume),
+                                onClick = onResume,
+                                onContainer = onHero,
+                                container = if (active) Tokens.heroContainer else MaterialTheme.colorScheme.surface,
+                            )
                         } else if (active) {
-                            TextButton(onClick = onPause) { Text(stringResource(R.string.action_pause_15)) }
+                            SecondaryAction(
+                                text = stringResource(R.string.action_pause_15),
+                                onClick = onPause,
+                                onContainer = onHero,
+                            )
                         }
                     }
                 }
@@ -465,13 +479,18 @@ private fun Notice(
                 // A single action sits beside the text; a pair gets its own row below, so a long
                 // explanation is never squeezed into a column two words wide.
                 if (action != null && secondary == null) {
-                    TextButton(onClick = onAction) { Text(action, color = onContainer) }
+                    Spacer(Modifier.width(spacing.sm))
+                    PrimaryAction(text = action, onClick = onAction, onContainer = onContainer, container = container)
                 }
             }
             if (action != null && secondary != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onSecondary) { Text(secondary, color = onContainer) }
-                    TextButton(onClick = onAction) { Text(action, color = onContainer) }
+                Spacer(Modifier.height(spacing.md))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.sm, Alignment.End),
+                ) {
+                    SecondaryAction(text = secondary, onClick = onSecondary, onContainer = onContainer)
+                    PrimaryAction(text = action, onClick = onAction, onContainer = onContainer, container = container)
                 }
             }
         }
