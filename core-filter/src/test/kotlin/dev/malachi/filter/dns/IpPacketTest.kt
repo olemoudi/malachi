@@ -128,6 +128,28 @@ class IpPacketTest {
     }
 
     @Test
+    fun `the protocol of a packet is read from whichever header it lives in`() {
+        assertEquals(IpPacket.PROTOCOL_UDP, IpPacket.protocol(ipv4Udp(), 100))
+        assertEquals(IpPacket.PROTOCOL_UDP, IpPacket.protocol(ipv6Udp(), 100))
+        assertEquals(58, IpPacket.protocol(ipv6Udp(nextHeader = 58), 100))
+        assertNull(IpPacket.protocol(byteArrayOf(0x00), 1))
+        assertNull(IpPacket.protocol(ByteArray(0), 0))
+    }
+
+    @Test
+    fun `neighbour discovery is routine on a tun and DNS-over-TCP is not`() {
+        // The distinction decides what reaches the debug log. ICMPv6 arrives on every tun there
+        // has ever been, and a line a minute about it for the life of the filter is a capped log
+        // spent on the one message that never means anything. TCP to a routed resolver is the
+        // opposite: rare, and exactly what somebody debugging a broken app needs to see.
+        assertTrue(58 in IpPacket.ROUTINE_ON_A_TUN, "ICMPv6")
+        assertTrue(0 in IpPacket.ROUTINE_ON_A_TUN, "IPv6 hop-by-hop / MLD")
+        assertTrue(1 in IpPacket.ROUTINE_ON_A_TUN, "ICMP")
+        assertTrue(6 !in IpPacket.ROUTINE_ON_A_TUN, "TCP is worth a word")
+        assertTrue(IpPacket.PROTOCOL_UDP !in IpPacket.ROUTINE_ON_A_TUN, "UDP is the whole point")
+    }
+
+    @Test
     fun `a truncated read does not run off the end of the buffer`() {
         val packet = ipv4Udp()
         val datagram = IpPacket.parseUdp(packet, 30)!!

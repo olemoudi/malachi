@@ -76,13 +76,25 @@ object DebugLog {
     @Volatile private var file: File? = null
 
     /** Loads any persisted tail into memory. Call once from [android.app.Application.onCreate]. */
-    fun init(context: Context) {
-        val f = File(context.filesDir, FILE_NAME)
-        file = f
+    fun init(context: Context) = init(File(context.filesDir, FILE_NAME))
+
+    /** The same, given the file directly, so the capping can be exercised without a device. */
+    internal fun init(target: File) {
+        file = target
         io.execute {
-            val loaded = runCatching { readTail(f) }.getOrDefault(emptyList())
+            val loaded = runCatching { readTail(target) }.getOrDefault(emptyList())
             if (loaded.isNotEmpty() && mutable.value.isEmpty()) mutable.value = loaded
         }
+    }
+
+    /**
+     * Waits for the queued appends to reach the disk. For the tests: every write here is
+     * deliberately asynchronous, so asserting on the file without this is asserting on a race.
+     */
+    internal fun awaitIdle(timeoutMs: Long = 5_000) {
+        val done = java.util.concurrent.CountDownLatch(1)
+        io.execute { done.countDown() }
+        done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
     }
 
     fun i(tag: String, message: String) = add('I', tag, message, null)

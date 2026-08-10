@@ -35,7 +35,9 @@ object DnsMessage {
     /** HTTPS records carry ECH keys and alternative endpoints; blocking a name must cover them. */
     const val TYPE_HTTPS = 65
 
-    private const val HEADER_BYTES = 12
+    /** Fixed DNS header: id, flags, and the four section counts. */
+    const val HEADER_BYTES = 12
+
     private const val CLASS_IN = 1
     private const val BLOCK_TTL_SECONDS = 60
 

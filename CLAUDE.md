@@ -268,6 +268,21 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   socket. `stopTunnel` locks the writers out, joins the read loop and only then closes.
 - **DataStore without a `corruptionHandler` fails every read *and every write*, forever.**
   Catching the read side alone yields an app on its defaults that cannot save anything.
+- **`stopSelf()` also swallows a start request that arrived while the stop was being decided.**
+  Toggling the filter off and straight back on then ends with a dead service and a switch that
+  says on. `stopSelf(startId)` is the one that declines to.
+- **A `FileOutputStream` built on a `ParcelFileDescriptor`'s descriptor does not own it** — closing
+  the stream leaves the descriptor open, and `pfd.close()` is what closes it. Verified on device
+  in `TunnelDescriptorTest`, not remembered.
+- **Anything a shutdown needs must exist before the thread that uses it.** The read loop's
+  self-pipe used to be created inside the loop, so a tunnel stopped in the moment between
+  `start()` and the loop's first instruction found no pipe to write to: the wake was lost, the
+  join timed out, the descriptor was closed, and — since `poll()` does not wake when its
+  descriptor closes — that thread stayed parked for the life of the process. Measured as one
+  leaked read loop per on/off cycle.
+- **ICMPv6 (next header 58) and MLD arrive on every tun there has ever been.** They are not a
+  symptom, and a rate-limited log line about them is still a line a minute forever, which is a
+  capped debug log spent entirely on the one message that never means anything.
 
 ### Battery rules for the tunnel (this is an always-on process)
 - **No unconditional timers.** Anything periodic is gated on the screen being on, or it does not
@@ -371,5 +386,13 @@ the one path every revival has in common.
 ### Testing
 - Run `./gradlew test` before cutting a release; `./gradlew jacocoAggregatedReport` refreshes
   the coverage number CI badges.
+- **Long-horizon behaviour is simulated, never waited for.** Every clock the storage layer reads
+  is a parameter (`record(nowMs = …)`), and the coroutine tests use `runTest`'s virtual time, so
+  a year of statistics, a month of failed retries and a day of backoff all run in milliseconds.
+  `SoakTest` is where that lives; a test that sleeps is a test nobody runs.
+- **Instrumented tests need VPN consent, which no test can grant itself:**
+  `adb shell appops set dev.malachi ACTIVATE_VPN allow`. Without it the tunnel cases skip
+  themselves (`assumeTrue`) rather than fail, so a run that looks green may have exercised
+  nothing — check the skip count. They are not part of CI, which has no emulator.
 - Avoid Android dependencies in anything testable. Logic that needs a device (the tunnel, the
   UI) stays thin and delegates to something that doesn't.

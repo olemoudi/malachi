@@ -26,12 +26,14 @@ import java.io.IOException
  * the file with empty preferences loses the user's rules once, which is bad, and is the only
  * outcome here that ends.
  */
+internal fun settingsCorruptionHandler() = ReplaceFileCorruptionHandler { error: Throwable ->
+    DebugLog.e("MalachiSettings", "settings file is corrupt; replacing it with defaults", error)
+    emptyPreferences()
+}
+
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "malachi_settings",
-    corruptionHandler = ReplaceFileCorruptionHandler { error ->
-        DebugLog.e("MalachiSettings", "settings file is corrupt; replacing it with defaults", error)
-        emptyPreferences()
-    },
+    corruptionHandler = settingsCorruptionHandler(),
 )
 
 /**
@@ -40,7 +42,10 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
  * A blob rather than a preference per field because the settings are read as a whole on every
  * rebuild of the filter, and because adding a field must not require touching this class at all.
  */
-class SettingsStore(private val context: Context) {
+class SettingsStore internal constructor(private val store: DataStore<Preferences>) {
+
+    /** The real one. The [DataStore] constructor is what lets a test damage the file. */
+    constructor(context: Context) : this(context.settingsDataStore)
 
     private val key = stringPreferencesKey("settings_json")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -55,7 +60,7 @@ class SettingsStore(private val context: Context) {
      * write months into an install. Falling back to empty preferences means falling back to the
      * defaults, which leave filtering off: visibly not running, rather than silently not working.
      */
-    val settings: Flow<MalachiSettings> = context.settingsDataStore.data
+    val settings: Flow<MalachiSettings> = store.data
         .catch { error ->
             if (error is IOException) {
                 DebugLog.e(TAG, "settings could not be read; falling back to defaults", error)
@@ -64,12 +69,18 @@ class SettingsStore(private val context: Context) {
                 throw error
             }
         }
+        // Anything that isn't an IOException still reaches the collectors, and an uncaught one
+        // ends the collection permanently — for every one of them, not just the unlucky one.
+        // The tunnel would go on filtering with settings nobody could change again.
+        .retryingWithBackoff(RETRY_BASE_MS, RETRY_MAX_SHIFT) { cause, attempt ->
+            DebugLog.e(TAG, "settings could not be read (attempt $attempt); retrying", cause)
+        }
         .map { decode(it[key]) }
 
     suspend fun current(): MalachiSettings = settings.first()
 
     suspend fun update(transform: (MalachiSettings) -> MalachiSettings) {
-        context.settingsDataStore.edit { prefs ->
+        store.edit { prefs ->
             prefs[key] = json.encodeToString(serializer, transform(decode(prefs[key])))
         }
     }
@@ -89,5 +100,9 @@ class SettingsStore(private val context: Context) {
 
     private companion object {
         const val TAG = "MalachiSettings"
+
+        /** 2s, doubling to about a minute. Storage that is unhappy is rarely unhappy briefly. */
+        const val RETRY_BASE_MS = 2_000L
+        const val RETRY_MAX_SHIFT = 5
     }
 }

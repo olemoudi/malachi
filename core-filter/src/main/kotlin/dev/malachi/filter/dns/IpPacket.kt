@@ -34,6 +34,35 @@ object IpPacket {
     private const val UDP_HEADER_BYTES = 8
     private const val DEFAULT_HOP_LIMIT = 64
 
+    /**
+     * The protocol carried by [packet] — IPv4's protocol field or IPv6's next header — or null
+     * when it isn't IP at all. For IPv6 this is the *first* header, which for anything carrying
+     * extension headers is the extension rather than the transport.
+     */
+    fun protocol(packet: ByteArray, length: Int): Int? {
+        if (length < 1) return null
+        return when ((packet[0].toInt() and 0xF0) shr 4) {
+            4 -> if (length >= 10) packet[9].toInt() and 0xFF else null
+            6 -> if (length >= 7) packet[6].toInt() and 0xFF else null
+            else -> null
+        }
+    }
+
+    /**
+     * Protocols that arrive on a tun as a matter of course rather than as a symptom.
+     *
+     * Neighbour discovery and multicast listener traffic are how IPv6 works; a tunnel that
+     * exists to see DNS can't carry any of it and never could. Naming them is what keeps the
+     * debug log from spending its whole byte budget on the one message that never means
+     * anything, once a minute, for as long as the filter is on.
+     */
+    val ROUTINE_ON_A_TUN = setOf(
+        0, // IPv6 hop-by-hop, which in practice is MLD
+        1, // ICMP
+        2, // IGMP
+        58, // ICMPv6: router and neighbour solicitations, and the rest of discovery
+    )
+
     /** Reads a UDP datagram out of [packet], or null when it isn't one we can act on. */
     fun parseUdp(packet: ByteArray, length: Int): UdpDatagram? {
         if (length < 1) return null
