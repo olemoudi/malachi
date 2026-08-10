@@ -3,10 +3,12 @@ package dev.malachi.filter
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 
 class DomainIndexTest {
 
@@ -57,6 +59,47 @@ class DomainIndexTest {
         assertEquals(index.size, restored.size)
         assertTrue(restored.matches("eu.ads.example.com"))
         assertFalse(restored.matches("example.com"))
+    }
+
+    @Test
+    fun `write leaves the stream open for the caller to sync and close`() {
+        // The caller owns the stream: it has to force the bytes to the disk before renaming the
+        // file into place, which it cannot do on a descriptor we closed behind its back.
+        val stream = object : ByteArrayOutputStream() {
+            var closed = false
+            override fun close() {
+                closed = true
+                super.close()
+            }
+        }
+        index.write(stream)
+        assertFalse(stream.closed)
+        assertTrue(stream.toByteArray().isNotEmpty())
+    }
+
+    @Test
+    fun `an entry count no file could hold is refused rather than allocated`() {
+        // The count comes off the disk. Read as given, a file damaged in exactly those four
+        // bytes asks for an array of whatever number they happen to spell.
+        for (count in intArrayOf(Int.MAX_VALUE, 50_000_000, -1)) {
+            val header = ByteArrayOutputStream()
+            DataOutputStream(header).use {
+                it.writeInt(0x4D4C4348) // MAGIC
+                it.writeInt(1) // VERSION
+                it.writeInt(count)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                DomainIndex.read(ByteArrayInputStream(header.toByteArray()))
+            }
+        }
+    }
+
+    @Test
+    fun `an index truncated mid-entry is refused`() {
+        val bytes = ByteArrayOutputStream().also { index.write(it) }.toByteArray()
+        assertThrows(java.io.EOFException::class.java) {
+            DomainIndex.read(ByteArrayInputStream(bytes.copyOf(bytes.size - 3)))
+        }
     }
 
     @Test

@@ -248,6 +248,26 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **Whether *some* VPN is active is observable**, via a network with `TRANSPORT_VPN`. That is
   what distinguishes "the user dismissed the dialog" from "another VPN holds the tunnel".
 - **`Os.pipe2` is not in the SDK; `Os.pipe()` is.**
+- **`registerNetworkCallback(request, cb)` fires for *every* network that matches, not the one in
+  use.** With Wi-Fi and mobile both up, the last network to speak wins, and Malachi would adopt
+  the resolvers of a network its (protected, default-routed) upstream sockets never touch —
+  every lookup then times out. `registerDefaultNetworkCallback()` is the question actually being
+  asked; the app is always outside its own tunnel, so its default network is the real one.
+- **`delay()` runs on a monotonic clock that stops while the device is suspended.** A fifteen
+  minute pause is fifteen minutes *awake*, which overnight is hours. Anything whose deadline is a
+  wall-clock moment needs a second path that doesn't depend on that timer — here,
+  `onStartCommand` re-evaluates the settings whenever there is no tunnel, so the watchdog is
+  enough to end a pause the timer slept through.
+- **`VpnService.onRevoke`'s default implementation is `stopSelf()`.** Calling `super` after
+  scheduling a retry destroys the service and `onDestroy` cancels the retry — the documented
+  recovery from "another VPN took the tunnel and then let go" silently became "wait for the
+  watchdog". Malachi does not call through.
+- **A `ParcelFileDescriptor` closed while another thread is still using it is worse than a lost
+  packet.** The number is free the moment it closes and the kernel reissues it to the next thing
+  this process opens, so a `read` or `write` still in flight lands on an unrelated file or
+  socket. `stopTunnel` locks the writers out, joins the read loop and only then closes.
+- **DataStore without a `corruptionHandler` fails every read *and every write*, forever.**
+  Catching the read side alone yields an app on its defaults that cannot save anything.
 
 ### Battery rules for the tunnel (this is an always-on process)
 - **No unconditional timers.** Anything periodic is gated on the screen being on, or it does not
@@ -277,6 +297,11 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   list was fetched). The debug log is capped by bytes and trimmed to half the cap so it isn't
   rewritten on every append. Statistics keep `RETAINED_DAYS` of detail with per-day and
   all-time app tables capped. A downloaded APK is deleted once stale.
+- **The directory is the authority on what is on disk, not the file that lists it.** `prune`
+  sweeps the list directory itself, so losing `state.json` cannot strand a compiled index that
+  nothing will ever delete again.
+- **Write to a sibling, `fsync`, then rename.** The rename is only atomic with respect to this
+  process; without the sync a power cut can leave the final name pointing at unwritten zeroes.
 - Adding anything that writes to disk means adding its bound in the same change.
 
 ### Recovery, as measured (not as assumed)
@@ -288,7 +313,7 @@ Verified on an emulator; re-verify if the start paths change.
 | `kill -9` (low-memory kill) | yes | not by START_STICKY — that was tested and does not fire. The next thing that revives the process runs `FilterWatchdogWorker.restoreIfNeeded` from `Application.onCreate`; the periodic job is the floor |
 | Reboot | yes, after up to ~3 minutes | `BootReceiver`. `BOOT_COMPLETED` is delivered in batches and is not prompt; that gap is unfiltered DNS |
 | App update | yes | `MY_PACKAGE_REPLACED`, same receiver |
-| Another VPN takes the tunnel | yes, when it lets go | `onRevoke` schedules a backoff retry |
+| Another VPN takes the tunnel | yes, when it lets go | `onRevoke` schedules a backoff retry, and does **not** call `super` — that is `stopSelf()`, which would destroy the service and cancel the retry it just scheduled |
 | Force-stop (user or vendor battery manager) | **no** | Android puts the package in the stopped state: no broadcasts, no jobs, until somebody launches the app. Nothing in an app can defeat this. Always-on VPN is the only answer, which is why the app asks |
 
 Two rules follow. Anything that starts the service must go through `VpnController.start`, which tries

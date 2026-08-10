@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -97,7 +98,10 @@ object DebugLog {
         val body = (if (t != null) "$message\n${Log.getStackTraceString(t)}" else message)
             .let { if (it.length > MAX_ENTRY_CHARS) it.take(MAX_ENTRY_CHARS) + "… (truncated)" else it }
         val entry = LogEntry(System.currentTimeMillis(), level, tag, body)
-        mutable.value = LogFormat.cap(mutable.value, entry, MAX_ENTRIES)
+        // update, not an assignment: the tunnel, the forwarders and the workers all log, and a
+        // read-modify-write of the whole list from several threads drops entries — usually the
+        // ones written during whatever was going wrong at the time.
+        mutable.update { LogFormat.cap(it, entry, MAX_ENTRIES) }
         val f = file ?: return
         io.execute { runCatching { appendCapped(f, entry) } }
     }

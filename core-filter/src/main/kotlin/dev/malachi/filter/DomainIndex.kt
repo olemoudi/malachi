@@ -73,15 +73,19 @@ class DomainIndex internal constructor(internal val hashes: LongArray) {
         return false
     }
 
-    /** Writes the compiled form. Paired with [read]; the version guards against format drift. */
+    /**
+     * Writes the compiled form. Paired with [read]; the version guards against format drift.
+     *
+     * Flushed but deliberately not closed: the stream belongs to the caller, who needs it open
+     * afterwards to force the bytes to the disk before renaming the file into place.
+     */
     fun write(stream: OutputStream) {
-        DataOutputStream(stream.buffered()).use { out ->
-            out.writeInt(MAGIC)
-            out.writeInt(VERSION)
-            out.writeInt(hashes.size)
-            for (h in hashes) out.writeLong(h)
-            out.flush()
-        }
+        val out = DataOutputStream(stream.buffered())
+        out.writeInt(MAGIC)
+        out.writeInt(VERSION)
+        out.writeInt(hashes.size)
+        for (h in hashes) out.writeLong(h)
+        out.flush()
     }
 
     /**
@@ -124,13 +128,22 @@ class DomainIndex internal constructor(internal val hashes: LongArray) {
             return builder.build()
         }
 
+        /**
+         * The largest index we will read back. Four million domains is an order of magnitude
+         * past the biggest list anyone publishes, and the bound is the point: the entry count
+         * comes off the disk, and a file damaged in exactly those four bytes would otherwise
+         * ask for an array of whatever number it happens to spell — gigabytes, on a phone,
+         * before anything has had a chance to notice the file is nonsense.
+         */
+        private const val MAX_ENTRIES = 4_000_000
+
         /** Reads a compiled index, or throws if the bytes aren't one of ours. */
         fun read(stream: InputStream): DomainIndex {
             DataInputStream(stream.buffered()).use { input ->
                 require(input.readInt() == MAGIC) { "not a domain index" }
                 require(input.readInt() == VERSION) { "unsupported index version" }
                 val count = input.readInt()
-                require(count >= 0) { "corrupt index length" }
+                require(count in 0..MAX_ENTRIES) { "corrupt index length: $count" }
                 val hashes = LongArray(count)
                 for (i in 0 until count) hashes[i] = input.readLong()
                 return DomainIndex(hashes)

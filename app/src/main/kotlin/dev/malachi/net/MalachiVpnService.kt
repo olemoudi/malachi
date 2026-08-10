@@ -9,11 +9,9 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import android.system.ErrnoException
@@ -21,6 +19,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import dev.malachi.MalachiApplication
 import dev.malachi.R
 import dev.malachi.data.AppScopeMode
@@ -39,8 +38,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import java.io.FileDescriptor
 import java.io.FileOutputStream
@@ -115,6 +113,20 @@ class MalachiVpnService : VpnService() {
     private val writeLock = Any()
 
     /**
+     * Serialises everything that starts or stops a tunnel.
+     *
+     * Four different threads can ask for one: the settings collector, a backoff retry, the
+     * platform's `onRevoke` (which arrives on the main thread) and `onDestroy`. Without this
+     * they interleave — two `establish()` calls, or a descriptor from one attempt paired with
+     * the output stream of another — and the symptom is a tunnel that is up according to every
+     * field except the one that matters.
+     *
+     * The read loop never takes it. Its teardown is handed to [scope] instead, so [stopTunnel]
+     * can wait for that thread while holding this lock without the two deadlocking.
+     */
+    private val tunnelLock = Any()
+
+    /**
      * Whether anything still needs to know *which* app asked. Attribution is a binder round trip
      * into the system server on every single lookup, and it buys nothing when the query log is
      * off and no per-app rule exists — which is the default configuration.
@@ -137,8 +149,11 @@ class MalachiVpnService : VpnService() {
     private var resumeJob: Job? = null
     private var retryJob: Job? = null
     private var retryAttempt = 0
-    private var lastUnroutableLogMs = 0L
-    private var droppedSinceLog = 0L
+
+    // Written from the read loop and from the forwarders' rejection path. Volatile rather than
+    // locked: this is a rate limiter for a log line, and losing a count to a race costs nothing.
+    @Volatile private var lastUnroutableLogMs = 0L
+    @Volatile private var droppedSinceLog = 0L
 
     /** Write end of the read loop's self-pipe; see [readLoop]. */
     @Volatile private var wakeWrite: FileDescriptor? = null
@@ -155,25 +170,54 @@ class MalachiVpnService : VpnService() {
         }
     }
 
+    /**
+     * A UID's package name is cached for the life of the tunnel ([uidPackages]) because it is
+     * asked for on every lookup. That is only true while the set of installed apps holds still:
+     * Android recycles UIDs, so a cache kept across an uninstall can attribute a lookup — and
+     * therefore apply a per-app rule — to an app that is no longer there. Package changes are
+     * rare, so throwing the whole cache away is cheaper than being clever about it.
+     */
+    private val packageChanges = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            uidPackages.clear()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         app = application as MalachiApplication
         cm = getSystemService(ConnectivityManager::class.java)
         runCatching { FilterNotifications.ensureChannel(this) }
         registerNetworkCallback()
+        registerPackageChanges()
 
         // No startForeground here, and none while filtering: once the tunnel is up the platform
         // binds to this service as the active VPN and that is what keeps the process alive. The
         // status bar already carries the system's VPN key, so a notification of our own would be
         // a second permanent indicator saying the same thing.
-        scope.launch { app.settingsStore.settings.collect { applySettings(it) } }
+        scope.launch {
+            app.settingsStore.settings
+                // A failure that isn't an IOException reaches this collector, and an uncaught
+                // one ends it for good: the tunnel would then run forever on whatever settings
+                // it last saw, and switching the filter off would quietly stop working. Retried
+                // with the same backoff the tunnel uses.
+                .retryWhen { cause, attempt ->
+                    DebugLog.e(TAG, "the settings flow failed; retrying", cause)
+                    delay(RETRY_BASE_MS shl attempt.coerceAtMost(RETRY_MAX_SHIFT.toLong()).toInt())
+                    true
+                }
+                .collect { applySettings(it) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Started from the background, so the platform is owed a notification within seconds.
-        // It is taken away again the moment the tunnel is up; see demote().
-        if (intent?.getBooleanExtra(EXTRA_TRANSIENT_FOREGROUND, false) == true && tunnel == null) {
+        // Started from the background, so the platform is owed a notification within seconds —
+        // whatever state we happen to be in. This used to be skipped when a tunnel was already
+        // up, which is a promise broken: the caller checked before the tunnel came up, and the
+        // system answers a missing startForeground with a crash rather than a warning.
+        if (intent?.getBooleanExtra(EXTRA_TRANSIENT_FOREGROUND, false) == true) {
             promote(FilterNotifications.starting(this))
+            if (tunnel != null) demote()
         }
         when (intent?.action) {
             ACTION_STOP -> {
@@ -182,10 +226,16 @@ class MalachiVpnService : VpnService() {
                 }
                 return START_NOT_STICKY
             }
-            ACTION_PAUSE -> scope.launch {
-                app.settingsStore.update { it.copy(pausedUntilMs = System.currentTimeMillis() + PAUSE_MILLIS) }
-            }
             ACTION_RESUME -> scope.launch { app.settingsStore.update { it.copy(pausedUntilMs = 0) } }
+            // Any other start is a request to look again — from the watchdog, from a receiver,
+            // from the launcher. The settings flow has no reason to emit just because somebody
+            // asked, so without this a service that is alive but not filtering (a pause whose
+            // timer has not fired, a retry that never came round) would stay that way until
+            // something edited a setting. Recovery has to have a path that doesn't depend on
+            // a clock this process may have slept through.
+            else -> if (tunnel == null) {
+                scope.launch { applySettings(app.settingsStore.current()) }
+            }
         }
         // START_STICKY: if the system reclaims this process, the filter comes back by itself. It
         // re-reads the settings on create, so a restart lands in the right state.
@@ -201,9 +251,14 @@ class MalachiVpnService : VpnService() {
      * effect on the next lookup with no interruption. [MalachiSettings.tunnelShape] tells the
      * two apart.
      */
-    private suspend fun applySettings(next: MalachiSettings) {
+    private fun applySettings(next: MalachiSettings): Unit = synchronized(tunnelLock) {
+        val previous = settings
         settings = next
         QueryLog.recording = next.queryLogEnabled
+        // Turning the log off has to forget what it already holds. Leaving it would keep the
+        // last five hundred domains in memory, and on screen, after the one feature whose whole
+        // argument is privacy had been switched off.
+        if (previous.queryLogEnabled && !next.queryLogEnabled) QueryLog.clearRecords()
         attributionNeeded = next.queryLogEnabled || next.appRules.isNotEmpty()
 
         if (!next.filteringEnabled) {
@@ -232,7 +287,8 @@ class MalachiVpnService : VpnService() {
         if (tunnel == null || shape != tunnelShape) startTunnel(next)
     }
 
-    private fun startTunnel(settings: MalachiSettings) {
+    /** Always under [tunnelLock]; every caller either holds it or goes through [applySettings]. */
+    private fun startTunnel(settings: MalachiSettings): Unit = synchronized(tunnelLock) {
         cancelRetry()
         stopTunnel()
 
@@ -261,10 +317,18 @@ class MalachiVpnService : VpnService() {
             // establish() says only "no". Which "no" it is decides whether waiting can help:
             // another VPN holding the tunnel is a thing that stops on its own, so it is retried,
             // while a missing consent needs the user and retrying it would just burn wakeups.
-            if (VpnController.anotherVpnActive(this)) {
-                scheduleRetry(TunnelProblem.DISPLACED, getString(R.string.status_displaced))
-            } else {
-                reportProblem(TunnelProblem.NO_CONSENT, getString(R.string.status_no_consent))
+            //
+            // Consent is re-read rather than assumed from the check above: it can be withdrawn
+            // between the two calls, and that is the only cause here worth reporting as final.
+            // Everything else is retried — including the case where no VPN is visible at all,
+            // which used to be reported as a missing permission we had just confirmed we had.
+            when {
+                !VpnController.hasConsent(this) ->
+                    reportProblem(TunnelProblem.NO_CONSENT, getString(R.string.status_no_consent))
+                VpnController.anotherVpnActive(this) ->
+                    scheduleRetry(TunnelProblem.DISPLACED, getString(R.string.status_displaced))
+                else ->
+                    scheduleRetry(TunnelProblem.FAILED, getString(R.string.status_tunnel_closed))
             }
             return
         }
@@ -289,10 +353,7 @@ class MalachiVpnService : VpnService() {
             // tunnel that had stopped reading.
             setUncaughtExceptionHandler { _, error ->
                 DebugLog.e(TAG, "the read loop died", error)
-                if (tunnel === pfd) {
-                    stopTunnel()
-                    scheduleRetry(TunnelProblem.FAILED, getString(R.string.status_tunnel_closed))
-                }
+                failTunnel(pfd)
             }
             start()
         }
@@ -446,7 +507,23 @@ class MalachiVpnService : VpnService() {
             // parked in poll() with no way to be woken.
             if (wakeWrite === wake?.get(1)) wakeWrite = null
             wake?.forEach { fd -> runCatching { Os.close(fd) } }
-            if (tunnel === pfd) {
+            failTunnel(pfd)
+        }
+    }
+
+    /**
+     * The read loop ended on its own — the descriptor closed underneath it, or it threw.
+     *
+     * Handed to [scope] rather than done here on purpose. [stopTunnel] waits for this very
+     * thread before it closes the descriptor, so tearing the tunnel down from inside it would
+     * have the two waiting for each other. Doing nothing when the tunnel has already moved on
+     * is the common case: this also runs on every ordinary shutdown.
+     */
+    private fun failTunnel(pfd: ParcelFileDescriptor) {
+        if (tunnel !== pfd) return
+        scope.launch {
+            synchronized(tunnelLock) {
+                if (tunnel !== pfd) return@launch
                 stopTunnel()
                 scheduleRetry(TunnelProblem.FAILED, getString(R.string.status_tunnel_closed))
             }
@@ -478,6 +555,11 @@ class MalachiVpnService : VpnService() {
     }
 
     private fun dispatchForward(request: UdpDatagram, query: ByteArray) {
+        // Too short to be a DNS message at all, so there is nothing to relay and no transaction
+        // id to match a reply against. Dropped here rather than in the forwarder: every one of
+        // these used to cost a socket and a protect() round trip before failing, which is a
+        // cheap way for any app on the phone to make the filter churn.
+        if (DnsMessage.transactionId(query) == null) return dropUnroutable("a ${query.size}-byte query")
         runCatching { forwarders.execute { forward(request, query) } }
             .onFailure {
                 // The queue is full: the network is not keeping up. Dropping is right — the
@@ -493,10 +575,10 @@ class MalachiVpnService : VpnService() {
         val target = upstreams.firstOrNull { (it is Inet4Address) != wantsIpv6 }
             ?: upstreams.firstOrNull()
             ?: return
-        val socket = borrowSocket() ?: return
+        val transactionId = DnsMessage.transactionId(query) ?: return
+        val socket = borrowSocket(target) ?: return
         var reusable = true
         try {
-            val transactionId = transactionId(query)
             socket.send(DatagramPacket(query, query.size, target, DNS_PORT))
             val buffer = ByteArray(UPSTREAM_BUFFER)
             val deadline = SystemClock.elapsedRealtime() + UPSTREAM_TIMEOUT_MS
@@ -511,7 +593,7 @@ class MalachiVpnService : VpnService() {
                 socket.receive(reply)
                 // A pooled socket can still be holding a late answer to an earlier query. The
                 // transaction id is what keeps that from being relayed as the answer to this one.
-                if (reply.length >= DNS_HEADER_BYTES && transactionId(buffer) == transactionId) {
+                if (reply.length >= DNS_HEADER_BYTES && DnsMessage.transactionId(buffer) == transactionId) {
                     val answer = buffer.copyOf(reply.length)
                     writeToTun(IpPacket.buildUdpResponse(request, resolveTruncated(answer, query, target)))
                     return
@@ -563,15 +645,28 @@ class MalachiVpnService : VpnService() {
     }
 
     /**
-     * A pooled, already-protected socket. `protect()` is a round trip into the system server, so
-     * doing it per lookup — as this used to — put an IPC on the hot path for no reason: the
-     * socket's protected status doesn't expire.
+     * A pooled, already-protected socket connected to [target]. `protect()` is a round trip into
+     * the system server, so doing it per lookup — as this used to — put an IPC on the hot path
+     * for no reason: the socket's protected status doesn't expire.
+     *
+     * Connected, and pooled per resolver, because an unconnected UDP socket accepts a datagram
+     * from *anybody* who reaches its port, leaving a sixteen-bit transaction id as the only
+     * thing between a stranger and an answer relayed to an app as genuine. The kernel does that
+     * filtering for free once the socket has a peer.
      */
-    private fun borrowSocket(): DatagramSocket? {
+    private fun borrowSocket(target: InetAddress): DatagramSocket? {
         synchronized(socketPool) {
-            while (socketPool.isNotEmpty()) {
-                val pooled = socketPool.poll()
-                if (pooled != null && !pooled.isClosed) return pooled
+            val pooled = socketPool.iterator()
+            while (pooled.hasNext()) {
+                val socket = pooled.next()
+                if (socket.isClosed) {
+                    pooled.remove()
+                    continue
+                }
+                if (socket.inetAddress == target) {
+                    pooled.remove()
+                    return socket
+                }
             }
         }
         return runCatching {
@@ -580,6 +675,7 @@ class MalachiVpnService : VpnService() {
                     it.close()
                     return null
                 }
+                it.connect(target, DNS_PORT)
             }
         }.getOrNull()
     }
@@ -620,8 +716,13 @@ class MalachiVpnService : VpnService() {
             DebugLog.w(TAG, "dropping a ${packet.size}-byte answer that doesn't fit the tunnel")
             return
         }
-        val stream = output ?: return
-        synchronized(writeLock) { runCatching { stream.write(packet) } }
+        // The stream is read *inside* the lock, not before it: read outside, a writer could be
+        // holding a stream that stopTunnel has already closed and be about to write to a
+        // descriptor number the kernel has since given to something else.
+        synchronized(writeLock) {
+            val stream = output ?: return
+            runCatching { stream.write(packet) }
+        }
     }
 
     /**
@@ -649,17 +750,38 @@ class MalachiVpnService : VpnService() {
         }
     }
 
+    /**
+     * Watches the network our forwarded queries actually travel over.
+     *
+     * The *default* network specifically, not every network matching a request — which is what
+     * this used to do, and it meant the last network to say anything won. With Wi-Fi and mobile
+     * both up, or mid-handover, Malachi would adopt the resolvers of a network it wasn't
+     * sending anything over: our upstream sockets are protected, so they leave by the default
+     * route, and a resolver reachable only on the other network turns every lookup into a
+     * five-second timeout. Malachi is always outside its own tunnel, so the default network
+     * here is the real one underneath it.
+     */
     private fun registerNetworkCallback() {
-        // The default request already excludes VPNs, so this tracks the real network under us
-        // rather than our own tunnel.
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        runCatching { cm.registerNetworkCallback(request, networkCallback) }
+        runCatching { cm.registerDefaultNetworkCallback(networkCallback) }
             .onFailure { DebugLog.w(TAG, "cannot watch the underlying network", it) }
     }
 
+    private fun registerPackageChanges() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        runCatching {
+            ContextCompat.registerReceiver(this, packageChanges, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }.onFailure { DebugLog.w(TAG, "cannot watch package changes", it) }
+    }
+
     private fun adoptNetwork(network: Network, linkProperties: LinkProperties) {
+        // Belt and braces against ever pointing the filter at itself: our own tunnel is a
+        // network too, and forwarding into it would be a loop with no exit.
+        if (cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) return
         networkDnsServers = linkProperties.dnsServers.orEmpty()
         privateDnsActive = linkProperties.isPrivateDnsActive
         privateDnsHost = linkProperties.privateDnsServerName
@@ -748,6 +870,9 @@ class MalachiVpnService : VpnService() {
         retryAttempt++
         DebugLog.w(TAG, "filter not running: $message; retrying in ${wait / 1000}s")
         VpnStatus.down(problem, message, retrying = true)
+        // A transient foreground start that ends in a retry must not leave "Starting…" pinned to
+        // the status bar for the whole backoff — which, at the top of it, is five minutes.
+        demote()
         retryJob = scope.launch {
             delay(wait)
             val current = app.settingsStore.current()
@@ -764,20 +889,50 @@ class MalachiVpnService : VpnService() {
     private fun reportProblem(problem: TunnelProblem, message: String) {
         DebugLog.w(TAG, "filter not running: $message")
         VpnStatus.down(problem, message)
+        // The tunnel is not coming up, so a transient foreground start has nothing left to wait
+        // for: without this its "Starting…" notification stayed up forever, next to the problem
+        // notification posted below — two at once, one of them the permanent one this app
+        // deliberately doesn't have.
+        demote()
         // Only for the states a person has to resolve; a retryable hiccup stays quiet.
         FilterNotifications.postProblem(this, message)
     }
 
-    private fun stopTunnel() {
+    /**
+     * Takes the tunnel down, and does not return until nothing can still be using it.
+     *
+     * The waiting is the point. Closing the descriptor while the read loop is between its
+     * `poll()` and its `read()`, or while a forwarder is inside `write()`, does not merely lose
+     * that packet: the descriptor number is free the instant it is closed and the kernel hands
+     * it to whatever this process opens next — an upstream socket, a settings file — so the
+     * read or the write lands on something else entirely. Rare, and the sort of thing that is
+     * never diagnosed from the outside. So the writers are locked out first, then the reader is
+     * joined, and only then is the descriptor closed.
+     */
+    private fun stopTunnel(): Unit = synchronized(tunnelLock) {
         val pfd = tunnel ?: return
         tunnel = null
         tunnelShape = null
         // Ends the poll() the read loop is parked in. Closing the tun would not: poll has no
         // idea the descriptor went away, and would sit there until something else arrived.
         runCatching { wakeWrite?.let { Os.write(it, byteArrayOf(1), 0, 1) } }
+
+        // Under the same lock the writers hold, so no forwarder can be inside write() once this
+        // returns, and any that arrives later finds no stream and drops.
+        synchronized(writeLock) {
+            runCatching { output?.close() }
+            output = null
+        }
+
+        val reader = readerThread
         readerThread = null
-        runCatching { output?.close() }
-        output = null
+        // Never from the read loop itself — its teardown goes through failTunnel for exactly
+        // this reason — but the guard costs nothing and a self-join would hang the tunnel.
+        if (reader != null && reader !== Thread.currentThread()) {
+            reader.join(READER_JOIN_MS)
+            if (reader.isAlive) DebugLog.w(TAG, "the read loop did not stop in time")
+        }
+
         runCatching { pfd.close() }
         closePooledSockets()
         // The flush cadence is a lookup count, so a tunnel that stops has to push what is left.
@@ -790,19 +945,35 @@ class MalachiVpnService : VpnService() {
      * Without handling it the service would keep "running" over a dead descriptor and the app
      * would show a filter that was quietly filtering nothing.
      */
+    /**
+     * The system took the tunnel away — another VPN was started, or the user withdrew consent.
+     *
+     * Deliberately *not* calling through to `super`, whose implementation is `stopSelf()`. That
+     * destroys the service, and `onDestroy` cancels the very retry scheduled two lines earlier —
+     * so the documented recovery from "another VPN took over, and then let go" never happened:
+     * it waited for the half-hourly watchdog instead. The service stays up to retry, and gives
+     * up by itself when the cause turns out to be a withdrawn consent (see [startTunnel]).
+     *
+     * Off the calling thread because this arrives on the main one and [stopTunnel] waits for the
+     * read loop.
+     */
     override fun onRevoke() {
         DebugLog.w(TAG, "VPN consent revoked or taken over by another app")
-        stopTunnel()
-        // Retried rather than reported: the usual cause is another VPN connecting, and that is
-        // exactly the kind of thing that stops again on its own.
-        scheduleRetry(TunnelProblem.DISPLACED, getString(R.string.status_displaced))
-        super.onRevoke()
+        scope.launch {
+            synchronized(tunnelLock) {
+                stopTunnel()
+                // Retried rather than reported: the usual cause is another VPN connecting, and
+                // that is exactly the kind of thing that stops again on its own.
+                scheduleRetry(TunnelProblem.DISPLACED, getString(R.string.status_displaced))
+            }
+        }
     }
 
     override fun onDestroy() {
         stopTunnel()
         cancelRetry()
         runCatching { cm.unregisterNetworkCallback(networkCallback) }
+        runCatching { unregisterReceiver(packageChanges) }
         scope.cancel()
         forwarders.shutdownNow()
         VpnStatus.down()
@@ -814,7 +985,6 @@ class MalachiVpnService : VpnService() {
 
     companion object {
         const val ACTION_STOP = "dev.malachi.net.STOP"
-        const val ACTION_PAUSE = "dev.malachi.net.PAUSE"
         const val ACTION_RESUME = "dev.malachi.net.RESUME"
 
         /** Set when the caller could only start us as a foreground service; see [demote]. */
@@ -840,8 +1010,14 @@ class MalachiVpnService : VpnService() {
         private const val UPSTREAM_TIMEOUT_MS = 5_000
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
-        private const val NOTIFICATION_REFRESH_MS = 30_000L
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L
+
+        /**
+         * How long a shutdown waits for the read loop. It is woken by a byte down the self-pipe
+         * and returns in microseconds; this only bites on a device where the pipe couldn't be
+         * made and the loop is on the fallback poll timeout instead.
+         */
+        private const val READER_JOIN_MS = 2_000L
 
         /** Only used if the shutdown pipe could not be made; see [readLoop]. */
         private const val FALLBACK_POLL_MS = 1_000
@@ -865,9 +1041,6 @@ class MalachiVpnService : VpnService() {
             "2606:4700:4700::1111", "2606:4700:4700::1001",
             "2620:fe::fe", "2620:fe::9",
         )
-
-        private fun transactionId(message: ByteArray): Int =
-            ((message[0].toInt() and 0xFF) shl 8) or (message[1].toInt() and 0xFF)
 
         /**
          * Parses a literal address, and only a literal address. The numeric check is what keeps

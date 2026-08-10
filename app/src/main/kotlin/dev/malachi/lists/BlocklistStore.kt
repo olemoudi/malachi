@@ -15,6 +15,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import java.io.File
+import java.io.FileOutputStream
 
 /** What is known about one downloaded list. Persisted beside the compiled indexes. */
 @Serializable
@@ -45,10 +46,12 @@ data class ListState(
  * a 304 costs one round trip instead of twenty megabytes of a stranger's bandwidth and the
  * user's data plan. Most of these lists rebuild hourly and change by a handful of lines.
  */
-class BlocklistStore(private val context: Context) {
+class BlocklistStore(private val dir: File) {
 
-    private val dir = File(context.filesDir, "lists")
-    private val stateFile = File(dir, "state.json")
+    /** The real one. The [File] constructor is what lets a test exercise [prune] and [load]. */
+    constructor(context: Context) : this(File(context.filesDir, "lists"))
+
+    private val stateFile = File(dir, STATE_FILE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
     private val refreshLock = Mutex()
 
@@ -65,8 +68,6 @@ class BlocklistStore(private val context: Context) {
         DebugLog.w(TAG, "unreadable list state; starting over", it)
         emptyMap()
     }
-
-    fun stateOf(id: String): ListState = states()[id] ?: ListState(id)
 
     /**
      * Reads the compiled indexes for [sources] back into memory, skipping any that haven't been
@@ -135,8 +136,18 @@ class BlocklistStore(private val context: Context) {
             allowFile(id).delete()
             states.remove(id)
         }
+        // The directory itself is the authority, not the state file. Driving this from the
+        // states alone left a two-megabyte index on the phone forever whenever state.json was
+        // the thing that got lost — and "every file has a bound" has to survive the file that
+        // records what the files are.
         runCatching {
-            dir.listFiles { f -> f.name.endsWith(".tmp") }?.forEach { it.delete() }
+            dir.listFiles()?.forEach { file ->
+                when {
+                    file.name == STATE_FILE -> Unit
+                    file.name.endsWith(".tmp") -> file.delete()
+                    file.name.substringBeforeLast('.') !in wanted -> file.delete()
+                }
+            }
         }
         writeStates(states.values.toList())
     }
@@ -202,10 +213,18 @@ class BlocklistStore(private val context: Context) {
         }
     }
 
-    /** Written to a sibling first and renamed, so a kill mid-write can't leave a torn index. */
+    /**
+     * Written to a sibling first and renamed, so a kill mid-write can't leave a torn index —
+     * and synced before the rename, because a rename is only atomic against this process. A
+     * power cut between the two used to be able to leave the final name pointing at a block of
+     * unwritten zeroes, which reads back as a corrupt index and is thrown away.
+     */
     private fun writeIndex(target: File, index: DomainIndex) {
         val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.outputStream().use { index.write(it) }
+        FileOutputStream(tmp).use { out ->
+            index.write(out)
+            out.fd.sync()
+        }
         if (!tmp.renameTo(target)) {
             tmp.copyTo(target, overwrite = true)
             tmp.delete()
@@ -237,6 +256,9 @@ class BlocklistStore(private val context: Context) {
 
     private companion object {
         const val TAG = "MalachiLists"
+
+        /** The one file in this directory that isn't a compiled list. See [prune]. */
+        const val STATE_FILE = "state.json"
 
         /** Below this, a "successful" download is treated as a failure. See the call site. */
         const val MINIMUM_CREDIBLE_ENTRIES = 100

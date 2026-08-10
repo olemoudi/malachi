@@ -2,6 +2,7 @@ package dev.malachi.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -15,7 +16,23 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import java.io.IOException
 
-private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "malachi_settings")
+/**
+ * The corruption handler is what makes "damaged settings" recoverable rather than terminal.
+ *
+ * DataStore surfaces an unreadable file by throwing from every read *and every write*, forever,
+ * because nothing repairs it on its own. Catching it on the read side alone — which is all this
+ * used to do — produces an app that shows its defaults and cannot save anything: the filter
+ * reads as off, turning it back on writes nothing, and the next launch says off again. Replacing
+ * the file with empty preferences loses the user's rules once, which is bad, and is the only
+ * outcome here that ends.
+ */
+private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "malachi_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { error ->
+        DebugLog.e("MalachiSettings", "settings file is corrupt; replacing it with defaults", error)
+        emptyPreferences()
+    },
+)
 
 /**
  * Persists [MalachiSettings] as a single JSON blob.

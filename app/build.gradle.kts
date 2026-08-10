@@ -13,8 +13,8 @@ android {
         applicationId = "dev.malachi"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0-alpha"
+        versionCode = 5
+        versionName = "0.5.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -58,6 +58,10 @@ android {
 
     testOptions {
         unitTests.all { it.useJUnitPlatform() }
+        // The storage classes log through DebugLog, which writes to android.util.Log. Without
+        // this every one of those calls throws "not mocked" and the on-disk behaviour — which is
+        // exactly what these tests exist to pin down — can't be exercised off a device.
+        unitTests.isReturnDefaultValues = true
     }
 }
 

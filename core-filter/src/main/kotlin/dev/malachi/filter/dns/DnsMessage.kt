@@ -43,6 +43,18 @@ object DnsMessage {
     private const val RCODE_NXDOMAIN = 3
     private const val RCODE_REFUSED = 5
 
+    /**
+     * The transaction id of [data], or null when it is too short to be a DNS message at all.
+     *
+     * Null rather than an exception because both callers are on a path that must never throw:
+     * one decides whether a packet is worth forwarding, the other matches a reply to the query
+     * it belongs to, and a stray byte from any app on the phone reaches both.
+     */
+    fun transactionId(data: ByteArray): Int? {
+        if (data.size < HEADER_BYTES) return null
+        return ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
+    }
+
     /** True when [data] is a standard query (QR=0, OPCODE=0) with at least one question. */
     fun isStandardQuery(data: ByteArray): Boolean {
         if (data.size < HEADER_BYTES) return false

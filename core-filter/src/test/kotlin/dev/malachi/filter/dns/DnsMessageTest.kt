@@ -31,6 +31,22 @@ class DnsMessageTest {
         ((data[at].toInt() and 0xFF) shl 8) or (data[at + 1].toInt() and 0xFF)
 
     @Test
+    fun `the transaction id is the first two bytes of a message`() {
+        assertEquals(0x1234, DnsMessage.transactionId(query("ads.example.com")))
+    }
+
+    @Test
+    fun `anything too short to be a DNS message has no transaction id`() {
+        // The caller uses this to decide whether a packet is worth a socket at all: any app on
+        // the phone can send a stray byte to port 53, and reading past the end of it would throw
+        // on the tunnel's own thread.
+        assertNull(DnsMessage.transactionId(ByteArray(0)))
+        assertNull(DnsMessage.transactionId(ByteArray(1)))
+        assertNull(DnsMessage.transactionId(ByteArray(11)))
+        assertEquals(0, DnsMessage.transactionId(ByteArray(12)))
+    }
+
+    @Test
     fun `a question is read back with its name and type`() {
         val question = DnsMessage.parseQuestion(query("ads.example.com"))!!
         assertEquals("ads.example.com", question.name)
