@@ -1,5 +1,6 @@
 package dev.malachi.stats
 
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -18,11 +19,24 @@ class StatsStoreTest {
 
     private val zone: ZoneId = ZoneId.systemDefault()
 
+    private val opened = mutableListOf<StatsStore>()
+
+    /**
+     * Every store here writes on a thread of its own, and a flush can be triggered by a plain
+     * `record` — so without draining them the temp directory gets deleted out from under a save
+     * still in flight, and the test fails on the cleanup rather than on anything it asserted.
+     */
+    @AfterEach
+    fun drain() = opened.forEach { it.awaitIdle() }
+
     private fun noonOn(date: LocalDate): Long =
         date.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
 
-    /** A store with its stored file already read, which is the state every assertion assumes. */
-    private fun openStore(): StatsStore = StatsStore(directory).also { it.awaitIdle() }
+    /** A store that has not read its file yet, as it is for the first moments of a process. */
+    private fun newStore(): StatsStore = StatsStore(directory).also { opened += it }
+
+    /** A store with its stored file already read, which is the state most assertions assume. */
+    private fun openStore(): StatsStore = newStore().also { it.awaitIdle() }
 
     @Test
     fun `counters survive being written and read back`() {
@@ -47,10 +61,10 @@ class StatsStoreTest {
         seed.flush()
         seed.awaitIdle()
 
-        // No awaitIdle: this store records and saves while its own load is still outstanding,
+        // Not openStore(): this one records and saves while its own load is still outstanding,
         // which is what happens when the tunnel comes up at process start. Taking the snapshot
         // on the caller's thread wrote those months of counters back out as a single lookup.
-        val reopened = StatsStore(directory)
+        val reopened = newStore()
         reopened.record("com.example.app", wasBlocked = false)
         reopened.flush()
         reopened.awaitIdle()
