@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.data.AppScopeMode
 import dev.malachi.data.InstalledApp
+import dev.malachi.data.MalachiSettings
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.AppIcon
 import dev.malachi.ui.components.CardGroup
@@ -168,11 +169,15 @@ private fun AppRow(
             Spacer(Modifier.width(spacing.md))
             Column(Modifier.weight(1f)) {
                 Text(app.label, style = MaterialTheme.typography.titleMedium)
+                // Android Auto is off by default and it is not obvious why — its own error
+                // blames "a VPN" without saying whose. Said here, somebody who switches it back
+                // on at least knows what they are trading.
+                val incompatible = app.packageName in MalachiSettings.INCOMPATIBLE_WITH_A_VPN
                 Text(
-                    if (rules > 0) {
-                        pluralStringResource(R.plurals.apps_rule_count, rules, rules)
-                    } else {
-                        app.packageName
+                    when {
+                        incompatible && !covered -> stringResource(R.string.apps_breaks_with_vpn)
+                        rules > 0 -> pluralStringResource(R.plurals.apps_rule_count, rules, rules)
+                        else -> app.packageName
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

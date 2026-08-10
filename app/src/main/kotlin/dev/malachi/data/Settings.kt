@@ -109,6 +109,15 @@ data class MalachiSettings(
     val updateWifiOnly: Boolean = false,
 
     /**
+     * Whether the one-time exemption for apps a VPN is known to break has been applied.
+     *
+     * A flag rather than a default, because a default only reaches a fresh install: an existing
+     * one has `excludedApps` stored as an explicit list, and adding to the field's default value
+     * changes nothing for it. See [withKnownIncompatibleAppsExempted].
+     */
+    val incompatibleAppsExempted: Boolean = false,
+
+    /**
      * The always-on suggestion has been dismissed.
      *
      * Persisted because whether always-on is *already* configured is something a normal app is
@@ -118,6 +127,29 @@ data class MalachiSettings(
      */
     val alwaysOnTipDismissed: Boolean = false,
 ) {
+    /**
+     * Exempts, once, the apps that a VPN is known to break.
+     *
+     * Android Auto refuses to start at all when it detects a VPN — "communication error 21",
+     * and its own message names the VPN as the cause. It is not fussy about *which* one, and
+     * nothing a filter does to its routes changes that, so the only thing that can help is
+     * putting Android Auto outside the tunnel entirely.
+     *
+     * Applied once and then remembered, so somebody who decides they would rather filter their
+     * car than use it can switch it back on and not have this undo them at the next launch. The
+     * list is deliberately one entry long: exempting Google Play Services would fix more things
+     * and quietly stop filtering a great deal of what this app exists to filter.
+     */
+    fun withKnownIncompatibleAppsExempted(): MalachiSettings =
+        if (incompatibleAppsExempted) {
+            this
+        } else {
+            copy(
+                excludedApps = excludedApps + INCOMPATIBLE_WITH_A_VPN,
+                incompatibleAppsExempted = true,
+            )
+        }
+
     fun isPaused(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < pausedUntilMs
 
     /** True when the filter should be doing work right now. */
@@ -147,5 +179,13 @@ data class MalachiSettings(
         append(includedApps.sorted().joinToString(","))
         append('|')
         append(bypassGuard.name)
+    }
+
+    companion object {
+        /** Android Auto. Its own error message tells the user to turn the VPN off. */
+        const val ANDROID_AUTO = "com.google.android.projection.gearhead"
+
+        /** Apps that will not work while any VPN is up, whatever that VPN actually routes. */
+        val INCOMPATIBLE_WITH_A_VPN = setOf(ANDROID_AUTO)
     }
 }

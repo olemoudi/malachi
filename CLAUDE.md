@@ -298,6 +298,19 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - Thread pools use `allowCoreThreadTimeOut(true)`; a phone that is not resolving anything must
   hold no worker threads at all.
 
+### Apps that a VPN breaks
+- **Android Auto refuses to start whenever any VPN is up** — "communication error 21", and its
+  own message blames the VPN without naming one. Nothing about the routes changes it; a tunnel
+  that carries two sentinel addresses trips it exactly like a full one. The only remedy is
+  `addDisallowedApplication`, so `com.google.android.projection.gearhead` is exempted once by
+  `MalachiSettings.withKnownIncompatibleAppsExempted` and the choice is then the user's.
+- **A default value would not have reached anybody.** An install that already exists has its
+  exclusions stored as an explicit list, so this is a one-time migration behind a flag rather
+  than a change to a field's default — and it is applied once, so somebody who decides they
+  would rather filter their car than use it is not undone at the next launch.
+- **The list stays one entry long.** Google Play Services would fix more things and quietly stop
+  filtering most of what this app exists to filter. Growing it is a decision, not a drift.
+
 ### Privacy constraints (non-negotiable)
 - **A domain never touches disk.** The query log lives in memory only and dies with the process.
   The statistics persist *counts* — per app, per day — and must never gain a hostname field, a

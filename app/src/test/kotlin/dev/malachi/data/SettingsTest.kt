@@ -127,4 +127,57 @@ class SettingsTest {
         assertEquals("com.example.game", rule.packageName)
         assertTrue(rule.block)
     }
+
+    // ---- the apps a VPN breaks ---------------------------------------------------------
+
+    @Test
+    fun `android auto is exempted once, and only once`() {
+        // Android Auto refuses to start while any VPN is up and says so itself; nothing about
+        // the routes changes that, so the only thing that helps is being outside the tunnel.
+        val fresh = MalachiSettings()
+        val exempted = fresh.withKnownIncompatibleAppsExempted()
+
+        assertTrue(MalachiSettings.ANDROID_AUTO in exempted.excludedApps)
+        assertTrue(exempted.incompatibleAppsExempted)
+        // Idempotent: running again changes nothing.
+        assertEquals(exempted, exempted.withKnownIncompatibleAppsExempted())
+    }
+
+    @Test
+    fun `somebody who chooses to filter their car is not undone at the next launch`() {
+        // The exemption is a one-time nudge, not a policy. Having been applied and then
+        // reversed by hand, it must stay reversed.
+        val afterTheUserPutItBack = MalachiSettings()
+            .withKnownIncompatibleAppsExempted()
+            .let { it.copy(excludedApps = it.excludedApps - MalachiSettings.ANDROID_AUTO) }
+
+        assertEquals(afterTheUserPutItBack, afterTheUserPutItBack.withKnownIncompatibleAppsExempted())
+        assertTrue(MalachiSettings.ANDROID_AUTO !in afterTheUserPutItBack.excludedApps)
+    }
+
+    @Test
+    fun `exempting keeps every other exclusion the user made`() {
+        val mine = MalachiSettings(excludedApps = setOf("com.bank.app", "com.example.game"))
+        val exempted = mine.withKnownIncompatibleAppsExempted()
+
+        assertTrue("com.bank.app" in exempted.excludedApps)
+        assertTrue("com.example.game" in exempted.excludedApps)
+        assertEquals(3, exempted.excludedApps.size)
+    }
+
+    @Test
+    fun `exempting an app changes the shape of the tunnel`() {
+        // The app scope is baked into the tun at establish(), so this has to be a rebuild or the
+        // exemption would not take effect until something else happened to cause one.
+        val before = MalachiSettings()
+        val after = before.withKnownIncompatibleAppsExempted()
+        assertTrue(before.tunnelShape() != after.tunnelShape())
+    }
+
+    @Test
+    fun `the exemption list stays short on purpose`() {
+        // Google Play Services would fix more and quietly stop filtering most of what this app
+        // exists to filter. If this ever grows, it should be a decision and not a drift.
+        assertEquals(setOf(MalachiSettings.ANDROID_AUTO), MalachiSettings.INCOMPATIBLE_WITH_A_VPN)
+    }
 }
