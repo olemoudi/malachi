@@ -1002,10 +1002,12 @@ class MalachiVpnService : VpnService() {
 
         /**
          * How long a shutdown waits for the read loop. It is woken by a byte down the self-pipe
-         * and returns in microseconds; this only bites on a device where the pipe couldn't be
-         * made and the loop is on the fallback poll timeout instead.
+         * and returns in microseconds, so this is pure headroom — but giving up on the wait is
+         * how a reader gets detached from a descriptor that is about to close, which is the one
+         * outcome worth spending seconds to avoid. Generous for the sake of a contended machine
+         * where "microseconds" is not what a scheduler does.
          */
-        private const val READER_JOIN_MS = 2_000L
+        private const val READER_JOIN_MS = 8_000L
 
         /** Only used if the shutdown pipe could not be made; see [readLoop]. */
         private const val FALLBACK_POLL_MS = 1_000

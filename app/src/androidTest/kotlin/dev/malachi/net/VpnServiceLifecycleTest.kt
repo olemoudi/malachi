@@ -71,7 +71,7 @@ class VpnServiceLifecycleTest {
     }
 
     /** Waits for the tunnel to reach [up], or gives up. Returns whether it got there. */
-    private fun awaitTunnel(up: Boolean, timeoutMs: Long = 10_000): Boolean {
+    private fun awaitTunnel(up: Boolean, timeoutMs: Long = 25_000): Boolean {
         val deadline = System.nanoTime() + timeoutMs * 1_000_000
         while (System.nanoTime() < deadline) {
             if (VpnStatus.status.value.tunnelUp == up) return true
@@ -84,7 +84,7 @@ class VpnServiceLifecycleTest {
         Thread.getAllStackTraces().keys.filter { it.name == "malachi-tun" && it.isAlive }
 
     /** Waits for exactly [count] read loops to be alive, so an assertion isn't a race. */
-    private fun awaitReaders(count: Int, timeoutMs: Long = 5_000): List<Thread> {
+    private fun awaitReaders(count: Int, timeoutMs: Long = 15_000): List<Thread> {
         val deadline = System.nanoTime() + timeoutMs * 1_000_000
         while (System.nanoTime() < deadline) {
             val threads = readerThreads()

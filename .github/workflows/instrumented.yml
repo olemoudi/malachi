@@ -67,6 +67,8 @@ jobs:
             adb shell appops get dev.malachi ACTIVATE_VPN
             # One line on purpose: the action feeds this script to sh in a way that does not
             # survive a backslash continuation, and the only symptom is `Task '\' not found`.
+            adb logcat -c
+            adb logcat -v time > logcat.txt &
             ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true
 
       - name: Keep the report when something fails
@@ -77,4 +79,5 @@ jobs:
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
+            logcat.txt
           if-no-files-found: ignore
