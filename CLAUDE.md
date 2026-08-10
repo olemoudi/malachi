@@ -313,6 +313,13 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **Android Auto is also exempted from the tunnel**, once, by
   `MalachiSettings.withKnownIncompatibleAppsExempted` — belt and braces while the fix above is
   unverified against a real car, and the choice is then the user's.
+- **There is no list of which apps used the bypass, and there cannot be one.** An app that
+  bypasses never reaches this process; that is what bypassing means. `allowBypass()` is also a
+  property of the whole tunnel, not something granted per app — the only per-app lever Android
+  offers is `addDisallowedApplication`, which puts an app outside the tunnel entirely. Anything
+  claiming to name the bypassers would be inferred from `NetworkStatsManager` behind a
+  usage-access permission, which is a large ask for a guess. `bypassAllowed` is a setting
+  instead: on by default, and off is the strictest this filter can be.
 - **A default value would not have reached anybody.** An install that already exists has its
   exclusions stored as an explicit list, so this is a one-time migration behind a flag rather
   than a change to a field's default — and it is applied once, so somebody who decides they

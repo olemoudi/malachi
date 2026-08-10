@@ -143,6 +143,15 @@ fun SettingsScreen(
             }
 
             item {
+                SwitchRow(
+                    title = stringResource(R.string.settings_allow_bypass),
+                    subtitle = stringResource(R.string.settings_allow_bypass_hint),
+                    checked = settings.bypassAllowed,
+                    onCheckedChange = vm::setBypassAllowed,
+                )
+            }
+
+            item {
                 SectionHeader(
                     title = stringResource(R.string.settings_connection_title),
                     supporting = stringResource(R.string.settings_always_on_hint),

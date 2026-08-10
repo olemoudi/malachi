@@ -265,6 +265,8 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun setBypassGuard(guard: BypassGuard) = update { it.copy(bypassGuard = guard) }
 
+    fun setBypassAllowed(allowed: Boolean) = update { it.copy(bypassAllowed = allowed) }
+
     // ---- the rest ----------------------------------------------------------------------
 
     fun setQueryLogEnabled(enabled: Boolean) = update { it.copy(queryLogEnabled = enabled) }

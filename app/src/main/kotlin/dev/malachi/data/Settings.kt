@@ -103,6 +103,24 @@ data class MalachiSettings(
 
     val bypassGuard: BypassGuard = BypassGuard.SYSTEM_RESOLVERS,
 
+    /**
+     * Whether an app that binds a socket to a particular network may reach it.
+     *
+     * On, because off breaks things that have nothing to do with advertising: Android Auto
+     * cannot reach the head unit it is plugged into, casting cannot find the television, a
+     * captive portal cannot be logged into. Android's rule without it is absolute — an app may
+     * not bypass the VPN — whatever the tunnel actually routes, and ours routes two addresses.
+     *
+     * The cost is real and narrow: an app that deliberately binds resolves through that
+     * network's resolver and is not filtered. Nothing that serves an advert does this; they ask
+     * the system resolver, which is what the tunnel intercepts. Turning it off is the strictest
+     * this filter can be, and is offered because that is somebody's answer.
+     *
+     * There is deliberately no list of who used it. An app that bypasses never reaches this
+     * process — that is what bypassing means — so a screen naming them could only be invented.
+     */
+    val bypassAllowed: Boolean = true,
+
     val queryLogEnabled: Boolean = true,
 
     /** Wi-Fi-only self-update, for a phone on a small data plan. */
@@ -179,6 +197,8 @@ data class MalachiSettings(
         append(includedApps.sorted().joinToString(","))
         append('|')
         append(bypassGuard.name)
+        append('|')
+        append(bypassAllowed)
     }
 
     companion object {

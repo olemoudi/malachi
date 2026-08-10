@@ -180,4 +180,31 @@ class SettingsTest {
         // exists to filter. If this ever grows, it should be a decision and not a drift.
         assertEquals(setOf(MalachiSettings.ANDROID_AUTO), MalachiSettings.INCOMPATIBLE_WITH_A_VPN)
     }
+
+    // ---- letting an app out of the tunnel ----------------------------------------------
+
+    @Test
+    fun `apps may reach a network they ask for, by default`() {
+        // Off, Android refuses it to every app while a VPN is up, whatever the VPN routes —
+        // which is what stopped Android Auto reaching the head unit it was plugged into.
+        assertTrue(MalachiSettings().bypassAllowed)
+    }
+
+    @Test
+    fun `changing it rebuilds the tunnel`() {
+        // It is passed to establish() and cannot be changed on a live tun, so it has to be part
+        // of the shape or the setting would appear to do nothing until something else caused a
+        // rebuild.
+        val on = MalachiSettings()
+        val off = on.copy(bypassAllowed = false)
+        assertTrue(on.tunnelShape() != off.tunnelShape())
+    }
+
+    @Test
+    fun `it is not part of what a rule change touches`() {
+        // Rules are read per query. Editing one must not rebuild the tunnel, bypass or no.
+        val before = MalachiSettings()
+        val after = before.copy(userBlocked = setOf("ads.example.com"))
+        assertEquals(before.tunnelShape(), after.tunnelShape())
+    }
 }

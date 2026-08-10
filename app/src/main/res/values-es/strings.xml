@@ -187,6 +187,8 @@
     <string name="upstream_custom_dialog_hint">Solo direcciones IP, separadas por comas. No se aceptan nombres de host: resolver uno requeriría el resolutor que estás configurando.</string>
 
     <!-- Ajustes: evasión -->
+    <string name="settings_allow_bypass">Dejar que las apps alcancen la red que piden</string>
+    <string name="settings_allow_bypass_hint">Android Auto, enviar a la tele y los portales cautivos necesitan hablar con un dispositivo directamente, y Android se lo niega a toda app mientras hay una VPN salvo que se permita esto. Una app que lo pida a propósito deja de filtrarse: nada que sirva anuncios lo hace, pero desactivarlo es lo más estricto que este filtro puede ser.</string>
     <string name="settings_bypass_title">Apps que esquivan el filtro</string>
     <string name="settings_bypass_hint">Una app con un resolutor incrustado nunca pregunta al sistema cuál usar. Atraparla obliga a encaminar esas direcciones por Malachi, lo que puede romper su otro tráfico.</string>
     <string name="bypass_off">Desactivado</string>

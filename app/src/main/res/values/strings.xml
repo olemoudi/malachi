@@ -188,6 +188,8 @@
     <string name="upstream_custom_dialog_hint">IP addresses only, separated by commas. Host names are not accepted — resolving one would need the resolver you are configuring.</string>
 
     <!-- Settings: bypass guard -->
+    <string name="settings_allow_bypass">Let apps reach a network they ask for</string>
+    <string name="settings_allow_bypass_hint">Android Auto, casting and captive portals need to talk to a device directly, and Android refuses that to every app while a VPN is on unless this is allowed. An app that deliberately asks is then not filtered — nothing that serves an advert does, but turning this off is the strictest this filter gets.</string>
     <string name="settings_bypass_title">Apps that go around the filter</string>
     <string name="settings_bypass_hint">An app with a resolver hard-coded into it never asks the system which one to use. Catching those means routing those addresses through Malachi, which can break their other traffic.</string>
     <string name="bypass_off">Off</string>

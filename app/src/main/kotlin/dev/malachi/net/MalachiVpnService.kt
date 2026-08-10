@@ -398,7 +398,6 @@ class MalachiVpnService : VpnService() {
             // land in the tun as before. The bypass guard still catches a hardcoded 8.8.8.8,
             // because hardcoding a resolver and binding to a network are different things and
             // trackers do the first, not the second.
-            .allowBypass()
             .addAddress(TUN_IPV4, 32)
             .addDnsServer(DNS_IPV4)
             .addRoute(DNS_IPV4, 32)
@@ -410,6 +409,10 @@ class MalachiVpnService : VpnService() {
                 .addDnsServer(DNS_IPV6)
                 .addRoute(DNS_IPV6, 128)
         }.onFailure { DebugLog.w(TAG, "no IPv6 on this device; filtering IPv4 only", it) }
+
+        // See MalachiSettings.bypassAllowed: without this an app may not reach a network it
+        // binds to, whatever we route, and Android Auto fails before it starts.
+        if (settings.bypassAllowed) builder.allowBypass()
 
         applyScope(builder, settings)
         applyBypassGuard(builder, settings)
