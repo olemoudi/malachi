@@ -94,7 +94,7 @@
     <string name="app_detail_filtered_subtitle">Si está desactivado, el DNS de esta app nunca llega a Malachi.</string>
     <string name="app_detail_rules_title">Reglas para esta app</string>
     <string name="app_detail_rules_hint">Tienen prioridad sobre tus reglas globales y sobre cualquier lista, solo para esta app.</string>
-    <string name="app_detail_seen_title">Consultado recientemente</string>
+    <string name="app_detail_seen_title">Los más consultados</string>
     <string name="app_detail_seen_hint">Lo que esta app ha estado resolviendo de verdad. Toca un icono para escribir una regla.</string>
     <string name="app_detail_seen_empty">Todavía no se ha visto nada de esta app. Ábrela y vuelve aquí.</string>
 

@@ -266,6 +266,11 @@ class MalachiVpnService : VpnService() {
         // last five hundred domains in memory, and on screen, after the one feature whose whole
         // argument is privacy had been switched off.
         if (TunnelPolicy.forgetsQueryLog(previous, next)) QueryLog.clearRecords()
+        // Only when the filter is switched on, not on every tunnel that comes up. It used to be
+        // reset inside startTunnel, which meant changing which apps are covered, toggling the
+        // bypass, or a retry after another VPN took the tunnel all threw away every domain the
+        // log had ever seen — including the ones somebody had opened this screen to look at.
+        if (!previous.filteringEnabled && next.filteringEnabled) QueryLog.reset()
         attributionNeeded = TunnelPolicy.attributionNeeded(next)
 
         resumeJob?.cancel()
@@ -341,7 +346,6 @@ class MalachiVpnService : VpnService() {
         output = FileOutputStream(pfd.fileDescriptor)
         upstreams = resolveUpstreams()
         retryAttempt = 0
-        QueryLog.reset()
         demote()
         FilterNotifications.cancelProblem(this)
         DebugLog.i(TAG, "tunnel up; upstream=${upstreamLabel()} scope=${settings.scopeMode}")

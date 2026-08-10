@@ -291,7 +291,12 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   (`getConnectionOwnerUid`) is a binder round trip and is skipped entirely unless the query log
   is on or a per-app rule exists. Upstream sockets are pooled so `protect()` — another round
   trip — happens once per socket, not once per lookup.
-- **The query log publishes nothing while nobody is watching** (`subscriptionCount == 0`).
+- **The query log publishes nothing while nobody is watching** (`subscriptionCount == 0`), which
+  means a screen that collects it and does not use it costs a snapshot twice a second on the hot
+  path. The home screen did exactly that for a while.
+- **The query log gives every app a quota** (`MAX_PER_APP`) inside its total ceiling. With one
+  global limit the chattiest app evicts everybody else's history, and the per-app screen reads as
+  broken for anything quiet.
   Counters stay as plain longs so the notification can read them without building a snapshot.
 - **A blocked lookup never leaves the read loop**: no thread hand-off, no coroutine, no copy of
   the packet.

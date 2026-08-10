@@ -95,7 +95,7 @@
     <string name="app_detail_filtered_subtitle">When off, this app\'s DNS never reaches Malachi.</string>
     <string name="app_detail_rules_title">Rules for this app</string>
     <string name="app_detail_rules_hint">These beat your global rules and every blocklist, for this app only.</string>
-    <string name="app_detail_seen_title">Recently looked up</string>
+    <string name="app_detail_seen_title">Most looked up</string>
     <string name="app_detail_seen_hint">What this app has actually been resolving. Tap an icon to write a rule for it.</string>
     <string name="app_detail_seen_empty">Nothing seen from this app yet. Open it and come back.</string>
 

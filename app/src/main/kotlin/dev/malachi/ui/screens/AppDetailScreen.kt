@@ -60,7 +60,14 @@ fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Uni
 
     val label = remember(packageName) { vm.labelFor(packageName) }
     val rules = settings.appRulesFor(packageName)
-    val seen = remember(log, packageName) { log.records.filter { it.packageName == packageName } }
+    // Ranked by how often, not by how recently: "what does this app keep asking for" is the
+    // question somebody writing a rule has, and the noisiest domain is rarely the last one.
+    val seen = remember(log, packageName) {
+        log.records
+            .filter { it.packageName == packageName }
+            .sortedByDescending { it.count }
+            .take(SEEN_LIMIT)
+    }
 
     var draft by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
@@ -213,3 +220,6 @@ fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Uni
         }
     }
 }
+
+/** How many domains the detail screen ranks. The log holds a little more per app. */
+private const val SEEN_LIMIT = 50

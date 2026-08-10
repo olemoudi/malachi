@@ -71,12 +71,18 @@ class QueryLogTest {
     }
 
     @Test
-    fun `the cap evicts the least recently seen`() {
-        repeat(QueryLog.MAX_RECORDS + 20) { i -> QueryLog.record("d$i.example.com", "com.a", allowed) }
+    fun `the total cap evicts the least recently seen, across every app`() {
+        // Each app has a quota of its own now, so reaching the overall ceiling takes several of
+        // them — one app on its own runs out of its own room first, which is the point.
+        val apps = QueryLog.MAX_RECORDS / QueryLog.MAX_PER_APP + 10
+        repeat(apps) { app ->
+            repeat(QueryLog.MAX_PER_APP) { i -> QueryLog.record("d$i.example.com", "com.app$app", allowed) }
+        }
+
         val records = snapshot().records
         assertEquals(QueryLog.MAX_RECORDS, records.size)
-        assertTrue(records.none { it.domain == "d0.example.com" })
-        assertEquals("d${QueryLog.MAX_RECORDS + 19}.example.com", records.first().domain)
+        assertTrue(records.none { it.packageName == "com.app0" }, "the oldest app should have gone first")
+        assertEquals("com.app${apps - 1}", records.first().packageName)
     }
 
     @Test
@@ -138,5 +144,69 @@ class QueryLogTest {
         val old = grouped.first { it.first == "com.old" }.second
         assertEquals(2, old.size)
         assertEquals("c.example.com", old.first().domain)
+    }
+
+    // ---- one app must not crowd out the others -----------------------------------------
+
+    @Test
+    fun `a chatty app runs out of its own room, not everybody else's`() {
+        // With a single global limit this is what made the per-app screen empty: whatever talks
+        // most evicts every other app's history, and the only way to see anything for a quiet
+        // app was to go and use it.
+        QueryLog.record("quiet.example.com", "com.quiet.app", Verdict(blocked = false))
+
+        repeat(QueryLog.MAX_RECORDS * 2) { i ->
+            QueryLog.record("ad$i.example.com", "com.noisy.app", Verdict(blocked = true))
+        }
+
+        val records = snapshot().records
+        val quiet = records.filter { it.packageName == "com.quiet.app" }
+        assertEquals(1, quiet.size, "the quiet app's only domain was evicted")
+        assertEquals("quiet.example.com", quiet.single().domain)
+        assertTrue(records.size <= QueryLog.MAX_RECORDS)
+    }
+
+    @Test
+    fun `an app holds no more than its quota`() {
+        repeat(QueryLog.MAX_PER_APP * 3) { i ->
+            QueryLog.record("d$i.example.com", "com.noisy.app", Verdict(blocked = true))
+        }
+        val held = snapshot().records.count { it.packageName == "com.noisy.app" }
+        assertEquals(QueryLog.MAX_PER_APP, held)
+    }
+
+    @Test
+    fun `the quota evicts the least recently seen of that app`() {
+        repeat(QueryLog.MAX_PER_APP) { i ->
+            QueryLog.record("d$i.example.com", "com.app", Verdict(blocked = true))
+        }
+        // Touch the oldest so it is no longer the oldest, then overflow by one.
+        QueryLog.record("d0.example.com", "com.app", Verdict(blocked = true))
+        QueryLog.record("new.example.com", "com.app", Verdict(blocked = true))
+        val domains = snapshot().records.filter { it.packageName == "com.app" }.map { it.domain }
+        assertTrue("d0.example.com" in domains, "the touched domain was evicted anyway")
+        assertTrue("new.example.com" in domains)
+        assertTrue("d1.example.com" !in domains, "the least recently seen should have gone")
+    }
+
+    @Test
+    fun `unattributed lookups have a quota of their own`() {
+        // A lookup nobody could be attributed to is its own bucket rather than sharing one with
+        // whatever app happens to be null-adjacent.
+        repeat(QueryLog.MAX_PER_APP + 10) { i ->
+            QueryLog.record("sys$i.example.com", null, Verdict(blocked = false))
+        }
+        QueryLog.record("mine.example.com", "com.app", Verdict(blocked = true))
+        val records = snapshot().records
+        assertEquals(QueryLog.MAX_PER_APP, records.count { it.packageName == null })
+        assertEquals(1, records.count { it.packageName == "com.app" })
+    }
+
+    @Test
+    fun `clearing forgets the per-app bookkeeping too`() {
+        repeat(QueryLog.MAX_PER_APP) { i -> QueryLog.record("d$i.example.com", "com.app", Verdict(true)) }
+        QueryLog.clearRecords()
+        repeat(5) { i -> QueryLog.record("e$i.example.com", "com.app", Verdict(true)) }
+        assertEquals(5, snapshot().records.count { it.packageName == "com.app" })
     }
 }

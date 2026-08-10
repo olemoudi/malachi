@@ -61,7 +61,21 @@ data class QueryLogState(
  */
 object QueryLog {
 
-    const val MAX_RECORDS = 500
+    /**
+     * The ceiling on what is held, in total. Every record is a domain and a few fields, so this
+     * is the memory this app spends on being able to answer "what has that app been resolving".
+     */
+    const val MAX_RECORDS = 1200
+
+    /**
+     * And the ceiling per app, which is the half that matters.
+     *
+     * With one global limit, the app that talks most evicts every other app's history: open the
+     * detail screen for anything quiet and it is empty, and the only way to fill it is to go and
+     * use that app. A per-app quota means the noisy one runs out of its own room instead of
+     * everybody else's.
+     */
+    const val MAX_PER_APP = 60
 
     /** How often the snapshot may be rebuilt while a screen is watching. */
     private const val MIN_PUBLISH_INTERVAL_NANOS = 500_000_000L
@@ -75,9 +89,36 @@ object QueryLog {
      * automatically. Keyed by package and domain together: the same tracker in two apps is two
      * facts, and per-app rules are written against exactly that pair.
      */
+    /** How many records each app currently holds, so the quota above can be enforced in O(1). */
+    private val heldPerApp = HashMap<String, Int>()
+
     private val records = object : LinkedHashMap<String, QueryRecord>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, QueryRecord>): Boolean =
-            size > MAX_RECORDS
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, QueryRecord>): Boolean {
+            if (size <= MAX_RECORDS) return false
+            forget(eldest.value)
+            return true
+        }
+    }
+
+    private fun forget(record: QueryRecord) {
+        val owner = record.packageName.orEmpty()
+        val left = (heldPerApp[owner] ?: 1) - 1
+        if (left <= 0) heldPerApp.remove(owner) else heldPerApp[owner] = left
+    }
+
+    /**
+     * Drops this app's least recently seen domain to make room for a new one.
+     *
+     * The scan is over the map in access order, so the first match is the right victim. It only
+     * runs when an app is at its quota *and* has produced a domain it has never asked for
+     * before, which on the hot path is rare: almost every lookup is a repeat, and a repeat is a
+     * map put with no eviction at all.
+     */
+    private fun evictOldestFor(packageName: String?) {
+        val owner = packageName.orEmpty()
+        val victim = records.entries.firstOrNull { it.value.packageName.orEmpty() == owner } ?: return
+        records.remove(victim.key)
+        forget(victim.value)
     }
 
     @Volatile var blocked: Long = 0
@@ -111,6 +152,11 @@ object QueryLog {
             if (recording) {
                 val key = key(packageName, domain)
                 val existing = records[key]
+                if (existing == null) {
+                    val owner = packageName.orEmpty()
+                    if ((heldPerApp[owner] ?: 0) >= MAX_PER_APP) evictOldestFor(packageName)
+                    heldPerApp[owner] = (heldPerApp[owner] ?: 0) + 1
+                }
                 records[key] = QueryRecord(
                     domain = domain,
                     packageName = packageName,
@@ -158,7 +204,10 @@ object QueryLog {
 
     /** Forgets the sightings but keeps counting; the "clear" button on the log screen. */
     fun clearRecords() {
-        synchronized(lock) { records.clear() }
+        synchronized(lock) {
+            records.clear()
+            heldPerApp.clear()
+        }
         publish()
     }
 
@@ -166,6 +215,7 @@ object QueryLog {
     fun reset(nowMs: Long = System.currentTimeMillis()) {
         synchronized(lock) {
             records.clear()
+            heldPerApp.clear()
             blocked = 0
             total = 0
             sinceMs = nowMs

@@ -80,7 +80,6 @@ fun HomeScreen(
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
-    val log by vm.queryLog.collectAsStateWithLifecycle()
     val stats by vm.stats.collectAsStateWithLifecycle()
     val today = remember { LocalDate.now() }
     val todayCounts = remember(stats) { stats.window(StatsWindow.TODAY, today).counts }
