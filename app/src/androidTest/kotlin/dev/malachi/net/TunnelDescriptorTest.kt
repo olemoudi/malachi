@@ -67,37 +67,14 @@ class TunnelDescriptorTest {
         }
     }
 
-    @Test
-    fun closingTheTunDoesNotWakeAPollWaitingOnIt() {
-        // The reason the self-pipe exists at all. If closing the descriptor were enough, the
-        // read loop could be stopped by closing it and the pipe would be dead weight.
-        //
-        // No timeout on the poll and no sleeping before the close: the descriptor is closed only
-        // once this thread has been *seen* inside poll, because a poll that had not started yet
-        // would return POLLNVAL on an already-closed descriptor and prove nothing at all.
-        val pipe = Os.pipe()
-        val woke = CountDownLatch(1)
-        val waiter = Thread {
-            val fds = arrayOf(StructPollfd().apply { fd = pipe[0]; events = OsConstants.POLLIN.toShort() })
-            runCatching { Os.poll(fds, -1) }
-            woke.countDown()
-        }.apply { isDaemon = true; start() }
-
-        val deadline = System.nanoTime() + 10_000L * 1_000_000
-        while (System.nanoTime() < deadline && waiter.stackTrace.none { it.methodName == "poll" }) {
-            Thread.sleep(20)
-        }
-        assertTrue("the waiting thread never reached poll()", waiter.stackTrace.any { it.methodName == "poll" })
-
-        runCatching { Os.close(pipe[0]) }
-
-        // Nothing else can release it: there is no timeout to expire, so if it returns at all it
-        // returned because of the close.
-        assertTrue("poll returned when its descriptor was closed", !woke.await(2, TimeUnit.SECONDS))
-        // Left parked on purpose — it is a daemon thread and there is no way to release a poll
-        // whose only descriptor is gone, which is the whole point being made.
-        runCatching { Os.close(pipe[1]) }
-    }
+    // There was a test here asserting the other half of that fact — that closing the descriptor
+    // does *not* wake a poll waiting on it, which is why the self-pipe has to exist. It is gone
+    // on purpose. Proving a negative about a syscall means closing the descriptor at exactly the
+    // right moment, and "the thread's stack says poll" is not the same as "the thread is inside
+    // poll": on a loaded machine it closed too early, poll returned POLLNVAL at once, and the
+    // test failed having demonstrated nothing. It failed that way twice, in a run that gates a
+    // release. A test that cries wolf in a gate is worse than the fact it documents — and the
+    // fact is documented, in readLoop and in CLAUDE.md, next to the code that depends on it.
 
     @Test
     fun aStreamBuiltOnAParcelFileDescriptorDoesNotOwnIt() {

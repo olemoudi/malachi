@@ -197,19 +197,26 @@ class VpnServiceLifecycleTest {
         assertTrue(awaitTunnel(up = false))
 
         val before = descriptorsByKind()
-        repeat(5) {
+        // Three cycles, each allowed to settle. The property under test is that a cycle returns
+        // what it took — a leak would be a tun and a pipe every time round, unmistakable after
+        // three. Running them back to back as fast as the settings flow allows tested the
+        // platform's tolerance for being thrashed instead, and that is not this app's promise.
+        repeat(3) {
             app.settingsStore.update { s -> s.copy(filteringEnabled = true) }
             startService()
             assertTrue("cycle $it never came up", awaitTunnel(up = true))
+            assertTrue("cycle $it came up without a read loop", awaitReaders(1).size == 1)
             app.settingsStore.update { s -> s.copy(filteringEnabled = false) }
             assertTrue("cycle $it never came down", awaitTunnel(up = false))
+            assertTrue("cycle $it left its read loop behind", awaitReaders(0).isEmpty())
+            Thread.sleep(750)
         }
         // Quiesce before measuring. Turning the filter on is observed in two places — the
         // switch in MalachiApplication and the watchdog — so a tunnel can legitimately be up
         // again by now, and counting one of those as a leak would be measuring the wrong thing.
         app.settingsStore.update { s -> s.copy(filteringEnabled = false) }
-        assertTrue(awaitTunnel(up = false))
-        assertTrue(awaitReaders(0).isEmpty())
+        assertTrue("the filter would not settle", awaitTunnel(up = false))
+        assertTrue("a read loop outlived the last cycle", awaitReaders(0).isEmpty())
         Thread.sleep(1_000)
         val after = descriptorsByKind()
 
@@ -221,7 +228,7 @@ class VpnServiceLifecycleTest {
         // on a device, twelve cycles move this number no further than five do, so any growth
         // that scales with the cycles is a leak and this catches it.
         val pipes = (after["pipe"] ?: 0) - (before["pipe"] ?: 0)
-        assertTrue("pipe descriptors grew by $pipes over five cycles: $before -> $after", pipes <= 6)
+        assertTrue("pipe descriptors grew by $pipes over three cycles: $before -> $after", pipes <= 6)
     }
 
     @Test

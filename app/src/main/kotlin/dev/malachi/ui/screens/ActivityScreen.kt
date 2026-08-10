@@ -209,7 +209,9 @@ private fun QueryRow(record: QueryRecord, vm: MalachiViewModel, onClick: () -> U
                 Icon(
                     Icons.Filled.CheckCircle,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.surfaceVariant,
+                    // Was tinted `surfaceVariant`, which against a white card is 1.18:1 — the
+                    // glyph marking a lookup nobody could attribute was, in practice, not drawn.
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(32.dp),
                 )
             }

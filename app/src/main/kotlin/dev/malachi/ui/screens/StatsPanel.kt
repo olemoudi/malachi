@@ -1,8 +1,9 @@
 package dev.malachi.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -64,6 +64,7 @@ import java.time.format.FormatStyle
  * answer "what has this been doing all month" and not enough to reconstruct anywhere anybody
  * has been.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StatsPanel(vm: MalachiViewModel) {
     val stats by vm.stats.collectAsStateWithLifecycle()
@@ -75,13 +76,14 @@ fun StatsPanel(vm: MalachiViewModel) {
     val numbers = remember { NumberFormat.getInstance() }
 
     Column(Modifier.fillMaxWidth()) {
-        // Scrollable, and every label on one line. Four chips do not fit the narrower phones,
-        // and a chip whose label wraps is a chip twice the height of the ones beside it.
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+        // Flowing, and every label on one line. Four of these do not fit a narrow phone at a
+        // large font size: as a plain Row the last label wrapped inside its own chip, which made
+        // that one chip twice the height of the three beside it. Scrolling them sideways fixes
+        // the height and hides a chip instead; flowing to a second row hides nothing.
+        FlowRow(
+            Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.xs),
         ) {
             StatsWindow.entries.forEach { option ->
                 FilterChip(

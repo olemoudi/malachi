@@ -4,11 +4,13 @@ import dev.malachi.debug.DebugLog
 import dev.malachi.stats.StatsData
 import dev.malachi.stats.StatsStore
 import dev.malachi.stats.StatsWindow
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import java.nio.file.Files
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -27,6 +29,21 @@ class SoakTest {
 
     @TempDir
     lateinit var directory: File
+
+    /**
+     * The debug log is a process-wide singleton that writes on a thread of its own, and it keeps
+     * pointing at whatever file it was last given. A directory JUnit manages would be deleted
+     * out from under a write still in flight — and the failure then lands on the harness, as
+     * "failed to close extension context", rather than on anything the test asserted.
+     */
+    private val logDirectory: File = Files.createTempDirectory("malachi-log").toFile()
+
+    @AfterEach
+    fun releaseTheLog() {
+        DebugLog.clear()
+        DebugLog.awaitIdle()
+        logDirectory.deleteRecursively()
+    }
 
     private val zone: ZoneId = ZoneId.systemDefault()
     private val hour = 60 * 60 * 1000L
@@ -117,7 +134,7 @@ class SoakTest {
 
     @Test
     fun `months of log lines stay inside the file's cap`() {
-        val log = File(directory, "debug-log.txt")
+        val log = File(logDirectory, "debug-log.txt")
         DebugLog.clear()
         DebugLog.init(log)
         DebugLog.awaitIdle()
@@ -136,13 +153,11 @@ class SoakTest {
         val tail = log.readLines()
         assertTrue(tail.isNotEmpty())
         assertTrue(tail.last().contains("day 364"), "the newest line was trimmed away")
-        DebugLog.clear()
-        DebugLog.awaitIdle()
     }
 
     @Test
     fun `one enormous entry cannot become the whole log`() {
-        val log = File(directory, "debug-log.txt")
+        val log = File(logDirectory, "debug-log.txt")
         DebugLog.clear()
         DebugLog.init(log)
         DebugLog.awaitIdle()
@@ -154,7 +169,5 @@ class SoakTest {
 
         assertTrue(log.length() <= 128 * 1024, "one entry took the log to ${log.length()} bytes")
         assertTrue(DebugLog.format().contains("the line after"))
-        DebugLog.clear()
-        DebugLog.awaitIdle()
     }
 }
