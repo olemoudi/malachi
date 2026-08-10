@@ -43,6 +43,8 @@
     <string name="stat_allowed">Allowed</string>
     <string name="stat_on_lists">On lists</string>
     <string name="stat_since">Counting since %1$s</string>
+    <string name="home_section_today">Today</string>
+    <string name="stat_all_time">%1$s blocked in total since %2$s</string>
 
     <!-- Navigation -->
     <string name="nav_apps">Apps</string>

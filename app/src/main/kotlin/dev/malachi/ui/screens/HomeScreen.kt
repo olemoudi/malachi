@@ -31,7 +31,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +48,8 @@ import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.Screen
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.CardPosition
+import dev.malachi.stats.Counts
+import dev.malachi.stats.StatsWindow
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.PrimaryAction
 import dev.malachi.ui.components.SecondaryAction
@@ -56,6 +60,8 @@ import dev.malachi.ui.theme.NumberDisplay
 import dev.malachi.ui.theme.Tokens
 import java.text.DateFormat
 import java.text.NumberFormat
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Date
 
 /**
@@ -74,6 +80,14 @@ fun HomeScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
     val log by vm.queryLog.collectAsStateWithLifecycle()
+    val stats by vm.stats.collectAsStateWithLifecycle()
+    val today = remember { LocalDate.now() }
+    val todayCounts = remember(stats) { stats.window(StatsWindow.TODAY, today).counts }
+
+    // The statistics live on disk and are read when somebody looks, never published per lookup.
+    // Looking is this screen appearing — and the filter coming up or going down, which is when
+    // the numbers have most likely moved since the last look.
+    LaunchedEffect(status.tunnelUp) { vm.refreshStats() }
     val listedDomains by vm.listedDomains.collectAsStateWithLifecycle()
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
     val anotherVpn by vm.anotherVpn.collectAsStateWithLifecycle()
@@ -97,7 +111,7 @@ fun HomeScreen(
                 filtering = settings.filteringEnabled,
                 running = status.tunnelUp,
                 pausedUntilMs = if (settings.isPaused()) settings.pausedUntilMs else 0,
-                blockedPercent = log.blockedPercent,
+                blockedPercent = todayCounts.blockedPercent,
                 onToggle = { on -> if (on) onRequestVpnConsent() else vm.setFilterEnabled(false) },
                 onResume = vm::resume,
                 onPause = { vm.pause() },
@@ -201,12 +215,12 @@ fun HomeScreen(
             }
         }
 
-        item { SectionHeader(stringResource(R.string.home_section_activity)) }
+        item { SectionHeader(stringResource(R.string.home_section_today)) }
         item {
             StatsCard(
-                blocked = log.blocked,
-                total = log.total,
-                sinceMs = log.sinceMs,
+                today = todayCounts,
+                allTime = stats.allTime,
+                sinceEpochDay = stats.sinceEpochDay,
                 listedDomains = listedDomains,
             )
         }
@@ -390,24 +404,34 @@ private fun PowerCard(
     }
 }
 
-/** Blocked, allowed, and what the filter is working from — the three numbers worth showing. */
+/**
+ * Today's blocked and allowed, and what the filter is working from.
+ *
+ * From the statistics on disk, not from the tunnel's session counters. Those are wiped whenever
+ * the tunnel is rebuilt — which is a reboot, an app-scope change, a retry after another VPN took
+ * over, and every time the app updates itself. This card said "since the filter started" and
+ * meant it, but from the outside a number that returns to zero after an update is an app that
+ * forgot. What is on disk survives all of it.
+ */
 @Composable
-private fun StatsCard(blocked: Long, total: Long, sinceMs: Long, listedDomains: Int) {
+private fun StatsCard(today: Counts, allTime: Counts, sinceEpochDay: Long, listedDomains: Int) {
     val spacing = Tokens.spacing
     val numbers = NumberFormat.getInstance()
     MalachiCard {
         Column(Modifier.padding(spacing.lg)) {
             Row(Modifier.fillMaxWidth()) {
-                Stat(numbers.format(blocked), stringResource(R.string.stat_blocked), Modifier.weight(1f))
-                Stat(numbers.format(total - blocked), stringResource(R.string.stat_allowed), Modifier.weight(1f))
+                Stat(numbers.format(today.blocked), stringResource(R.string.stat_blocked), Modifier.weight(1f))
+                Stat(numbers.format(today.allowed), stringResource(R.string.stat_allowed), Modifier.weight(1f))
                 Stat(numbers.format(listedDomains), stringResource(R.string.stat_on_lists), Modifier.weight(1f))
             }
-            if (total > 0) {
+            if (allTime.total > 0 && sinceEpochDay > 0) {
                 Spacer(Modifier.height(spacing.md))
                 Text(
                     stringResource(
-                        R.string.stat_since,
-                        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(sinceMs)),
+                        R.string.stat_all_time,
+                        numbers.format(allTime.blocked),
+                        DateFormat.getDateInstance(DateFormat.MEDIUM)
+                            .format(Date(LocalDate.ofEpochDay(sinceEpochDay).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli())),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

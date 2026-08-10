@@ -1,22 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Single-colour twin of ic_launcher_foreground for Android 13+ themed icons (system-tinted). -->
+<!--
+  Single-colour twin of ic_launcher_foreground, for the themed icons Android 13+ tints to match
+  the wallpaper. The same silhouette and the same hole: a themed icon is a stencil, and a mark
+  made of thin strokes turns into a smear once the system paints it in one flat colour.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M32,37 Q32,31 38,31 L70,31 Q76,31 76,37 L76,55 Q76,70 54,81 Q32,70 32,55 Z"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.5"
-        android:strokeLineJoin="round" />
-    <path
-        android:pathData="M54,40 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5" />
-    <path
-        android:pathData="M45.5,48.5 L62.5,31.5"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M35,38 Q35,30 43,30 L65,30 Q73,30 73,38 L73,54 Q73,71 54,83 Q35,71 35,54 Z M42.5,47.4 L65.5,47.4 Q69.5,47.4 69.5,51.9 Q69.5,56.4 65.5,56.4 L42.5,56.4 Q38.5,56.4 38.5,51.9 Q38.5,47.4 42.5,47.4 Z" />
 </vector>

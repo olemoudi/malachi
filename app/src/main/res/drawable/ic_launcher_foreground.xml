@@ -1,28 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Malachi's mark: a guardian shield with a prohibition sign inside it — protection plus refusal,
-  which is precisely what a DNS blocker does. White shield, amber sign, so the two read apart at
-  launcher size. Artwork sits inside the 66dp safe zone of the 108dp adaptive canvas.
+  Malachi's mark: a solid shield with a bar cut clean through it.
+
+  One shape and one hole, and that is the whole point. What was here before drew a shield in
+  4.5px strokes with a prohibition sign inside it — two ideas competing in a space that ends up
+  48dp on a real launcher, where those strokes are barely more than a hair and the ring inside
+  them is a smudge. A filled silhouette carries at any size; the bar is negative space rather
+  than a third colour, so the background's teal shows through it and the icon stays two tones.
+
+  A bar and not a diagonal slash on purpose: a line drawn across a shield reads as a shield
+  crossed out — the protection disabled, which is the opposite of what this app does. A bar
+  through it reads the way it does on a road sign: nothing gets past.
+
+  Everything is inside the 66dp circle that an adaptive icon guarantees is visible, so no
+  launcher mask can clip a corner of it: the widest points sit ~31dp from the centre of the
+  108dp canvas, against the 33dp the safe zone allows.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Shield: rounded-top badge tapering to a soft point. -->
     <path
-        android:pathData="M32,37 Q32,31 38,31 L70,31 Q76,31 76,37 L76,55 Q76,70 54,81 Q32,70 32,55 Z"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.5"
-        android:strokeLineJoin="round" />
-    <!-- Prohibition sign: ring plus bar, the universal "no". -->
-    <path
-        android:pathData="M54,40 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0"
-        android:strokeColor="#FFC77D"
-        android:strokeWidth="5" />
-    <path
-        android:pathData="M45.5,48.5 L62.5,31.5"
-        android:strokeColor="#FFC77D"
-        android:strokeWidth="5"
-        android:strokeLineCap="round" />
+        android:fillColor="#F4FFFC"
+        android:fillType="evenOdd"
+        android:pathData="M35,38 Q35,30 43,30 L65,30 Q73,30 73,38 L73,54 Q73,71 54,83 Q35,71 35,54 Z M42.5,47.4 L65.5,47.4 Q69.5,47.4 69.5,51.9 Q69.5,56.4 65.5,56.4 L42.5,56.4 Q38.5,56.4 38.5,51.9 Q38.5,47.4 42.5,47.4 Z" />
 </vector>

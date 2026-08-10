@@ -42,6 +42,8 @@
     <string name="stat_allowed">Permitidas</string>
     <string name="stat_on_lists">En las listas</string>
     <string name="stat_since">Contando desde las %1$s</string>
+    <string name="home_section_today">Hoy</string>
+    <string name="stat_all_time">%1$s bloqueadas en total desde el %2$s</string>
 
     <!-- Navegación -->
     <string name="nav_apps">Aplicaciones</string>
