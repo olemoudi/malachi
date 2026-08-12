@@ -431,6 +431,20 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **The list stays one entry long.** Google Play Services would fix more things and quietly stop
   filtering most of what this app exists to filter. Growing it is a decision, not a drift.
 
+### Diagnosing a report from a phone
+- **`DebugLog.trace` is memory-only, and that is the whole design.** Traces name domains, and the
+  standing rule is that a domain never touches disk — so `trace` skips the file *and* Logcat and
+  is readable only in the app that recorded it, until the process ends. Verified after building
+  it: zero traced domains in `debug-log.txt`. Never route these through `i`/`w`/`e`.
+- **The window expires by itself** (`diagnosticsUntilMs`, 15 minutes). A switch would be left on
+  for months on the one path that costs something per lookup; a deadline cannot be.
+- **What a trace has to contain to be worth asking for**: the environment first — app and Android
+  version, the upstream *setting*, the resolvers actually in use, what the network handed out,
+  Private DNS, scope, bypass guard, lockdown — and then per lookup, which resolver answered, how
+  long it took, or that none did. Without the header the rest is unreadable at a distance.
+- **While the window is open, drops are not rate-limited.** One line a minute hides the pattern
+  being hunted — a client retrying over TCP, which this tunnel routes and cannot answer.
+
 ### Privacy constraints (non-negotiable)
 - **A domain never touches disk.** The query log lives in memory only and dies with the process.
   The statistics persist *counts* — per app, per day — and must never gain a hostname field, a

@@ -276,6 +276,9 @@
     <string name="settings_update_wifi_only_hint">Skips the download on a metered connection until Wi-Fi is available.</string>
     <string name="settings_check_update">Check for updates</string>
     <string name="settings_diagnostics_title">Diagnostics</string>
+    <string name="settings_trace">Diagnostic tracing</string>
+    <string name="settings_trace_hint">Records every lookup and every dropped packet for %1$d minutes, so a problem can be read off the log. In memory only — it is never written to disk and is gone when filtering stops.</string>
+    <string name="settings_trace_running">Recording. Stops by itself in %1$d min. Open the log below and copy it.</string>
     <string name="settings_debug_log">Debug log</string>
     <string name="settings_debug_log_hint">What the tunnel, the lists and the updater have been doing.</string>
     <string name="settings_about">About</string>

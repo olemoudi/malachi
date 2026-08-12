@@ -134,6 +134,12 @@ class MalachiVpnService : VpnService() {
      */
     @Volatile private var attributionNeeded = false
 
+    /**
+     * Wall clock until which every lookup is narrated into the in-memory log; 0 when it is not.
+     * Zero is checked first so the normal case is one volatile read and a comparison.
+     */
+    @Volatile private var traceUntilMs = 0L
+
     /** DNS servers of the underlying (non-VPN) network, refreshed by the network callback. */
     @Volatile private var networkDnsServers: List<InetAddress> = emptyList()
 
@@ -296,6 +302,9 @@ class MalachiVpnService : VpnService() {
         // log had ever seen — including the ones somebody had opened this screen to look at.
         if (!previous.filteringEnabled && next.filteringEnabled) QueryLog.reset()
         attributionNeeded = TunnelPolicy.attributionNeeded(next)
+        val wasTracing = traceUntilMs != 0L
+        traceUntilMs = next.diagnosticsUntilMs
+        if (!wasTracing && next.isDiagnosing()) traceEnvironment(next)
 
         resumeJob?.cancel()
         cancelPauseAlarm()
@@ -640,7 +649,7 @@ class MalachiVpnService : VpnService() {
         val payload = udp.payload(packet)
         // Not a question we understand: a response, an update, a malformed name. Forward it and
         // let a real resolver be the one to have an opinion.
-        val question = DnsMessage.parseQuestion(payload) ?: return dispatchForward(udp, payload)
+        val question = DnsMessage.parseQuestion(payload) ?: return dispatchForward(udp, payload, "(unparsed)")
 
         val packageName = if (attributionNeeded) ownerPackage(udp) else null
         val verdict = app.filterRepository.decide(question.name, packageName)
@@ -649,20 +658,21 @@ class MalachiVpnService : VpnService() {
         app.statsStore.record(packageName, verdict.blocked)
 
         if (verdict.blocked) {
+            if (tracing()) DebugLog.trace(TAG, "${question.name}: blocked (${verdict.detail})")
             // Answered inline: no network, no thread, no wait.
             writeToTun(IpPacket.buildUdpResponse(udp, DnsMessage.blockedResponse(payload, question, settings.blockAnswer.toBlockAnswer())))
         } else {
-            dispatchForward(udp, payload)
+            dispatchForward(udp, payload, question.name)
         }
     }
 
-    private fun dispatchForward(request: UdpDatagram, query: ByteArray) {
+    private fun dispatchForward(request: UdpDatagram, query: ByteArray, name: String) {
         // Too short to be a DNS message at all, so there is nothing to relay and no transaction
         // id to match a reply against. Dropped here rather than in the forwarder: every one of
         // these used to cost a socket and a protect() round trip before failing, which is a
         // cheap way for any app on the phone to make the filter churn.
         if (DnsMessage.transactionId(query) == null) return dropUnroutable("a ${query.size}-byte query")
-        runCatching { forwarders.execute { forward(request, query) } }
+        runCatching { forwarders.execute { forward(request, query, name) } }
             .onFailure {
                 // The queue is full: the network is not keeping up. Dropping is right — the
                 // client's own resolver retries, and queueing further would only add latency
@@ -681,7 +691,7 @@ class MalachiVpnService : VpnService() {
      * [UPSTREAM_TIMEOUT_MS] — it is divided between the candidates rather than spent on the first
      * of them, so a dud cannot starve the one underneath it.
      */
-    private fun forward(request: UdpDatagram, query: ByteArray) {
+    private fun forward(request: UdpDatagram, query: ByteArray, name: String) {
         val wantsIpv6 = request.destinationAddress.size == 16
         val candidates = TunnelPolicy.orderUpstreams(upstreams, wantsIpv6, lastGoodUpstream)
         if (candidates.isEmpty()) return
@@ -690,7 +700,11 @@ class MalachiVpnService : VpnService() {
         candidates.forEachIndexed { index, target ->
             val remaining = deadline - SystemClock.elapsedRealtime()
             if (remaining <= 0) return@forEachIndexed
-            val socket = sockets.borrow(target) ?: return@forEachIndexed
+            val socket = sockets.borrow(target) ?: run {
+                if (tracing()) DebugLog.trace(TAG, "$name: no socket for ${target.hostAddress}")
+                return@forEachIndexed
+            }
+            val startedAt = SystemClock.elapsedRealtime()
             val answer = DnsRelay.exchange(
                 socket = socket,
                 query = query,
@@ -705,6 +719,14 @@ class MalachiVpnService : VpnService() {
                 // Nothing came back, so this socket may still deliver that answer to whoever
                 // borrows it next. It is not put back.
                 runCatching { socket.close() }
+                if (tracing()) {
+                    DebugLog.trace(
+                        TAG,
+                        "$name: no answer from ${target.hostAddress} after " +
+                            "${SystemClock.elapsedRealtime() - startedAt}ms" +
+                            if (index < candidates.lastIndex) ", trying the next" else " (last resolver)",
+                    )
+                }
                 noteSilentUpstream(target)
                 return@forEachIndexed
             }
@@ -712,9 +734,17 @@ class MalachiVpnService : VpnService() {
             // Remembered so the next lookup starts with the one that works rather than paying
             // the dud's timeout again.
             lastGoodUpstream = target
+            if (tracing()) {
+                DebugLog.trace(
+                    TAG,
+                    "$name: answered by ${target.hostAddress} in " +
+                        "${SystemClock.elapsedRealtime() - startedAt}ms, ${answer.size} bytes",
+                )
+            }
             writeToTun(IpPacket.buildUdpResponse(request, resolveTruncated(answer, query, target)))
             return
         }
+        if (tracing()) DebugLog.trace(TAG, "$name: NOTHING ANSWERED — ${candidates.size} resolver(s) tried")
         dropUnroutable("no resolver answered (${candidates.size} tried)")
     }
 
@@ -824,6 +854,10 @@ class MalachiVpnService : VpnService() {
      * append.
      */
     private fun dropUnroutable(what: String) {
+        // While diagnosing, every one of these matters: a rate-limited line hides the very
+        // pattern being looked for — a client retrying over TCP, say, which this tunnel routes
+        // and cannot answer.
+        if (tracing()) DebugLog.trace(TAG, "dropped: $what")
         droppedSinceLog++
         val now = SystemClock.elapsedRealtime()
         if (now - lastUnroutableLogMs < UNROUTABLE_LOG_INTERVAL_MS) return
@@ -1110,6 +1144,25 @@ class MalachiVpnService : VpnService() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
+    /** True while the diagnostics window is open; the zero check keeps the hot path free. */
+    private fun tracing(): Boolean = traceUntilMs != 0L && System.currentTimeMillis() < traceUntilMs
+
+    /**
+     * Everything about this phone's DNS that a report needs, written once when the window opens.
+     *
+     * A trace of lookups without it is unreadable at a distance: whether a resolver is the
+     * network's or one the user chose, whether Private DNS is in the way, and what the network
+     * actually handed out are the three things that change what the rest of the lines mean.
+     */
+    private fun traceEnvironment(settings: MalachiSettings) {
+        DebugLog.trace(TAG, "— diagnostics on for ${DIAGNOSTICS_MINUTES} minutes —")
+        DebugLog.trace(TAG, "app ${dev.malachi.BuildConfig.VERSION_NAME} on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
+        DebugLog.trace(TAG, "upstream setting=${settings.upstream}${if (settings.customUpstream.isNotBlank()) " (${settings.customUpstream})" else ""}")
+        DebugLog.trace(TAG, "resolvers in use=${upstreams.joinToString { it.hostAddress.orEmpty() }}")
+        DebugLog.trace(TAG, "network dns=${networkDnsServers.joinToString { it.hostAddress.orEmpty() }} private=${privateDnsHost ?: if (privateDnsActive) "automatic" else "off"}")
+        DebugLog.trace(TAG, "scope=${settings.scopeMode} bypass=${settings.bypassAllowed} guard=${settings.bypassGuard} lockdown=$lastLockdown")
+    }
+
     /**
      * Pins an upstream socket to the network whose resolver it is about to talk to.
      *
@@ -1174,6 +1227,10 @@ class MalachiVpnService : VpnService() {
 
         /** How long the notification's pause action suspends filtering. */
         const val PAUSE_MILLIS = 15 * 60 * 1000L
+
+        /** How long the diagnostics window stays open before closing itself. */
+        const val DIAGNOSTICS_MINUTES = 15
+        const val DIAGNOSTICS_MILLIS = DIAGNOSTICS_MINUTES * 60 * 1000L
 
         private const val TAG = "MalachiVpn"
 

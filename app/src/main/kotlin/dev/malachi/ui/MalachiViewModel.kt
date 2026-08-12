@@ -165,6 +165,16 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun dismissPrivateDnsNote() = update { it.copy(privateDnsNoteDismissed = true) }
 
+    /**
+     * Opens or closes the diagnostics window. A moment in the future rather than a flag, so it
+     * shuts itself even if the app is never opened again — see [MalachiSettings.diagnosticsUntilMs].
+     */
+    fun setDiagnostics(on: Boolean) = update {
+        it.copy(
+            diagnosticsUntilMs = if (on) System.currentTimeMillis() + MalachiVpnService.DIAGNOSTICS_MILLIS else 0,
+        )
+    }
+
     /** A display label for the app named in [VpnController.AlwaysOn.Other]. */
     fun alwaysOnOtherLabel(): String? =
         (_alwaysOn.value as? VpnController.AlwaysOn.Other)?.let { labelFor(it.packageName) }

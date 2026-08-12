@@ -154,7 +154,20 @@ data class MalachiSettings(
      * that one means nothing is being filtered.
      */
     val privateDnsNoteDismissed: Boolean = false,
+
+    /**
+     * Wall clock until which the tunnel narrates every lookup into the in-memory log; 0 when it
+     * isn't. See [isDiagnosing].
+     *
+     * A window rather than a switch, because this is the one setting that costs something on the
+     * hot path and names domains while it runs. Left on by a switch it would stay on for months;
+     * expiring by itself means the worst case is a quarter of an hour of extra work.
+     */
+    val diagnosticsUntilMs: Long = 0,
 ) {
+    /** True while the diagnostics window is open. Checked per lookup, so it stays a comparison. */
+    fun isDiagnosing(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < diagnosticsUntilMs
+
     /**
      * Brings the stored settings up to date, once per correction.
      *

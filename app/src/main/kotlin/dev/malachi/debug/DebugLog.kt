@@ -101,6 +101,20 @@ object DebugLog {
     fun w(tag: String, message: String, t: Throwable? = null) = add('W', tag, message, t)
     fun e(tag: String, message: String, t: Throwable? = null) = add('E', tag, message, t)
 
+    /**
+     * A line for the diagnostics window: in memory, and nowhere else.
+     *
+     * These name domains, and the standing rule of this app is that a domain never touches disk —
+     * the query log lives in memory and dies with the process for exactly that reason, and a
+     * trace of what was looked up is the same fact in a different shape. So this deliberately
+     * skips both the file and Logcat, and is readable only in the app that recorded it, until the
+     * process ends. It is what makes "some apps report connection errors" answerable at all.
+     */
+    fun trace(tag: String, message: String) {
+        val entry = LogEntry(System.currentTimeMillis(), 'T', tag, message.take(MAX_ENTRY_CHARS))
+        mutable.update { LogFormat.cap(it, entry, MAX_ENTRIES) }
+    }
+
     private fun add(level: Char, tag: String, message: String, t: Throwable?) {
         when (level) {
             'E' -> Log.e(tag, message, t)

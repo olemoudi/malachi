@@ -29,6 +29,7 @@ import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
 import dev.malachi.data.ThemeMode
 import dev.malachi.data.UpstreamDns
+import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.CardGroup
@@ -231,19 +232,36 @@ fun SettingsScreen(
             item { SectionHeader(stringResource(R.string.settings_diagnostics_title)) }
             item {
                 CardGroup {
+                    // Its own row above the log, because it is what makes the log worth reading
+                    // when an app misbehaves: without it the tunnel says almost nothing per
+                    // lookup, on purpose.
+                    SwitchRow(
+                        title = stringResource(R.string.settings_trace),
+                        subtitle = if (settings.isDiagnosing()) {
+                            stringResource(
+                                R.string.settings_trace_running,
+                                ((settings.diagnosticsUntilMs - System.currentTimeMillis()) / 60_000L + 1).toInt(),
+                            )
+                        } else {
+                            stringResource(R.string.settings_trace_hint, MalachiVpnService.DIAGNOSTICS_MINUTES)
+                        },
+                        checked = settings.isDiagnosing(),
+                        onCheckedChange = vm::setDiagnostics,
+                        position = cardPosition(0, 3),
+                    )
                     NavRow(
                         icon = Icons.Filled.BugReport,
                         title = stringResource(R.string.settings_debug_log),
                         subtitle = stringResource(R.string.settings_debug_log_hint),
                         onClick = onOpenDebugLog,
-                        position = cardPosition(0, 2),
+                        position = cardPosition(1, 3),
                     )
                     NavRow(
                         icon = Icons.Filled.Info,
                         title = stringResource(R.string.settings_about),
                         subtitle = stringResource(R.string.settings_about_hint, vm.versionName),
                         onClick = onOpenAbout,
-                        position = cardPosition(1, 2),
+                        position = cardPosition(2, 3),
                     )
                 }
             }

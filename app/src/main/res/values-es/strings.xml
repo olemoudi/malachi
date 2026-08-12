@@ -275,6 +275,9 @@
     <string name="settings_update_wifi_only_hint">Omite la descarga en conexiones de datos hasta que haya Wi-Fi.</string>
     <string name="settings_check_update">Buscar actualizaciones</string>
     <string name="settings_diagnostics_title">Diagnóstico</string>
+    <string name="settings_trace">Trazas de diagnóstico</string>
+    <string name="settings_trace_hint">Anota cada consulta y cada paquete descartado durante %1$d minutos, para poder leer el problema en el registro. Solo en memoria: nunca se escribe en disco y desaparece al detener el filtrado.</string>
+    <string name="settings_trace_running">Grabando. Se apaga sola en %1$d min. Abre el registro de abajo y cópialo.</string>
     <string name="settings_debug_log">Registro de depuración</string>
     <string name="settings_debug_log_hint">Lo que han estado haciendo el túnel, las listas y el actualizador.</string>
     <string name="settings_about">Acerca de</string>
