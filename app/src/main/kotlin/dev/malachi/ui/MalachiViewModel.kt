@@ -140,6 +140,11 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         VpnController.openVpnSettings(app)
     }
 
+    /** The system screen where Private DNS is turned off; see [VpnController.openPrivateDnsSettings]. */
+    fun openPrivateDnsSettings() {
+        VpnController.openPrivateDnsSettings(app)
+    }
+
     /**
      * Starts the filter if the settings say it should be running and it isn't.
      *

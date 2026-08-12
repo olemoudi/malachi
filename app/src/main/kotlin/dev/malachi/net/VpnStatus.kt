@@ -49,16 +49,40 @@ data class FilterStatus(
     val retrying: Boolean = false,
 
     /**
-     * The system's Private DNS (DNS-over-TLS) is on. Lookups then leave the device encrypted to
-     * a resolver of the user's choosing, which is good for privacy and fatal for filtering:
-     * Malachi never sees them. Nothing here can fix that, so the UI says so plainly.
+     * The system's Private DNS (DNS-over-TLS) is in use on the underlying network.
+     *
+     * On its own this says much less than it looks like it says, and treating it as fatal was
+     * wrong for nearly everybody: Android's default is *automatic*, and automatic is harmless
+     * here. See [privateDnsStrict].
      */
     val privateDnsActive: Boolean = false,
+
+    /** The hostname in Private DNS's strict mode; null in automatic mode, which names none. */
     val privateDnsHost: String? = null,
 
     /** Human-readable upstream in use, for the home screen ("system", "1.1.1.1", …). */
     val upstream: String = "",
 ) {
+    /**
+     * Private DNS names a specific resolver, which is the only configuration that defeats this
+     * filter — and the difference is measured, not assumed.
+     *
+     * With a hostname set ("strict"), every lookup goes out over TLS to that resolver: Malachi
+     * sees none of them and filters nothing. On **automatic**, Android probes for DNS-over-TLS
+     * and quietly falls back to plain DNS when there is none to be had — and inside this tunnel
+     * there never is, because the resolver it advertises is a sentinel address that answers on
+     * port 53 and nothing else. So automatic filters normally.
+     *
+     * Verified on a device by probing unique domains in each mode and reading the query log:
+     * off 3/3 seen, automatic 3/3 seen, strict 0/3. The screen used to paint all three the same
+     * red, which meant warning almost every user that nothing was being filtered while
+     * everything was — automatic is the platform default.
+     */
+    val privateDnsStrict: Boolean get() = privateDnsHost != null
+
+    /** Private DNS is on, but in the mode that costs nothing but the encryption itself. */
+    val privateDnsAutomatic: Boolean get() = privateDnsActive && privateDnsHost == null
+
     /** True when the user has to do something before the filter can possibly run. */
     val needsUser: Boolean
         get() = problem == TunnelProblem.NO_CONSENT ||

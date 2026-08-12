@@ -184,14 +184,26 @@ fun HomeScreen(
                 }
             }
         }
-        if (status.privateDnsActive) {
+        // Strict Private DNS is the one thing that silently defeats this app: every lookup leaves
+        // over TLS and none of it reaches the tunnel. Automatic is the platform default and costs
+        // filtering nothing, so it gets a note rather than an alarm — painting both red told
+        // almost every user that nothing was being filtered while everything was.
+        if (status.privateDnsStrict && settings.filteringEnabled) {
             item {
                 Notice(
                     tone = Tone.Problem,
-                    text = stringResource(
-                        R.string.warning_private_dns,
-                        status.privateDnsHost ?: stringResource(R.string.warning_private_dns_automatic),
-                    ),
+                    text = stringResource(R.string.warning_private_dns_strict, status.privateDnsHost.orEmpty()),
+                    action = stringResource(R.string.action_open_private_dns),
+                    onAction = vm::openPrivateDnsSettings,
+                )
+            }
+        } else if (status.privateDnsAutomatic && status.tunnelUp) {
+            item {
+                Notice(
+                    tone = Tone.Suggestion,
+                    text = stringResource(R.string.note_private_dns_automatic),
+                    action = stringResource(R.string.action_open_private_dns),
+                    onAction = vm::openPrivateDnsSettings,
                 )
             }
         }

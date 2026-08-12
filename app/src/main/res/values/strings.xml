@@ -61,8 +61,9 @@
     <string name="status_displaced">Another VPN app is running. Android allows only one at a time.</string>
     <string name="status_no_apps_selected">No apps are selected, so nothing is being filtered.</string>
     <string name="status_tunnel_closed">The filter stopped unexpectedly.</string>
-    <string name="warning_private_dns">Private DNS is on (%1$s), so lookups leave the phone encrypted and Malachi never sees them. Turn Private DNS off in Android settings for filtering to work.</string>
-    <string name="warning_private_dns_automatic">automatic</string>
+    <string name="warning_private_dns_strict">Private DNS is set to %1$s, so every lookup leaves the phone encrypted straight to that resolver. Malachi never sees one, and nothing is being filtered. Set Private DNS to Off or Automatic for filtering to work.</string>
+    <string name="note_private_dns_automatic">Private DNS is set to Automatic. Filtering works normally — Android only encrypts when the resolver offers it, and inside the tunnel it does not. The trade is that while Malachi is on, your lookups are forwarded unencrypted.</string>
+    <string name="action_open_private_dns">Private DNS settings</string>
     <string name="warning_no_lists">No blocklist has been downloaded yet, so nothing is being blocked.</string>
 
     <!-- Notification -->

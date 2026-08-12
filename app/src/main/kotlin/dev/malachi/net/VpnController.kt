@@ -101,6 +101,31 @@ object VpnController {
     }
 
     /**
+     * The system screen where Private DNS is turned off.
+     *
+     * `android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve everywhere —
+     * it is absent on a current AOSP build, checked rather than assumed — so it is tried first and
+     * the network dashboard, which is the screen that actually contains the Private DNS entry, is
+     * the fallback. A button that lands two taps away beats one that lands nowhere.
+     */
+    fun openPrivateDnsSettings(context: Context): Boolean {
+        val destinations = listOf(
+            "android.settings.PRIVATE_DNS_SETTINGS",
+            Settings.ACTION_WIRELESS_SETTINGS,
+            Settings.ACTION_SETTINGS,
+        )
+        for (action in destinations) {
+            val opened = runCatching {
+                context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                true
+            }.getOrDefault(false)
+            if (opened) return true
+        }
+        DebugLog.w(TAG, "no settings screen would open for Private DNS")
+        return false
+    }
+
+    /**
      * Starts the filter, preferring the way that costs the user nothing.
      *
      * A plain service start first, because `startForegroundService` is a promise to post a

@@ -60,8 +60,9 @@
     <string name="status_displaced">Hay otra app de VPN en marcha. Android solo permite una a la vez.</string>
     <string name="status_no_apps_selected">No hay ninguna app seleccionada, así que no se está filtrando nada.</string>
     <string name="status_tunnel_closed">El filtro se detuvo de forma inesperada.</string>
-    <string name="warning_private_dns">El DNS privado está activado (%1$s): las consultas salen cifradas del teléfono y Malachi no llega a verlas. Desactívalo en los ajustes de Android para que el filtrado funcione.</string>
-    <string name="warning_private_dns_automatic">automático</string>
+    <string name="warning_private_dns_strict">El DNS privado apunta a %1$s, así que todas las consultas salen cifradas del teléfono directas a ese resolutor. Malachi no ve ninguna y no se está filtrando nada. Pon el DNS privado en Desactivado o Automático para que el filtrado funcione.</string>
+    <string name="note_private_dns_automatic">El DNS privado está en Automático. El filtrado funciona con normalidad: Android solo cifra si el resolutor se lo ofrece, y dentro del túnel no se lo ofrece. A cambio, mientras Malachi esté activo tus consultas se reenvían sin cifrar.</string>
+    <string name="action_open_private_dns">Ajustes de DNS privado</string>
     <string name="warning_no_lists">Todavía no se ha descargado ninguna lista, así que no se está bloqueando nada.</string>
 
     <!-- Notificación -->

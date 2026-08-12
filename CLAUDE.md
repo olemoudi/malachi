@@ -271,6 +271,23 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   every user who already configured it that they haven't, forever.
 - **Whether *some* VPN is active is observable**, via a network with `TRANSPORT_VPN`. That is
   what distinguishes "the user dismissed the dialog" from "another VPN holds the tunnel".
+- **Private DNS *automatic* does not defeat this filter; only a named resolver does.** Measured on
+  a device by probing three unique domains per mode and reading the query log: off 3/3 seen,
+  automatic 3/3 seen, strict (a hostname) 0/3. Automatic is opportunistic — Android encrypts only
+  when the resolver on that network offers DNS-over-TLS, and the resolver this tunnel advertises
+  is a sentinel that answers UDP 53 and nothing else, so the probe fails and the system falls back
+  to plain DNS, straight into the filter. `dumpsys connectivity` shows why: the VPN network is its
+  own network with its own `DnsAddresses: [10.111.222.2]`, so private DNS is evaluated against
+  *that* resolver, not the Wi-Fi one.
+- **`LinkProperties.isPrivateDnsActive` on the underlying network is therefore the wrong thing to
+  alarm on**, and alarming on it told nearly every user that nothing was being filtered while
+  everything was — automatic is Android's default, and the flag is true whenever the *carrier or
+  Wi-Fi* resolver happens to support DoT, which says nothing about queries inside the tunnel.
+  `privateDnsServerName != null` is the fatal case; that one gets the red card and a button.
+  This was reported by a user asking why AdGuard never said any such thing.
+- **`android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve on a current
+  AOSP build** — checked, not assumed. `ACTION_WIRELESS_SETTINGS` opens the network dashboard,
+  which carries the Private DNS entry, and is the fallback.
 - **`Os.pipe2` is not in the SDK; `Os.pipe()` is.**
 - **`registerNetworkCallback(request, cb)` fires for *every* network that matches, not the one in
   use.** With Wi-Fi and mobile both up, the last network to speak wins, and Malachi would adopt
