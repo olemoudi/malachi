@@ -18,6 +18,7 @@ import dev.malachi.data.UpstreamDns
 import dev.malachi.filter.QueryLog
 import dev.malachi.filter.QueryLogState
 import dev.malachi.lists.ListUpdateWorker
+import dev.malachi.net.FilterWatchdogWorker
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.net.VpnStatus
@@ -137,6 +138,22 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun openVpnSettings() {
         VpnController.openVpnSettings(app)
+    }
+
+    /**
+     * Starts the filter if the settings say it should be running and it isn't.
+     *
+     * The home screen says "starting the filter…" whenever it is switched on with no tunnel up,
+     * and until this existed nothing in the app made that true: recovery had to come from a
+     * broadcast, a fresh process, or a half-hourly worker the system is free to defer. Somebody
+     * looking at the spinner is the strongest signal there is that a filter is wanted now, and it
+     * is also the one moment a service start is certain to be allowed.
+     *
+     * Everything it needs to decide already lives in the watchdog's check, which returns at once
+     * when the filter is running, paused, off, or waiting on consent.
+     */
+    fun ensureFilterRunning() {
+        viewModelScope.launch { FilterWatchdogWorker.restoreIfNeeded(app) }
     }
 
     fun dismissAlwaysOnTip() = update { it.copy(alwaysOnTipDismissed = true) }

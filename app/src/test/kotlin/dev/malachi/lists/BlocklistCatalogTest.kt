@@ -31,9 +31,86 @@ class BlocklistCatalogTest {
     fun `the defaults are the conservative ones`() {
         val defaults = BlocklistCatalog.sources.filter { it.enabledByDefault }.map { it.id }
         assertEquals(setOf("adguard-dns", "adaway"), defaults.toSet())
-        // Nothing in the "broader lists" bucket may be on out of the box: those are the ones
-        // that break things, and a first run that breaks something is uninstalled.
-        assertTrue(BlocklistCatalog.sources.none { it.enabledByDefault && it.category == BlocklistCategory.EXTRAS })
+        // Growing the catalogue must never grow what a fresh install downloads. Everything
+        // outside Ads is opt-in, and the two above are the conservative pair.
+        assertTrue(
+            BlocklistCatalog.sources.none {
+                it.enabledByDefault && it.category != BlocklistCategory.ADS
+            },
+        )
+    }
+
+    @Test
+    fun `every category has something in it`() {
+        // The picker shows one row per category with an "N of M" on it. An empty one is a row
+        // that reads "0 of 0" and opens onto nothing.
+        for (category in BlocklistCategory.entries) {
+            assertTrue(
+                BlocklistCatalog.inCategory(category).isNotEmpty(),
+                "$category has no lists",
+            )
+        }
+    }
+
+    @Test
+    fun `the ids an existing install may already have stored all still exist`() {
+        // Choices are persisted by id. Renaming one silently orphans somebody's decision — the
+        // list reverts to its default and they are never told. These shipped; they are load-bearing.
+        val shipped = listOf(
+            "adguard-dns", "adaway", "easyprivacy", "yoyo", "oisd-small",
+            "oisd-big", "hagezi-pro", "hagezi-tif", "stevenblack", "someonewhocares",
+        )
+        for (id in shipped) {
+            assertNotNull(BlocklistCatalog.byId(id), "$id was in a shipped release and has gone")
+        }
+    }
+
+    @Test
+    fun `a category is ordered safest first`() {
+        // The order is the recommendation. By size alone the most dangerous list in a category
+        // is the one at the top, which is the opposite of the advice the screen means to give.
+        for (category in BlocklistCategory.entries) {
+            val risks = BlocklistCatalog.inCategory(category).map { it.risk.ordinal }
+            assertEquals(risks.sorted(), risks, "$category is not ordered safest first")
+        }
+    }
+
+    @Test
+    fun `the tiers of a category partition it`() {
+        for (category in BlocklistCategory.entries) {
+            val whole = BlocklistCatalog.inCategory(category)
+            val tiers = BreakageRisk.entries.flatMap { BlocklistCatalog.inCategory(category, it) }
+            assertEquals(whole, tiers, "$category loses or repeats a list when split by risk")
+        }
+    }
+
+    @Test
+    fun `nothing aggressive is on by default`() {
+        // A first run that breaks something is uninstalled, and the user never learns it was one
+        // list rather than the whole app.
+        assertTrue(BlocklistCatalog.sources.none { it.enabledByDefault && it.risk != BreakageRisk.SAFE })
+    }
+
+    @Test
+    fun `every source declares a size`() {
+        // It is the only thing the picker can say about a list nobody has downloaded yet, and
+        // "about 0 domains" reads as broken.
+        for (source in BlocklistCatalog.sources) {
+            assertTrue(source.approximateEntries > 0, "${source.id} claims no entries")
+        }
+    }
+
+    @Test
+    fun `enabledCount counts only the category asked about`() {
+        val allOn = BlocklistCatalog.sources.associate { it.id to true }
+        for (category in BlocklistCategory.entries) {
+            assertEquals(
+                BlocklistCatalog.inCategory(category).size,
+                BlocklistCatalog.enabledCount(category, allOn),
+                "$category miscounts when everything is on",
+            )
+            assertEquals(0, BlocklistCatalog.enabledCount(category, BlocklistCatalog.sources.associate { it.id to false }))
+        }
     }
 
     @Test

@@ -285,6 +285,28 @@ class VpnServiceLifecycleTest {
     }
 
     @Test
+    fun theMessageThatEndsAPauseBringsTheFilterBack() = runBlocking {
+        requireConsent()
+
+        app.settingsStore.update { it.copy(filteringEnabled = true) }
+        assertTrue(awaitTunnel(up = true))
+
+        // Ten minutes, so the resume timer cannot be what ends it inside this test. That is the
+        // whole point: on a phone that timer runs on a clock which stops while the device is
+        // suspended, so a fifteen minute pause outlived it by hours and the home screen sat on
+        // "starting the filter…" with nothing starting it. The fix arms an RTC alarm for the same
+        // moment, and this is the message that alarm delivers.
+        app.settingsStore.update { it.copy(pausedUntilMs = System.currentTimeMillis() + 10 * 60_000) }
+        assertTrue("a pause left the tunnel up", awaitTunnel(up = false))
+
+        app.startService(
+            Intent(app, MalachiVpnService::class.java).setAction(MalachiVpnService.ACTION_RESUME),
+        )
+
+        assertTrue("ending the pause did not bring the filter back", awaitTunnel(up = true))
+    }
+
+    @Test
     fun aPauseThatHasExpiredEndsWithTheFilterRunningAgain() = runBlocking {
         requireConsent()
 

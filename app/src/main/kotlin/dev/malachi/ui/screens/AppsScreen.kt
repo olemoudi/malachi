@@ -7,26 +7,39 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
@@ -34,15 +47,10 @@ import dev.malachi.data.AppScopeMode
 import dev.malachi.data.InstalledApp
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.AppIcon
-import dev.malachi.ui.components.CardGroup
-import dev.malachi.ui.components.CardPosition
-import dev.malachi.ui.components.ChoiceRow
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiTopBar
-import dev.malachi.ui.components.SectionHeader
-import dev.malachi.ui.components.SwitchRow
-import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.theme.Tokens
+import kotlinx.coroutines.launch
 
 /**
  * Which apps are filtered, from either end.
@@ -50,8 +58,14 @@ import dev.malachi.ui.theme.Tokens
  * The two modes are the same switch read in opposite directions, and both requests are real:
  * "block ads everywhere but leave my bank alone", and "I only want this one game filtered".
  * Showing them as one choice rather than two features is what stops them from disagreeing —
- * and it makes the per-app list mean exactly one thing in each mode, which the header says.
+ * and it makes the per-app list mean exactly one thing in each mode, which the line under the
+ * selector says.
+ *
+ * Everything above the list is kept to three rows on purpose. This screen exists to find one app
+ * among two hundred, and a header block that fills half the viewport pushes the first result off
+ * the screen before anybody has typed anything.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -60,6 +74,8 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
 
     var query by remember { mutableStateOf("") }
     var showSystem by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     val visible = remember(apps, query, showSystem) {
         apps.asSequence()
@@ -71,60 +87,84 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.nav_apps), onBack)
         LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(spacing.screen, 0.dp, spacing.screen, spacing.xxl),
+            // The keyboard is a second bottom edge. Without imePadding the list keeps its full
+            // height and simply draws the first results underneath the keys — visible, and not
+            // tappable until the keyboard is dismissed.
+            Modifier.fillMaxSize().imePadding(),
+            state = listState,
+            contentPadding = PaddingValues(spacing.screen, spacing.sm, spacing.screen, spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
-            item { SectionHeader(stringResource(R.string.apps_mode_title)) }
             item {
-                CardGroup {
-                    ChoiceRow(
-                        title = stringResource(R.string.apps_mode_all_except),
-                        subtitle = stringResource(R.string.apps_mode_all_except_subtitle),
-                        selected = settings.scopeMode == AppScopeMode.ALL_EXCEPT,
-                        onSelect = { vm.setScopeMode(AppScopeMode.ALL_EXCEPT) },
-                        position = CardPosition.First,
-                    )
-                    ChoiceRow(
-                        title = stringResource(R.string.apps_mode_only_selected),
-                        subtitle = stringResource(R.string.apps_mode_only_selected_subtitle),
-                        selected = settings.scopeMode == AppScopeMode.ONLY_SELECTED,
-                        onSelect = { vm.setScopeMode(AppScopeMode.ONLY_SELECTED) },
-                        position = CardPosition.Last,
+                Column {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        AppScopeMode.entries.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = settings.scopeMode == mode,
+                                onClick = { vm.setScopeMode(mode) },
+                                shape = SegmentedButtonDefaults.itemShape(index, AppScopeMode.entries.size),
+                                // Teal, not the default amber container: this palette keeps
+                                // amber for counts and warnings, and the selected mode is
+                                // neither — it is the same accent every other choice uses.
+                                colors = SegmentedButtonDefaults.colors(
+                                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                                // No check glyph: it costs a quarter of the label's width, and
+                                // the segment is already filled when it is the selected one.
+                                icon = {},
+                            ) {
+                                Text(
+                                    stringResource(modeLabel(mode)),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        stringResource(modeHint(settings.scopeMode)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = spacing.sm, start = spacing.xs, end = spacing.xs),
                     )
                 }
             }
 
             item {
-                SectionHeader(
-                    title = stringResource(R.string.apps_list_title),
-                    supporting = stringResource(
-                        when (settings.scopeMode) {
-                            AppScopeMode.ALL_EXCEPT -> R.string.apps_list_hint_all_except
-                            AppScopeMode.ONLY_SELECTED -> R.string.apps_list_hint_only_selected
+                Column {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // Taking focus scrolls the field to the top of the list, so the
+                            // whole gap between it and the keyboard is results.
+                            .onFocusChanged { if (it.isFocused) scope.launch { listState.animateScrollToItem(SEARCH_ITEM) } },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.apps_search)) },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    )
+                    // A chip rather than a switch card: one line instead of three, and the
+                    // filtered-or-not state is what it has to say.
+                    FilterChip(
+                        selected = showSystem,
+                        onClick = { showSystem = !showSystem },
+                        label = { Text(stringResource(R.string.apps_show_system)) },
+                        leadingIcon = if (showSystem) {
+                            {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                )
+                            }
+                        } else {
+                            null
                         },
-                    ),
-                )
-            }
-
-            item {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.apps_search)) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                )
-            }
-
-            item {
-                SwitchRow(
-                    title = stringResource(R.string.apps_show_system),
-                    subtitle = stringResource(R.string.apps_show_system_subtitle),
-                    checked = showSystem,
-                    onCheckedChange = { showSystem = it },
-                )
+                        modifier = Modifier.padding(top = spacing.sm),
+                    )
+                }
             }
 
             if (apps.isEmpty()) {
@@ -150,6 +190,19 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
             }
         }
     }
+}
+
+/** Where the search field sits in the list; scrolled to when it takes focus. */
+private const val SEARCH_ITEM = 1
+
+private fun modeLabel(mode: AppScopeMode) = when (mode) {
+    AppScopeMode.ALL_EXCEPT -> R.string.apps_mode_all_except
+    AppScopeMode.ONLY_SELECTED -> R.string.apps_mode_only_selected
+}
+
+private fun modeHint(mode: AppScopeMode) = when (mode) {
+    AppScopeMode.ALL_EXCEPT -> R.string.apps_list_hint_all_except
+    AppScopeMode.ONLY_SELECTED -> R.string.apps_list_hint_only_selected
 }
 
 @Composable

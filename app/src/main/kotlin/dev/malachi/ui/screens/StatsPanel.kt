@@ -68,7 +68,7 @@ import java.time.format.FormatStyle
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StatsPanel(vm: MalachiViewModel) {
+fun StatsPanel(vm: MalachiViewModel, onOpenApp: (String) -> Unit) {
     val stats by vm.stats.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
     var window by remember { mutableStateOf(StatsWindow.TODAY) }
@@ -143,6 +143,7 @@ fun StatsPanel(vm: MalachiViewModel) {
                 supporting = stringResource(R.string.stats_by_count_hint),
                 apps = computed.topByBlocked(RANK_SIZE),
                 vm = vm,
+                onOpenApp = onOpenApp,
                 valueOf = { numbers.format(it.counts.blocked) },
             )
             Ranking(
@@ -153,6 +154,7 @@ fun StatsPanel(vm: MalachiViewModel) {
                 ),
                 apps = computed.topByRate(RANK_SIZE),
                 vm = vm,
+                onOpenApp = onOpenApp,
                 valueOf = { "${it.counts.blockedPercent}%" },
             )
         }
@@ -377,6 +379,7 @@ private fun Ranking(
     supporting: String,
     apps: List<AppStat>,
     vm: MalachiViewModel,
+    onOpenApp: (String) -> Unit,
     valueOf: (AppStat) -> String,
 ) {
     val spacing = Tokens.spacing
@@ -392,7 +395,12 @@ private fun Ranking(
     }
     CardGroup {
         apps.forEachIndexed { index, stat ->
-            MalachiCard(position = cardPosition(index, apps.size)) {
+            // Naming an app is only half an answer: the next question is always "what is it
+            // asking for", and that is the detail screen. Every card with an app on it opens it.
+            MalachiCard(
+                position = cardPosition(index, apps.size),
+                onClick = { onOpenApp(stat.packageName) },
+            ) {
                 Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
                     AppIcon(stat.packageName, vm.inventory, size = 32.dp)
                     Spacer(Modifier.width(spacing.md))

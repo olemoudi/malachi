@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity() {
         // The only way to change any of the VPN environment is to leave for the system settings
         // and come back, so coming back is when what we show about it has gone stale.
         vm.refreshVpnEnvironment()
+        // And if the filter is meant to be running and isn't, this is both the best moment to
+        // notice — somebody is looking at the screen that claims it is coming up — and a context
+        // the platform will let us start a service from.
+        vm.ensureFilterRunning()
     }
 
     /**

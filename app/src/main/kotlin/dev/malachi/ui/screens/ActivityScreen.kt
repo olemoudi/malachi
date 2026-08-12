@@ -68,7 +68,7 @@ private enum class ActivityFilter { ALL, BLOCKED, ALLOWED }
  * somebody has been can be reconstructed from what is written down.
  */
 @Composable
-fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit) {
+fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> Unit) {
     val log by vm.queryLog.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
@@ -110,7 +110,7 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
             item { SectionHeader(stringResource(R.string.stats_section_title)) }
-            item { StatsPanel(vm) }
+            item { StatsPanel(vm, onOpenApp) }
             item {
                 SectionHeader(
                     title = stringResource(R.string.activity_live_title),

@@ -1,5 +1,7 @@
 package dev.malachi.net
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -233,7 +235,14 @@ class MalachiVpnService : VpnService() {
                 }
                 return START_NOT_STICKY
             }
-            ACTION_RESUME -> scope.launch { app.settingsStore.update { it.copy(pausedUntilMs = 0) } }
+            ACTION_RESUME -> scope.launch {
+                app.settingsStore.update { it.copy(pausedUntilMs = 0) }
+                // DataStore skips the write when the value is unchanged, so clearing a pause that
+                // has already lapsed emits nothing and reacts to nothing. Arriving here with no
+                // tunnel is precisely the case that needs a look — the alarm that ends a pause
+                // can be beaten to the write by anything else and must still leave a filter up.
+                if (tunnel == null) applySettings(app.settingsStore.current())
+            }
             // Any other start is a request to look again — from the watchdog, from a receiver,
             // from the launcher. The settings flow has no reason to emit just because somebody
             // asked, so without this a service that is alive but not filtering (a pause whose
@@ -274,6 +283,7 @@ class MalachiVpnService : VpnService() {
         attributionNeeded = TunnelPolicy.attributionNeeded(next)
 
         resumeJob?.cancel()
+        cancelPauseAlarm()
         when (val action = TunnelPolicy.decide(next, tunnel != null, tunnelShape, System.currentTimeMillis())) {
             TunnelAction.StandDown -> {
                 stopTunnel()
@@ -291,10 +301,17 @@ class MalachiVpnService : VpnService() {
                 // the platform to hold on to, and the resume has to survive the next quarter of
                 // an hour.
                 promote(FilterNotifications.paused(this, timeLabel(action.untilMs)))
-                // Nothing else would wake us: the settings flow has no reason to emit again just
-                // because a moment in the future has arrived. And this timer runs on a clock
-                // that stops while the device is suspended, which is why onStartCommand looks
-                // again on any start — see the comment there.
+                // The deadline is a wall-clock moment, so it needs a wall clock. `delay` runs on
+                // one that stops while the device is suspended: a fifteen minute pause is fifteen
+                // minutes *awake*, and with the screen off that is hours. Every reader of
+                // `isPaused()` uses the real clock, so in between the app says the pause is over
+                // while the only thing that would end it is still counting — a home screen
+                // spinning on "starting the filter" with nothing starting it. Reported from a
+                // phone, which is where this can be seen at all.
+                schedulePauseAlarm(action.untilMs)
+                // Kept as well as the alarm, not instead of it: while the device is awake this
+                // fires on the second, and it costs nothing when the alarm gets there first —
+                // both do the same single write, and the second one is a no-op.
                 resumeJob = scope.launch {
                     delay(TunnelPolicy.pauseRemainingMs(action.untilMs, System.currentTimeMillis()))
                     app.settingsStore.update { if (it.isPaused()) it.copy(pausedUntilMs = 0) else it }
@@ -968,6 +985,33 @@ class MalachiVpnService : VpnService() {
         VpnStatus.down()
         super.onDestroy()
     }
+
+    /**
+     * The wall-clock end of a pause, as an alarm rather than a timer.
+     *
+     * Inexact on purpose: `setAndAllowWhileIdle` needs no permission, survives Doze, and a pause
+     * that ends a minute late is not a bug — one that ends when the phone next happens to be
+     * awake is. Deliberately *not* cancelled in [onDestroy] either: an alarm outlives the process
+     * it was set from, so a pause interrupted by a low-memory kill still ends on time and brings
+     * the filter back with it.
+     */
+    private fun schedulePauseAlarm(untilMs: Long) {
+        val alarms = getSystemService(AlarmManager::class.java) ?: return
+        runCatching { alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, untilMs, pauseAlarm()) }
+            .onFailure { DebugLog.w(TAG, "could not schedule the end of the pause", it) }
+    }
+
+    private fun cancelPauseAlarm() {
+        val alarms = getSystemService(AlarmManager::class.java) ?: return
+        runCatching { alarms.cancel(pauseAlarm()) }
+    }
+
+    private fun pauseAlarm(): PendingIntent = PendingIntent.getService(
+        this,
+        0,
+        Intent(this, MalachiVpnService::class.java).setAction(ACTION_RESUME),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun timeLabel(epochMillis: Long): String =
         DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(epochMillis))

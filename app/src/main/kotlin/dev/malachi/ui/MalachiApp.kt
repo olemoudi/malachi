@@ -17,12 +17,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import dev.malachi.lists.BlocklistCategory
 import dev.malachi.ui.screens.AboutScreen
 import dev.malachi.ui.screens.ActivityScreen
 import dev.malachi.ui.screens.AppDetailScreen
 import dev.malachi.ui.screens.AppsScreen
 import dev.malachi.ui.screens.DebugLogScreen
 import dev.malachi.ui.screens.HomeScreen
+import dev.malachi.ui.screens.ListCategoryScreen
 import dev.malachi.ui.screens.ListsScreen
 import dev.malachi.ui.screens.RulesScreen
 import dev.malachi.ui.screens.SettingsScreen
@@ -34,6 +36,7 @@ sealed interface Screen {
     data object Apps : Screen
     data class AppDetail(val packageName: String) : Screen
     data object Lists : Screen
+    data class ListCategory(val category: BlocklistCategory) : Screen
     data object Activity : Screen
     data object Rules : Screen
     data object Settings : Screen
@@ -90,8 +93,17 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
                     )
                     Screen.Apps -> AppsScreen(vm, onBack = ::back, onOpenApp = { go(Screen.AppDetail(it)) })
                     is Screen.AppDetail -> AppDetailScreen(vm, screen.packageName, onBack = ::back)
-                    Screen.Lists -> ListsScreen(vm, onBack = ::back)
-                    Screen.Activity -> ActivityScreen(vm, onBack = ::back)
+                    Screen.Lists -> ListsScreen(
+                        vm = vm,
+                        onBack = ::back,
+                        onOpenCategory = { go(Screen.ListCategory(it)) },
+                    )
+                    is Screen.ListCategory -> ListCategoryScreen(vm, screen.category, onBack = ::back)
+                    Screen.Activity -> ActivityScreen(
+                        vm = vm,
+                        onBack = ::back,
+                        onOpenApp = { go(Screen.AppDetail(it)) },
+                    )
                     Screen.Rules -> RulesScreen(vm, onBack = ::back)
                     Screen.Settings -> SettingsScreen(
                         vm = vm,

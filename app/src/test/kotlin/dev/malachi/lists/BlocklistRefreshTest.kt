@@ -71,6 +71,7 @@ class BlocklistRefreshTest {
         url = url(path),
         homepage = "https://example.com",
         category = BlocklistCategory.ADS,
+        risk = BreakageRisk.SAFE,
     )
 
     private fun hosts(count: Int, prefix: String = "ads") =

@@ -234,6 +234,30 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **Never hold a whole blocklist as text.** Lists reach a quarter of a million domains;
   they are streamed line by line into `DomainIndex.Builder` and kept as a sorted `LongArray`.
 
+### The blocklist catalogue
+- **Lists are fetched from AdGuard's Hostlists Registry, not from the project that writes them.**
+  Learned the hard way: the catalogue shipped two HaGeZi lists pointing at `github.com/hagezi`,
+  that account disappeared, and both became a silent 404 for everyone who had subscribed — the
+  error is visible on the Lists screen, which is not the same as anybody seeing it. The registry
+  is a curated mirror that AdGuard's own DNS clients read, so a list outlives its publisher and
+  arrives normalised. Only the four lists the registry does not carry keep a direct URL.
+- **Adding a source means measuring it, not guessing.** `approximateEntries` is the count of
+  lines that survive `RuleParser` — cosmetic rules stripped — because that is what the list is
+  worth at DNS level. A browser filter can be 40,000 lines and yield 15 usable rules; one did,
+  and it was dropped rather than shipped as a category with nothing in it.
+- **Two axes, and they are independent: what a list blocks, and what it will cost you.**
+  `BlocklistCategory` is the first, `BreakageRisk` the second. The safest and the most dangerous
+  lists in the catalogue are both ad blocklists, so a category sorted by size alone recommends
+  the worst thing in it first. Categories mirror what a DNS blocker can act on — AdGuard's
+  "social" and most of its "annoyances" are cosmetic rules and would be empty here.
+- **Growing the catalogue must never grow what a fresh install downloads.** A source nobody has
+  touched falls back to its own default, so adding forty lists adds no bytes and no memory to an
+  install that exists. `BlocklistCatalogTest` fails if anything but the two conservative ones is
+  on by default, or if anything not marked `SAFE` is.
+- **List ids are persisted in `listChoices` and are load-bearing.** Renaming one silently orphans
+  somebody's decision: the list reverts to its default and they are never told. The ten ids that
+  have shipped are pinned by a test.
+
 ### Platform facts learned the hard way (do not re-derive)
 - **The descriptor from `establish()` is non-blocking.** A stream-shaped read loop therefore
   gets 0 back immediately whenever no packet is waiting and spins a core flat out — measured at
@@ -254,10 +278,22 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   every lookup then times out. `registerDefaultNetworkCallback()` is the question actually being
   asked; the app is always outside its own tunnel, so its default network is the real one.
 - **`delay()` runs on a monotonic clock that stops while the device is suspended.** A fifteen
-  minute pause is fifteen minutes *awake*, which overnight is hours. Anything whose deadline is a
-  wall-clock moment needs a second path that doesn't depend on that timer — here,
-  `onStartCommand` re-evaluates the settings whenever there is no tunnel, so the watchdog is
-  enough to end a pause the timer slept through.
+  minute pause is fifteen minutes *awake*, which overnight is hours. A wall-clock deadline needs a
+  wall clock: the pause arms `AlarmManager.setAndAllowWhileIdle(RTC_WAKEUP, …)`, which needs no
+  permission, survives Doze, and outlives the process — so a pause interrupted by a low-memory
+  kill still ends on time. The `delay` is kept beside it because it is exact while the phone is
+  awake; both do the same single write and the loser is a no-op.
+- **The watchdog was *not* enough to end a pause the timer slept through, and this was reported
+  from a phone.** Every reader of `isPaused()` uses the wall clock, so fifteen real minutes later
+  the settings say the pause is over while the only thing that would end it is still counting.
+  `filteringEnabled && !isPaused && !tunnelUp` is what the home screen paints as "starting the
+  filter…", so the screen span forever over a filter nobody was starting: the settings flow had no
+  reason to emit, and the other path was a 30-minute *deferrable* worker that Doze defers further.
+  Two things follow. Anything with a wall-clock deadline gets an alarm, not a timer. And
+  **`MainActivity.onResume` calls `vm.ensureFilterRunning()`** — somebody looking at that spinner
+  is the strongest evidence there is that a filter is wanted now, and it is also a context the
+  platform will let us start a service from. A screen that says something is happening must be
+  the thing that makes it happen.
 - **`VpnService.onRevoke`'s default implementation is `stopSelf()`.** Calling `super` after
   scheduling a retry destroys the service and `onDestroy` cancels the retry — the documented
   recovery from "another VPN took the tunnel and then let go" silently became "wait for the
