@@ -136,6 +136,12 @@ class MalachiVpnService : VpnService() {
 
     /** DNS servers of the underlying (non-VPN) network, refreshed by the network callback. */
     @Volatile private var networkDnsServers: List<InetAddress> = emptyList()
+
+    /**
+     * The network those resolvers belong to, so a socket asking one of them can be bound to it.
+     * See [bindToUnderlying]: protect() exempts a socket from the tunnel, it does not pick a way out.
+     */
+    @Volatile private var activeNetwork: Network? = null
     @Volatile private var lastLockdown = false
     @Volatile private var privateDnsActive = false
     @Volatile private var privateDnsHost: String? = null
@@ -158,12 +164,14 @@ class MalachiVpnService : VpnService() {
         runCatching {
             DatagramSocket().also { socket ->
                 if (!protect(socket)) {
+                    DebugLog.w(TAG, "could not protect a socket for ${target.hostAddress}")
                     socket.close()
                     return@runCatching null
                 }
+                bindToUnderlying(socket, target)
                 socket.connect(target, DNS_PORT)
             }
-        }.getOrNull()
+        }.onFailure { DebugLog.w(TAG, "no socket for ${target.hostAddress}", it) }.getOrNull()
     }
 
     private var resumeJob: Job? = null
@@ -736,6 +744,7 @@ class MalachiVpnService : VpnService() {
         val full = runCatching {
             Socket().use { socket ->
                 protect(socket)
+                activeNetwork?.let { network -> runCatching { network.bindSocket(socket) } }
                 socket.soTimeout = UPSTREAM_TIMEOUT_MS
                 socket.connect(InetSocketAddress(target, DNS_PORT), UPSTREAM_TIMEOUT_MS)
                 val out = socket.getOutputStream()
@@ -865,7 +874,16 @@ class MalachiVpnService : VpnService() {
         // Belt and braces against ever pointing the filter at itself: our own tunnel is a
         // network too, and forwarding into it would be a loop with no exit.
         if (cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) return
+        activeNetwork = network
         networkDnsServers = linkProperties.dnsServers.orEmpty()
+        // Named, not counted. "Which resolvers did this network actually hand us" is the first
+        // question for every report of "it does not resolve on this Wi-Fi", and until now the log
+        // answered it with the word "system".
+        DebugLog.i(
+            TAG,
+            "network ${linkProperties.interfaceName}: dns=" +
+                networkDnsServers.joinToString(prefix = "[", postfix = "]") { it.hostAddress.orEmpty() },
+        )
         privateDnsActive = linkProperties.isPrivateDnsActive
         privateDnsHost = linkProperties.privateDnsServerName
         VpnStatus.privateDns(privateDnsActive, privateDnsHost)
@@ -1091,6 +1109,25 @@ class MalachiVpnService : VpnService() {
         Intent(this, MalachiVpnService::class.java).setAction(ACTION_RESUME),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
+
+    /**
+     * Pins an upstream socket to the network whose resolver it is about to talk to.
+     *
+     * `protect()` only says "do not route this back into my own tunnel". It does not choose an
+     * interface: an unbound socket takes whatever the routing table offers for that destination,
+     * which is a guess, and the addresses in question are usually private ones that mean
+     * different things on different networks. The system resolver never guesses — it asks each
+     * network's servers *on that network* — which is why a Wi-Fi whose resolver Malachi cannot
+     * reach looks perfectly healthy the moment the filter is switched off.
+     *
+     * Best-effort: a bind that fails leaves the socket working exactly as it did before, so the
+     * worst case is the behaviour we already had.
+     */
+    private fun bindToUnderlying(socket: DatagramSocket, target: InetAddress) {
+        val network = activeNetwork ?: return
+        runCatching { network.bindSocket(socket) }
+            .onFailure { DebugLog.w(TAG, "could not bind a socket for ${target.hostAddress} to the active network", it) }
+    }
 
     /**
      * Notes whether the platform is dropping everything that does not leave through this tunnel.

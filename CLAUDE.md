@@ -288,6 +288,16 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **`android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve on a current
   AOSP build** — checked, not assumed. `ACTION_WIRELESS_SETTINGS` opens the network dashboard,
   which carries the Private DNS entry, and is the fallback.
+- **`protect()` exempts a socket from the tunnel; it does not choose a way out.** An unbound
+  socket takes whatever the routing table offers for that destination, and a network's resolvers
+  are usually private addresses that mean different things on different networks. The system
+  resolver never guesses — it asks each network's servers *on that network* — which is why a
+  Wi-Fi whose resolver Malachi cannot reach looks perfectly healthy the moment the filter is off.
+  Upstream sockets are bound to the network the resolvers came from (`Network.bindSocket`), as
+  RethinkDNS does. Best-effort: a failed bind leaves the socket exactly as it was.
+- **The debug log names the resolvers a network handed out.** With the default upstream setting
+  the log used to say `upstream=system`, which answers none of "it does not resolve on this
+  Wi-Fi". It now records `network wlan0: dns=[…]` on every adoption.
 - **A network's first DNS server is not necessarily one that answers, and Android hides that.**
   Routers advertise two or three resolvers, and the first is routinely a dud — it advertises
   itself and then filters, or answers on the LAN and nowhere else. Android's own resolver tries
