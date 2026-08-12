@@ -291,6 +291,8 @@
     <string name="update_downloading">Downloading %1$s…</string>
     <string name="update_pending">Waiting for you to confirm the install</string>
     <string name="update_failed">Last attempt failed (%1$s)</string>
+    <string name="update_already_checking">A check is already running…</string>
+    <string name="update_skipped_metered">Not checked: updates are set to Wi-Fi only and this connection is metered.</string>
 
     <!-- About -->
     <string name="about_version">Version %1$s (build %2$d)</string>

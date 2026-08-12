@@ -475,6 +475,27 @@ the one path every revival has in common.
 - `BootReceiver` handles `MY_PACKAGE_REPLACED` as well as `BOOT_COMPLETED`. A self-update
   replaces the process, and without it every update would silently leave the filter off.
 
+### The updater is the one thing that cannot be fixed remotely
+- **An unhandled throw in `Updater` does not cost one update, it costs every future one.** There
+  is no store to push a fix through, so the whole check is wrapped: anything unexpected becomes a
+  logged `TRANSIENT_FAILURE`, never an exception crossing into a worker. `CancellationException`
+  is rethrown — swallowing it leaves a coroutine ignoring its own scope.
+- **One network attempt is a coin toss, not a check.** The fetch and the download each get three
+  goes with a widening gap. This was reported from a phone: a single blip, and the screen said
+  the update had failed.
+- **A 200 is not evidence that what arrived is our APK.** A captive portal answers everything
+  with a login page and the right status code. The downloaded file is parsed by the platform
+  (`getPackageArchiveInfo`) and refused unless it is a readable APK, with our package name, and a
+  version code strictly newer than the installed one — which catches the portal, the truncated
+  body and the stale CDN copy without a check each. Downloads land on a `.part` and are renamed.
+- **Never report `UP_TO_DATE` without having looked.** Being busy or on a metered connection
+  reports `NOT_ATTEMPTED`; both used to claim the app was current having fetched nothing.
+- **Instrumented tests need cleartext to loopback, which Android refuses by default.** The
+  MockWebServer-backed tests stand a server on the device, and without `src/debug`'s network
+  security config every request dies with `CLEARTEXT communication to localhost not permitted`
+  and the tests fail identically whatever the code does. It is debug-only: the released APK
+  carries no network security config and keeps the platform default.
+
 ### Config migrations (must stay transparent)
 - Settings are one JSON blob in DataStore. New fields get defaults and the decoder uses
   `ignoreUnknownKeys`, so additive changes need no migration. For a *non-additive* change

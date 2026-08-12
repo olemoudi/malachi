@@ -294,6 +294,8 @@ private fun updateSummary(state: UpdateUiState): String = when (state) {
     is UpdateUiState.Downloading -> stringResource(R.string.update_downloading, state.target.versionName)
     is UpdateUiState.PendingConfirmation -> stringResource(R.string.update_pending)
     is UpdateUiState.Failed -> stringResource(R.string.update_failed, state.step)
+    UpdateUiState.AlreadyChecking -> stringResource(R.string.update_already_checking)
+    UpdateUiState.SkippedMetered -> stringResource(R.string.update_skipped_metered)
 }
 
 private fun blockAnswerTitle(mode: BlockAnswerMode) = when (mode) {

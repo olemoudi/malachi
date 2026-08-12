@@ -13,8 +13,8 @@ android {
         applicationId = "dev.malachi"
         minSdk = 29
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.8.2-alpha"
+        versionCode = 19
+        versionName = "0.8.3-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -94,4 +94,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.junit)
+    // The self-update path is the one thing a sideloaded app cannot fix remotely if it breaks,
+    // so it is exercised against a real server on a device rather than trusted.
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }

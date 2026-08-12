@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only. The instrumented tests stand a MockWebServer up on the device's own loopback
+  and point the updater and the list downloader at it, and Android has refused cleartext by
+  default since API 28 — so without this the requests never leave the process and every such test
+  fails identically, whatever the code does.
+
+  Scoped to loopback on purpose: nothing else is reachable in cleartext even here, and this file
+  is in src/debug, so the released APK carries no network security config at all and keeps the
+  platform default of refusing cleartext everywhere.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

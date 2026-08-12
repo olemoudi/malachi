@@ -290,6 +290,8 @@
     <string name="update_downloading">Descargando %1$s…</string>
     <string name="update_pending">Esperando a que confirmes la instalación</string>
     <string name="update_failed">El último intento falló (%1$s)</string>
+    <string name="update_already_checking">Ya hay una comprobación en marcha…</string>
+    <string name="update_skipped_metered">Sin comprobar: las actualizaciones están limitadas a Wi-Fi y esta conexión es de pago por datos.</string>
 
     <!-- Acerca de -->
     <string name="about_version">Versión %1$s (compilación %2$d)</string>
