@@ -58,6 +58,22 @@ class PrivateDnsStatusTest {
     }
 
     @Test
+    fun `a lockdown warning survives the tunnel coming up`() {
+        // Caught on a device: the warning appeared and vanished within the same second. Building
+        // a fresh status is how a stale *problem* is cleared, but lockdown is a switch in
+        // Android's settings rather than a property of this tunnel attempt — and it is the only
+        // thing that explains a phone with no connection at all, so losing it is expensive.
+        VpnStatus.lockdown(true)
+        VpnStatus.up(upstream = "system", privateDnsActive = false, privateDnsHost = null)
+
+        assertTrue(VpnStatus.status.value.lockdown, "the tunnel coming up erased the lockdown warning")
+        assertTrue(VpnStatus.status.value.tunnelUp)
+
+        VpnStatus.lockdown(false)
+        assertFalse(VpnStatus.status.value.lockdown, "the warning outstayed the setting")
+    }
+
+    @Test
     fun `neither flavour is a problem the filter status reports as needing consent`() {
         // needsUser drives a different card entirely; Private DNS has its own, with its own action.
         val strict = FilterStatus(privateDnsActive = true, privateDnsHost = "dns.google")

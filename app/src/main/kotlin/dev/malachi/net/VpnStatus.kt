@@ -62,6 +62,20 @@ data class FilterStatus(
 
     /** Human-readable upstream in use, for the home screen ("system", "1.1.1.1", …). */
     val upstream: String = "",
+
+    /**
+     * Android's "Block connections without VPN" is on for this app.
+     *
+     * Which is a catastrophe for *this* VPN specifically. Lockdown drops anything that does not
+     * leave through the tunnel, and this tunnel deliberately routes two sentinel addresses and
+     * nothing else — so every other packet on the phone has nowhere legal to go. A filter that is
+     * working perfectly and a phone with no internet look identical from the outside, and the
+     * app is the only thing that can name the cause.
+     *
+     * It matters more here than it would elsewhere because Malachi *asks* to be made always-on,
+     * and this switch sits directly beneath that one in the same Android screen.
+     */
+    val lockdown: Boolean = false,
 ) {
     /**
      * Private DNS names a specific resolver, which is the only configuration that defeats this
@@ -102,6 +116,12 @@ object VpnStatus {
             upstream = upstream,
             privateDnsActive = privateDnsActive,
             privateDnsHost = privateDnsHost,
+            // Deliberately carried across rather than reset. Building a fresh status is how a
+            // stale *problem* is cleared, but lockdown is not a property of this tunnel attempt —
+            // it is a switch in Android's settings, and it stays true whatever we do here.
+            // Rebuilding without it silently dropped the one warning that explains a phone with
+            // no connection, moments after it had been set.
+            lockdown = _status.value.lockdown,
         )
     }
 
@@ -120,6 +140,10 @@ object VpnStatus {
 
     internal fun privateDns(active: Boolean, host: String?) {
         _status.value = _status.value.copy(privateDnsActive = active, privateDnsHost = host)
+    }
+
+    internal fun lockdown(active: Boolean) {
+        _status.value = _status.value.copy(lockdown = active)
     }
 
     /**

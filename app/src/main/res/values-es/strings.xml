@@ -63,6 +63,7 @@
     <string name="warning_private_dns_strict">El DNS privado apunta a %1$s, así que todas las consultas salen cifradas del teléfono directas a ese resolutor. Malachi no ve ninguna y no se está filtrando nada. Pon el DNS privado en Desactivado o Automático para que el filtrado funcione.</string>
     <string name="note_private_dns_automatic">El DNS privado está en Automático. El filtrado funciona con normalidad: Android solo cifra si el resolutor se lo ofrece, y dentro del túnel no se lo ofrece. A cambio, mientras Malachi esté activo tus consultas se reenvían sin cifrar.</string>
     <string name="action_open_private_dns">Ajustes de DNS privado</string>
+    <string name="warning_lockdown">«Bloquear conexiones sin VPN» está activado. Malachi solo enruta el DNS por el túnel, así que Android está descartando todo lo demás y el teléfono se queda sin conexión. Desactiva esa opción; la VPN siempre activa por sí sola sí es lo que quieres.</string>
     <string name="warning_no_lists">Todavía no se ha descargado ninguna lista, así que no se está bloqueando nada.</string>
 
     <!-- Notificación -->
@@ -311,7 +312,7 @@
     <string name="status_another_app">otra app</string>
     <string name="status_always_on_elsewhere">Otra app está configurada como VPN siempre activa, así que Android no cede el túnel.</string>
     <string name="status_always_on_elsewhere_long">%1$s está configurada como VPN siempre activa. Android no dejará que Malachi tome el relevo hasta que la desactives en los ajustes de VPN.</string>
-    <string name="home_always_on_suggestion">Configura Malachi como tu VPN siempre activa para que el filtrado sobreviva a un reinicio y ninguna otra app pueda quedarse con el túnel.</string>
+    <string name="home_always_on_suggestion">Configura Malachi como tu VPN siempre activa para que el filtrado sobreviva a un reinicio y ninguna otra app pueda quedarse con el túnel. Deja «Bloquear conexiones sin VPN» desactivado: Malachi solo enruta el DNS, así que esa opción dejaría sin conexión a todo lo demás.</string>
     <string name="settings_connection_title">Conexión</string>
     <string name="settings_always_on">VPN siempre activa</string>
     <string name="settings_always_on_hint">Android solo ejecuta una VPN a la vez. La opción «siempre activa» la reserva para Malachi y recupera el filtro tras un reinicio.</string>

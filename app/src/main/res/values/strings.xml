@@ -64,6 +64,7 @@
     <string name="warning_private_dns_strict">Private DNS is set to %1$s, so every lookup leaves the phone encrypted straight to that resolver. Malachi never sees one, and nothing is being filtered. Set Private DNS to Off or Automatic for filtering to work.</string>
     <string name="note_private_dns_automatic">Private DNS is set to Automatic. Filtering works normally — Android only encrypts when the resolver offers it, and inside the tunnel it does not. The trade is that while Malachi is on, your lookups are forwarded unencrypted.</string>
     <string name="action_open_private_dns">Private DNS settings</string>
+    <string name="warning_lockdown">“Block connections without VPN” is on. Malachi routes only DNS through the tunnel, so Android is dropping everything else and the phone has no working connection. Turn that setting off; always-on VPN on its own is fine and is what you want.</string>
     <string name="warning_no_lists">No blocklist has been downloaded yet, so nothing is being blocked.</string>
 
     <!-- Notification -->
@@ -312,7 +313,7 @@
     <string name="status_another_app">another app</string>
     <string name="status_always_on_elsewhere">Another app is set as the always-on VPN, so Android will not hand the tunnel over.</string>
     <string name="status_always_on_elsewhere_long">%1$s is set as the always-on VPN. Android will not let Malachi take over until that is turned off in VPN settings.</string>
-    <string name="home_always_on_suggestion">Set Malachi as your always-on VPN so filtering survives a reboot and no other app can quietly take the tunnel.</string>
+    <string name="home_always_on_suggestion">Set Malachi as your always-on VPN so filtering survives a reboot and no other app can quietly take the tunnel. Leave “Block connections without VPN” off — Malachi routes only DNS, so that setting would cut off everything else.</string>
     <string name="settings_connection_title">Connection</string>
     <string name="settings_always_on">Always-on VPN</string>
     <string name="settings_always_on_hint">Android only runs one VPN at a time. Always-on reserves it for Malachi and brings the filter back after a reboot.</string>

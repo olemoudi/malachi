@@ -184,6 +184,19 @@ fun HomeScreen(
                 }
             }
         }
+        // Above everything else, because when this is on nothing else on the phone works and no
+        // other screen will say why.
+        if (status.lockdown) {
+            item {
+                Notice(
+                    tone = Tone.Problem,
+                    text = stringResource(R.string.warning_lockdown),
+                    action = stringResource(R.string.action_open_vpn_settings),
+                    onAction = vm::openVpnSettings,
+                )
+            }
+        }
+
         // Strict Private DNS is the one thing that silently defeats this app: every lookup leaves
         // over TLS and none of it reaches the tunnel. Automatic is the platform default and costs
         // filtering nothing, so it gets a note rather than an alarm — painting both red told

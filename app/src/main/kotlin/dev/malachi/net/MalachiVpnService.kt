@@ -20,8 +20,10 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
+import androidx.core.app.PendingIntentCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import dev.malachi.MainActivity
 import dev.malachi.MalachiApplication
 import dev.malachi.R
 import dev.malachi.data.AppScopeMode
@@ -134,6 +136,7 @@ class MalachiVpnService : VpnService() {
 
     /** DNS servers of the underlying (non-VPN) network, refreshed by the network callback. */
     @Volatile private var networkDnsServers: List<InetAddress> = emptyList()
+    @Volatile private var lastLockdown = false
     @Volatile private var privateDnsActive = false
     @Volatile private var privateDnsHost: String? = null
 
@@ -360,6 +363,7 @@ class MalachiVpnService : VpnService() {
 
         tunnel = pfd
         tunnelShape = settings.tunnelShape()
+        publishLockdown()
         output = FileOutputStream(pfd.fileDescriptor)
         upstreams = resolveUpstreams()
         retryAttempt = 0
@@ -400,6 +404,36 @@ class MalachiVpnService : VpnService() {
     private fun build(settings: MalachiSettings): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession(getString(R.string.app_name))
+            // **A VPN is metered unless it says otherwise, and this one carries nothing but DNS.**
+            // Without this the whole phone believes it is on a metered connection for as long as
+            // the filter runs, and the platform acts on that belief: Play Store holds back
+            // automatic updates, photo and cloud backups stop, Data Saver restricts background
+            // data, streaming apps drop quality. Measured here — the tunnel's capabilities came
+            // back without NOT_METERED while the Wi-Fi underneath it had it.
+            //
+            // It also broke this app from the inside. The blocklist refresh is Wi-Fi-only *by
+            // default*, which WorkManager expresses as NetworkType.UNMETERED — a constraint the
+            // tunnel itself made permanently unsatisfiable, so on a default install the periodic
+            // refresh never ran again once filtering was switched on.
+            //
+            // false does not mean "pretend it is Wi-Fi": with the underlying networks declared
+            // (see adoptNetwork), the platform derives meteredness from what is actually
+            // underneath, which is the honest answer for a tunnel that carries only lookups.
+            .setMetered(false)
+            .apply {
+                // The button the system's own VPN dialog shows for configuring a VPN. Without an
+                // intent here Android simply omits it, so Malachi's entry in Settings → VPN has a
+                // gear that leads nowhere. Nullable only because the compat helper says so; a
+                // missing button is not worth refusing to build a tunnel over.
+                PendingIntentCompat.getActivity(
+                    this@MalachiVpnService,
+                    0,
+                    Intent(this@MalachiVpnService, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_UPDATE_CURRENT,
+                    false,
+                )?.let { setConfigureIntent(it) }
+            }
             // Generous for a link that carries nothing but DNS: it lets a large DNSSEC or EDNS
             // answer through in one piece instead of forcing a TCP retry this tunnel can't serve.
             .setMtu(MTU)
@@ -793,6 +827,7 @@ class MalachiVpnService : VpnService() {
         privateDnsActive = linkProperties.isPrivateDnsActive
         privateDnsHost = linkProperties.privateDnsServerName
         VpnStatus.privateDns(privateDnsActive, privateDnsHost)
+        publishLockdown()
         upstreams = resolveUpstreams()
         // Tells the system which network our forwarded queries really travel over, so they are
         // billed and routed correctly instead of appearing to come from the tunnel.
@@ -1012,6 +1047,22 @@ class MalachiVpnService : VpnService() {
         Intent(this, MalachiVpnService::class.java).setAction(ACTION_RESUME),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
+
+    /**
+     * Notes whether the platform is dropping everything that does not leave through this tunnel.
+     *
+     * Read here rather than once at startup because it is a switch the user can throw at any
+     * time, in a screen this app sends them to; the network callbacks are the only regular
+     * heartbeat available, and a lockdown change is itself a connectivity change.
+     */
+    private fun publishLockdown() {
+        val locked = runCatching { isLockdownEnabled }.getOrDefault(false)
+        if (locked != lastLockdown) {
+            lastLockdown = locked
+            DebugLog.w(TAG, "block-connections-without-VPN is ${if (locked) "on" else "off"}")
+        }
+        VpnStatus.lockdown(locked)
+    }
 
     private fun timeLabel(epochMillis: Long): String =
         DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(epochMillis))

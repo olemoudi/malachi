@@ -288,6 +288,31 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **`android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve on a current
   AOSP build** — checked, not assumed. `ACTION_WIRELESS_SETTINGS` opens the network dashboard,
   which carries the Private DNS entry, and is the fallback.
+- **A VPN is metered unless it says otherwise, and that belief spreads to the whole phone.**
+  Without `Builder.setMetered(false)` the tunnel's capabilities come back without `NOT_METERED`
+  while the Wi-Fi underneath it has it — measured with `dumpsys connectivity`, before and after.
+  Everything that reads meteredness then acts on it: Play Store holds automatic updates, cloud
+  and photo backups stop, Data Saver restricts background data, streaming apps drop quality.
+  RethinkDNS carries the same fix with the comment "cloud backups were failing thinking that the
+  VPN connection is metered". It also broke Malachi from the inside — `listUpdateWifiOnly`
+  defaults to **true**, which WorkManager expresses as `NetworkType.UNMETERED`, a constraint the
+  tunnel itself made permanently unsatisfiable, so the periodic blocklist refresh never ran again
+  once filtering was switched on. `false` is not a lie: with the underlying networks declared,
+  the platform derives meteredness from what is actually underneath.
+- **"Block connections without VPN" (lockdown) leaves this phone with no connection at all.**
+  Lockdown drops anything that does not leave through the tunnel, and this tunnel routes two
+  sentinel addresses and nothing else. Verified on a device: with it on, `nc -z 1.1.1.1 443`
+  returns `connect: Permission denied` — a raw TCP connect to a literal IP, no DNS involved —
+  and `dumpsys connectivity` shows "Lockdown filtering rules". It matters more here than
+  elsewhere because Malachi *asks* to be made always-on and that switch sits directly beneath
+  this one. `VpnService.isLockdownEnabled` is readable (unlike always-on), so the home screen
+  detects it and says so, and the always-on tip warns against it.
+- **`VpnStatus.up()` builds a fresh status, which is how a stale problem is cleared — and how a
+  lockdown warning was erased a moment after being set.** Anything that describes the *platform*
+  rather than this tunnel attempt has to be carried across it explicitly.
+- **`Builder.setConfigureIntent` is what puts the settings button in Android's own VPN dialog.**
+  Without it the platform simply omits the control, so Malachi's entry in Settings → VPN had a
+  gear that led nowhere.
 - **`Os.pipe2` is not in the SDK; `Os.pipe()` is.**
 - **`registerNetworkCallback(request, cb)` fires for *every* network that matches, not the one in
   use.** With Wi-Fi and mobile both up, the last network to speak wins, and Malachi would adopt
