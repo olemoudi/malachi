@@ -87,10 +87,8 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.nav_apps), onBack)
         LazyColumn(
-            // The keyboard is a second bottom edge. Without imePadding the list keeps its full
-            // height and simply draws the first results underneath the keys — visible, and not
-            // tappable until the keyboard is dismissed.
-            Modifier.fillMaxSize().imePadding(),
+            // The keyboard's room is made once for the whole app, in MalachiApp.
+            Modifier.fillMaxSize(),
             state = listState,
             contentPadding = PaddingValues(spacing.screen, spacing.sm, spacing.screen, spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
@@ -167,10 +165,19 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
                 }
             }
 
-            if (apps.isEmpty()) {
+            if (apps.isEmpty() || visible.isEmpty()) {
                 item {
                     Text(
-                        stringResource(R.string.apps_loading),
+                        stringResource(
+                            when {
+                                apps.isEmpty() -> R.string.apps_loading
+                                // A search that matches nothing used to render an empty column,
+                                // which reads as the list having failed to load rather than as
+                                // an answer. The commonest cause is the app being a system one.
+                                showSystem -> R.string.apps_no_matches
+                                else -> R.string.apps_no_matches_try_system
+                            },
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(spacing.lg),

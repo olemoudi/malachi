@@ -87,6 +87,8 @@
     <string name="apps_search">Buscar apps</string>
     <string name="apps_show_system">Mostrar apps del sistema</string>
     <string name="apps_show_system_subtitle">Servicios en segundo plano y componentes preinstalados, que es donde suelen vivir los rastreadores.</string>
+    <string name="apps_no_matches">Ninguna app coincide.</string>
+    <string name="apps_no_matches_try_system">Ninguna app coincide. Prueba a activar las apps del sistema.</string>
     <string name="apps_loading">Leyendo las apps instaladas…</string>
     <string name="apps_summary_all">Se filtran todas las apps</string>
 

@@ -144,6 +144,16 @@ data class MalachiSettings(
      * did the thing months ago.
      */
     val alwaysOnTipDismissed: Boolean = false,
+
+    /**
+     * Whether the note about Private DNS being on *automatic* has been read and dismissed.
+     *
+     * Automatic is Android's default and costs filtering nothing, so the note is a statement of
+     * fact rather than a problem — and a statement of fact that reappears on every launch for the
+     * life of the install is a nag. The strict-mode warning is deliberately *not* dismissible:
+     * that one means nothing is being filtered.
+     */
+    val privateDnsNoteDismissed: Boolean = false,
 ) {
     /**
      * Brings the stored settings up to date, once per correction.

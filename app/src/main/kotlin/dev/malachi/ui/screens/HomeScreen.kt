@@ -197,13 +197,15 @@ fun HomeScreen(
                     onAction = vm::openPrivateDnsSettings,
                 )
             }
-        } else if (status.privateDnsAutomatic && status.tunnelUp) {
+        } else if (status.privateDnsAutomatic && status.tunnelUp && !settings.privateDnsNoteDismissed) {
             item {
                 Notice(
                     tone = Tone.Suggestion,
                     text = stringResource(R.string.note_private_dns_automatic),
-                    action = stringResource(R.string.action_open_private_dns),
-                    onAction = vm::openPrivateDnsSettings,
+                    action = stringResource(R.string.action_got_it),
+                    onAction = vm::dismissPrivateDnsNote,
+                    secondary = stringResource(R.string.action_open_private_dns),
+                    onSecondary = vm::openPrivateDnsSettings,
                 )
             }
         }

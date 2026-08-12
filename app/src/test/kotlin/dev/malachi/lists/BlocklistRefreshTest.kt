@@ -1,5 +1,9 @@
 package dev.malachi.lists
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -36,6 +40,9 @@ class BlocklistRefreshTest {
     private val status = ConcurrentHashMap<String, Int>()
     private val requests = ConcurrentHashMap<String, MutableList<RecordedRequest>>()
 
+    /** Paths whose body is served slowly, so a concurrent caller is genuinely concurrent. */
+    private val slowPaths = ConcurrentHashMap<String, Long>()
+
     @BeforeEach
     fun start() {
         server = MockWebServer()
@@ -54,6 +61,10 @@ class BlocklistRefreshTest {
 
         val code = status[path] ?: 200
         if (code != 200) return MockResponse().setResponseCode(code)
+        slowPaths[path]?.let { millis ->
+            return MockResponse().setBody(bodies[path].orEmpty())
+                .setBodyDelay(millis, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
 
         val etag = etags[path] ?: return MockResponse().setBody(bodies[path].orEmpty())
         if (request.getHeader("If-None-Match") == etag) {
@@ -219,5 +230,42 @@ class BlocklistRefreshTest {
         assertTrue(File(directory, "a.block").exists())
         assertTrue(File(directory, "b.block").exists())
         assertEquals(2, store.load(listOf(a, b)).size)
+    }
+
+    @Test
+    fun `a prune waits for a refresh already in flight`() = runBlocking {
+        // These two run on their own schedules and do overlap: the periodic refresh prunes after
+        // fetching, enabling a list prunes before. Unserialized, the sweep deletes the `.tmp`
+        // that writeIndex is mid-rename on, and the list it was writing ends up absent while its
+        // state says it downloaded — a filter that reads as on and blocks nothing.
+        bodies["/slow.txt"] = hosts(150, prefix = "slow")
+        slowPaths["/slow.txt"] = 600
+        val store = BlocklistStore(directory)
+        val slow = source("slow", "/slow.txt")
+
+        var refreshFinished = 0L
+        var pruneFinished = 0L
+        coroutineScope {
+            val refresh = launch(Dispatchers.IO) {
+                store.refresh(listOf(slow))
+                refreshFinished = System.nanoTime()
+            }
+            // Long enough that the request is on the wire and its body is still being held.
+            delay(200)
+            launch(Dispatchers.IO) {
+                store.prune(listOf(slow))
+                pruneFinished = System.nanoTime()
+            }
+            refresh.join()
+        }
+
+        assertTrue(
+            pruneFinished > refreshFinished,
+            "the prune ran while the refresh was still writing",
+        )
+        // And the point of all that: the list the refresh was fetching survived it.
+        assertTrue(File(directory, "slow.block").exists())
+        assertEquals(1, store.load(listOf(slow)).size)
+        assertTrue(store.states()["slow"]?.isDownloaded == true)
     }
 }

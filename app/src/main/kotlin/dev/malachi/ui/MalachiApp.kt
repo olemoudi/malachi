@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -84,7 +85,12 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
             },
             label = "screen",
         ) { screen ->
-            Box(Modifier.fillMaxSize().systemBarsPadding()) {
+            // imePadding here rather than on each screen: the keyboard is a second bottom edge
+            // for every screen that has a text field, and without it the list keeps its full
+            // height and draws its first results underneath the keys — visible, and not tappable
+            // until the keyboard is dismissed. Applying it once means a screen added later
+            // inherits the fix instead of having to remember it.
+            Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                 when (screen) {
                     Screen.Home -> HomeScreen(
                         vm = vm,

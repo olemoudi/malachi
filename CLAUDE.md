@@ -402,6 +402,12 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **The directory is the authority on what is on disk, not the file that lists it.** `prune`
   sweeps the list directory itself, so losing `state.json` cannot strand a compiled index that
   nothing will ever delete again.
+- **`prune` and `refresh` take the same lock.** They are reached on independent schedules — the
+  periodic refresh prunes *after* fetching, enabling a list prunes *before* — so they overlap in
+  practice. Unserialized, the sweep deletes the `.tmp` that `writeIndex` is mid-rename on, and a
+  sweep holding a slightly stale subscribed set deletes an index another thread has just written.
+  Both end as a list whose state says downloaded and whose index is gone: a filter that reads as
+  on and blocks nothing.
 - **Write to a sibling, `fsync`, then rename.** The rename is only atomic with respect to this
   process; without the sync a power cut can leave the final name pointing at unwritten zeroes.
 - Adding anything that writes to disk means adding its bound in the same change.

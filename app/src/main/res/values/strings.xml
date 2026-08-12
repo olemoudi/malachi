@@ -88,6 +88,8 @@
     <string name="apps_search">Search apps</string>
     <string name="apps_show_system">Show system apps</string>
     <string name="apps_show_system_subtitle">Background services and preinstalled components, which is where trackers usually live.</string>
+    <string name="apps_no_matches">No app matches that.</string>
+    <string name="apps_no_matches_try_system">No app matches that. Try switching on system apps.</string>
     <string name="apps_loading">Reading the installed apps…</string>
     <string name="apps_summary_all">Every app is filtered</string>
 

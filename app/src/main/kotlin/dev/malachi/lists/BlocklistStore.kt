@@ -128,7 +128,25 @@ class BlocklistStore(private val dir: File) {
      * disk — they were then silently re-downloaded on the next periodic refresh, so the only
      * visible symptom was a filter that went briefly empty and a lot of wasted traffic.
      */
-    suspend fun prune(keep: List<BlocklistSource>) = withContext(Dispatchers.IO) {
+    suspend fun prune(keep: List<BlocklistSource>) = refreshLock.withLock {
+        withContext(Dispatchers.IO) {
+            pruneLocked(keep)
+        }
+    }
+
+    /**
+     * Under [refreshLock] because a sweep and a download must not overlap.
+     *
+     * Two callers reach here on their own schedules — the periodic refresh prunes after fetching,
+     * and enabling a list prunes before — so they do overlap in practice. Unserialized, the sweep
+     * deletes `*.tmp` while [writeIndex] is using one, and that list's refresh then fails on a
+     * rename with nothing to rename; worse, a sweep holding a slightly older subscribed set can
+     * delete the index another thread has just written for a list the user *did* enable. Both
+     * end the same way: a list that reads as downloaded and blocks nothing.
+     *
+     * Never called from inside [refresh], so taking the lock here cannot deadlock.
+     */
+    private fun pruneLocked(keep: List<BlocklistSource>) {
         val wanted = keep.map { it.id }.toSet()
         val states = states().toMutableMap()
         states.keys.filterNot { it in wanted }.forEach { id ->

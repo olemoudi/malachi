@@ -163,6 +163,8 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun dismissAlwaysOnTip() = update { it.copy(alwaysOnTipDismissed = true) }
 
+    fun dismissPrivateDnsNote() = update { it.copy(privateDnsNoteDismissed = true) }
+
     /** A display label for the app named in [VpnController.AlwaysOn.Other]. */
     fun alwaysOnOtherLabel(): String? =
         (_alwaysOn.value as? VpnController.AlwaysOn.Other)?.let { labelFor(it.packageName) }
