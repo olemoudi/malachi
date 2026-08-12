@@ -3,6 +3,7 @@ package dev.malachi.lists
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -38,6 +39,33 @@ class BlocklistCatalogTest {
                 it.enabledByDefault && it.category != BlocklistCategory.ADS
             },
         )
+    }
+
+    @Test
+    fun `a collapsed list is refused and a small honest one is not`() {
+        // The absolute floor this replaced was wrong in both directions, and both were seen: a
+        // regional list with thirty-odd entries failed every refresh after its first, forever,
+        // while a list falling from a quarter of a million entries to two hundred sailed through.
+        assertNull(BlocklistStore.collapsed(entries = 34, previousEntries = 34, hadCompiledCopy = true))
+        assertNull(BlocklistStore.collapsed(entries = 34, previousEntries = 0, hadCompiledCopy = false))
+        assertNotNull(BlocklistStore.collapsed(entries = 200, previousEntries = 250_000, hadCompiledCopy = true))
+
+        // Nothing usable is never right, with or without something to compare against — this is
+        // the captive portal serving a login page with a 200.
+        assertNotNull(BlocklistStore.collapsed(entries = 0, previousEntries = 0, hadCompiledCopy = false))
+        assertNotNull(BlocklistStore.collapsed(entries = 0, previousEntries = 5_000, hadCompiledCopy = true))
+
+        // Ordinary drift is not a collapse: lists lose entries every day.
+        assertNull(BlocklistStore.collapsed(entries = 96_000, previousEntries = 100_000, hadCompiledCopy = true))
+    }
+
+    @Test
+    fun `every list in the catalogue can actually yield a rule`() {
+        // adguard-popups shipped and could never work: every line in it is a $dnsrewrite rule,
+        // which RuleParser declines to approximate, so it downloaded and parsed to nothing on
+        // every refresh forever. The catalogue was measured by counting lines that look like
+        // rules rather than lines the parser accepts.
+        assertNull(BlocklistCatalog.byId("adguard-popups"), "a list that yields no usable rule")
     }
 
     @Test

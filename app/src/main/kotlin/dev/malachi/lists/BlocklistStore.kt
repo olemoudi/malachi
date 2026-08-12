@@ -211,9 +211,13 @@ class BlocklistStore(private val dir: File) {
             // portal, an error page, or a maintainer mid-migration. Keeping the previous
             // compiled copy is strictly better than replacing a working filter with an empty
             // one and reporting success.
-            if (blocked < MINIMUM_CREDIBLE_ENTRIES && compiled) {
-                throw IllegalStateException("only $blocked usable entries; keeping the previous copy")
-            }
+            //
+            // Judged against what this list had yesterday rather than against a fixed floor.
+            // The floor was wrong in both directions: a legitimately tiny list — a regional one
+            // with thirty entries — failed every refresh after its first forever, and a list
+            // that collapsed from a quarter of a million entries to two hundred sailed through.
+            val collapse = collapsed(blocked, previous.entries, compiled)
+            if (collapse != null) throw IllegalStateException(collapse)
 
             writeIndex(blockFile(source.id), blockBuilder.build())
             writeIndex(allowFile(source.id), allowBuilder.build())
@@ -272,13 +276,25 @@ class BlocklistStore(private val dir: File) {
     @Serializable
     private data class StatesEnvelope(val states: List<ListState> = emptyList())
 
-    private companion object {
+    internal companion object {
         const val TAG = "MalachiLists"
 
         /** The one file in this directory that isn't a compiled list. See [prune]. */
         const val STATE_FILE = "state.json"
 
-        /** Below this, a "successful" download is treated as a failure. See the call site. */
-        const val MINIMUM_CREDIBLE_ENTRIES = 100
+        /**
+         * Why a freshly parsed list is not believable, or null when it is.
+         *
+         * Nothing usable at all is never right. Otherwise the test is relative: losing half of
+         * what the list had is not something maintainers do, and is what a captive portal or a
+         * truncated download looks like.
+         */
+        fun collapsed(entries: Int, previousEntries: Int, hadCompiledCopy: Boolean): String? = when {
+            entries == 0 -> "no usable entries at all"
+            !hadCompiledCopy -> null
+            previousEntries > 0 && entries < previousEntries / 2 ->
+                "only $entries usable entries, down from $previousEntries; keeping the previous copy"
+            else -> null
+        }
     }
 }

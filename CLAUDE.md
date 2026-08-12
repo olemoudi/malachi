@@ -241,10 +241,18 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   error is visible on the Lists screen, which is not the same as anybody seeing it. The registry
   is a curated mirror that AdGuard's own DNS clients read, so a list outlives its publisher and
   arrives normalised. Only the four lists the registry does not carry keep a direct URL.
-- **Adding a source means measuring it, not guessing.** `approximateEntries` is the count of
-  lines that survive `RuleParser` — cosmetic rules stripped — because that is what the list is
-  worth at DNS level. A browser filter can be 40,000 lines and yield 15 usable rules; one did,
-  and it was dropped rather than shipped as a category with nothing in it.
+- **Adding a source means measuring it with the parser's own rules, not with a grep.**
+  `approximateEntries` is the count of lines that survive `RuleParser`, because that is what the
+  list is worth at DNS level. A browser filter can be 40,000 lines and yield 15 usable rules; one
+  did, and was dropped. `adguard-popups` shipped anyway and could never work: every line in it is
+  `$dnsrewrite=`, which the parser declines to approximate, so it downloaded and parsed to
+  nothing forever. The measurement had counted lines that *look* like rules without modelling the
+  `$`-modifier check.
+- **A list is credible relative to what it had, not against a fixed floor.** The floor was wrong
+  in both directions: a regional list with thirty-odd entries failed every refresh after its
+  first, forever, while a list collapsing from a quarter of a million entries to two hundred
+  sailed through. `BlocklistStore.collapsed` refuses nothing-at-all always, and otherwise a fall
+  of more than half.
 - **Two axes, and they are independent: what a list blocks, and what it will cost you.**
   `BlocklistCategory` is the first, `BreakageRisk` the second. The safest and the most dangerous
   lists in the catalogue are both ad blocklists, so a category sorted by size alone recommends
@@ -288,13 +296,16 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **`android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve on a current
   AOSP build** — checked, not assumed. `ACTION_WIRELESS_SETTINGS` opens the network dashboard,
   which carries the Private DNS entry, and is the fallback.
-- **`protect()` exempts a socket from the tunnel; it does not choose a way out.** An unbound
-  socket takes whatever the routing table offers for that destination, and a network's resolvers
-  are usually private addresses that mean different things on different networks. The system
-  resolver never guesses — it asks each network's servers *on that network* — which is why a
-  Wi-Fi whose resolver Malachi cannot reach looks perfectly healthy the moment the filter is off.
-  Upstream sockets are bound to the network the resolvers came from (`Network.bindSocket`), as
-  RethinkDNS does. Best-effort: a failed bind leaves the socket exactly as it was.
+- **Do not call `Network.bindSocket` on an upstream socket.** Tried in 0.9.2 on the theory that
+  `protect()` does not choose an interface; it returned `EPERM` for every socket on a Pixel 8 Pro,
+  and it does not fail cleanly — it duplicates the descriptor before throwing and the socket that
+  comes back is broken. The trace signature is unmistakable: a resolver "not answering" in one
+  millisecond where it answered in eighty a second earlier, and four resolvers exhausted in three
+  milliseconds. `protect()` is what this tunnel needs and all it needs. Reverted in 0.9.4.
+- **A per-socket failure must never be logged with its throwable.** On a phone that cannot reach
+  its resolvers it is one fifteen-line stack per lookup; the log filled with identical traces and
+  evicted the lines that explained what was happening — diagnostics defeated by their own noise.
+  Class and message, rate-limited.
 - **The debug log names the resolvers a network handed out.** With the default upstream setting
   the log used to say `upstream=system`, which answers none of "it does not resolve on this
   Wi-Fi". It now records `network wlan0: dns=[…]` on every adoption.

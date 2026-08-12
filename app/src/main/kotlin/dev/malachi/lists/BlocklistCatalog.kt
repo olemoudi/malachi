@@ -206,16 +206,6 @@ object BlocklistCatalog {
         ),
         // ---- ANNOYANCES --------------------------------------------------------------
         BlocklistSource(
-            id = "adguard-popups",
-            title = "AdGuard popup hosts",
-            maintainer = "AdGuard",
-            url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_59.txt",
-            homepage = "https://github.com/AdguardTeam/AdGuardSDNSFilter",
-            category = BlocklistCategory.ANNOYANCES,
-            risk = BreakageRisk.SAFE,
-            approximateEntries = 1_100,
-        ),
-        BlocklistSource(
             id = "push-notifications",
             title = "Anti push notifications",
             maintainer = "Dandelion Sprout",

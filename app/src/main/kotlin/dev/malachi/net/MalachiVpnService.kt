@@ -143,10 +143,7 @@ class MalachiVpnService : VpnService() {
     /** DNS servers of the underlying (non-VPN) network, refreshed by the network callback. */
     @Volatile private var networkDnsServers: List<InetAddress> = emptyList()
 
-    /**
-     * The network those resolvers belong to, so a socket asking one of them can be bound to it.
-     * See [bindToUnderlying]: protect() exempts a socket from the tunnel, it does not pick a way out.
-     */
+    /** The network the current resolvers came from, for the diagnostics header. */
     @Volatile private var activeNetwork: Network? = null
     @Volatile private var lastLockdown = false
     @Volatile private var privateDnsActive = false
@@ -157,6 +154,7 @@ class MalachiVpnService : VpnService() {
     /** The resolver that last answered, tried first next time. See [forward]. */
     @Volatile private var lastGoodUpstream: InetAddress? = null
     @Volatile private var lastSilentUpstreamLogMs = 0L
+    @Volatile private var lastSocketTroubleLogMs = 0L
 
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
@@ -170,14 +168,15 @@ class MalachiVpnService : VpnService() {
         runCatching {
             DatagramSocket().also { socket ->
                 if (!protect(socket)) {
-                    DebugLog.w(TAG, "could not protect a socket for ${target.hostAddress}")
+                    noteSocketTrouble("could not protect a socket for ${target.hostAddress}")
                     socket.close()
                     return@runCatching null
                 }
-                bindToUnderlying(socket, target)
                 socket.connect(target, DNS_PORT)
             }
-        }.onFailure { DebugLog.w(TAG, "no socket for ${target.hostAddress}", it) }.getOrNull()
+        }.onFailure {
+            noteSocketTrouble("no socket for ${target.hostAddress}: ${it.javaClass.simpleName}: ${it.message}")
+        }.getOrNull()
     }
 
     private var resumeJob: Job? = null
@@ -756,6 +755,23 @@ class MalachiVpnService : VpnService() {
      * is the single fact that explains a phone that resolves nothing on one Wi-Fi and is fine on
      * every other network.
      */
+    /**
+     * Says a socket went wrong, at most once a minute and never with a stack trace.
+     *
+     * Learned from a real report: a per-socket failure logged with its throwable is fifteen lines
+     * of trace, once per lookup, and a phone that cannot reach its resolvers produces one every
+     * time an app breathes. The log filled with identical stacks and evicted the lines that
+     * explained what was happening — the diagnostics defeated by their own noise. The class and
+     * message are the whole diagnosis here; the frames never varied.
+     */
+    private fun noteSocketTrouble(what: String) {
+        if (tracing()) DebugLog.trace(TAG, what)
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSocketTroubleLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
+        lastSocketTroubleLogMs = now
+        DebugLog.w(TAG, what)
+    }
+
     private fun noteSilentUpstream(target: InetAddress) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastSilentUpstreamLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
@@ -774,7 +790,6 @@ class MalachiVpnService : VpnService() {
         val full = runCatching {
             Socket().use { socket ->
                 protect(socket)
-                activeNetwork?.let { network -> runCatching { network.bindSocket(socket) } }
                 socket.soTimeout = UPSTREAM_TIMEOUT_MS
                 socket.connect(InetSocketAddress(target, DNS_PORT), UPSTREAM_TIMEOUT_MS)
                 val out = socket.getOutputStream()
@@ -1164,24 +1179,18 @@ class MalachiVpnService : VpnService() {
     }
 
     /**
-     * Pins an upstream socket to the network whose resolver it is about to talk to.
+     * **Do not bind these sockets to a network.** It was tried, in 0.9.2, on the theory that
+     * `protect()` exempts a socket from the tunnel without choosing a way out of the phone.
+     * `Network.bindSocket` refused with `EPERM` on every socket on a Pixel 8 Pro — and it does
+     * not refuse cleanly: it duplicates the descriptor before it throws, and the socket that
+     * comes back is broken. The signature in the trace is unmistakable, a resolver "not
+     * answering" in one millisecond where it had answered in eighty a second earlier, and four
+     * resolvers exhausted in three milliseconds.
      *
-     * `protect()` only says "do not route this back into my own tunnel". It does not choose an
-     * interface: an unbound socket takes whatever the routing table offers for that destination,
-     * which is a guess, and the addresses in question are usually private ones that mean
-     * different things on different networks. The system resolver never guesses — it asks each
-     * network's servers *on that network* — which is why a Wi-Fi whose resolver Malachi cannot
-     * reach looks perfectly healthy the moment the filter is switched off.
-     *
-     * Best-effort: a bind that fails leaves the socket working exactly as it did before, so the
-     * worst case is the behaviour we already had.
+     * `protect()` is what this tunnel needs and all it needs: the queries it sends do leave, and
+     * the traces show them answered. If a resolver is ever genuinely unreachable for want of an
+     * interface, the answer is to find out why rather than to reach for this again.
      */
-    private fun bindToUnderlying(socket: DatagramSocket, target: InetAddress) {
-        val network = activeNetwork ?: return
-        runCatching { network.bindSocket(socket) }
-            .onFailure { DebugLog.w(TAG, "could not bind a socket for ${target.hostAddress} to the active network", it) }
-    }
-
     /**
      * Notes whether the platform is dropping everything that does not leave through this tunnel.
      *
