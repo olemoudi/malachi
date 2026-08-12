@@ -144,5 +144,44 @@ object TunnelPolicy {
      * family so the answer can travel back the way it came.
      */
     fun pickUpstream(upstreams: List<InetAddress>, wantsIpv6: Boolean): InetAddress? =
-        upstreams.firstOrNull { (it is java.net.Inet4Address) != wantsIpv6 } ?: upstreams.firstOrNull()
+        orderUpstreams(upstreams, wantsIpv6).firstOrNull()
+
+    /**
+     * Every resolver worth asking, best first — because asking only one is how a whole network
+     * stops resolving.
+     *
+     * A network commonly hands out two or three DNS servers and there is no promise that the
+     * first one works: routers advertise themselves and then filter, or list an address that
+     * answers on the LAN and nowhere else. Android's own resolver tries them all and remembers
+     * which replied, so with the filter *off* such a network looks perfectly healthy. Asking a
+     * single server and dropping the lookup when it stays quiet turns that same network into one
+     * where nothing loads at all — reported from a phone where mobile data worked, this Wi-Fi did
+     * not, and every domain in the log had been asked for a dozen times.
+     *
+     * [preferred] is whichever resolver last answered. It goes first so that a dud costs its
+     * timeout once rather than on every lookup for as long as the phone stays on that network.
+     */
+    fun orderUpstreams(
+        upstreams: List<InetAddress>,
+        wantsIpv6: Boolean,
+        preferred: InetAddress? = null,
+    ): List<InetAddress> = upstreams.sortedWith(
+        compareByDescending<InetAddress> { it == preferred }
+            // Same family next: the answer has to travel back the way the query came, and a
+            // resolver of the other family is a fallback rather than a first choice.
+            .thenByDescending { (it is java.net.Inet4Address) != wantsIpv6 },
+    )
+
+    /**
+     * How long one resolver may be given when [remaining] of the budget is left and [left] of the
+     * candidates are still untried.
+     *
+     * The point is that the last candidate is reachable at all. Handing the whole budget to the
+     * first means a silent resolver eats it entirely and the working one underneath is never
+     * asked — which is the bug this exists to prevent, not a theoretical one.
+     */
+    fun attemptBudgetMs(remaining: Long, left: Int, floorMs: Long): Long = when {
+        left <= 1 -> remaining
+        else -> maxOf(remaining / left, minOf(floorMs, remaining))
+    }
 }

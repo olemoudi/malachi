@@ -257,6 +257,53 @@ class TunnelPolicyTest {
         assertNull(TunnelPolicy.pickUpstream(emptyList(), wantsIpv6 = false))
     }
 
+    @Test
+    fun `every resolver the network offered is worth asking, not just the first`() {
+        // The bug this exists for: a Wi-Fi advertised two resolvers and the first never answered.
+        // Android's own resolver moved to the second, so with the filter off the network looked
+        // healthy; Malachi asked the silent one every time and dropped the lookup, and nothing on
+        // the phone loaded until it was switched off or the network changed.
+        val dead = parse("192.168.1.1")!!
+        val good = parse("1.1.1.1")!!
+
+        assertEquals(listOf(dead, good), TunnelPolicy.orderUpstreams(listOf(dead, good), wantsIpv6 = false))
+        // Once one has answered it goes first, so a dud costs its timeout once and not forever.
+        assertEquals(
+            listOf(good, dead),
+            TunnelPolicy.orderUpstreams(listOf(dead, good), wantsIpv6 = false, preferred = good),
+        )
+    }
+
+    @Test
+    fun `ordering keeps the same family in front but still offers the other`() {
+        val v4 = parse("1.1.1.1")!!
+        val v6 = InetAddress.getByName("2606:4700:4700::1111")
+
+        assertEquals(listOf(v6, v4), TunnelPolicy.orderUpstreams(listOf(v4, v6), wantsIpv6 = true))
+        assertEquals(listOf(v4, v6), TunnelPolicy.orderUpstreams(listOf(v4, v6), wantsIpv6 = false))
+        // A preferred resolver of the other family still wins: reaching the resolver and carrying
+        // the answer back are different journeys, and only the second one has to match.
+        assertEquals(
+            listOf(v4, v6),
+            TunnelPolicy.orderUpstreams(listOf(v4, v6), wantsIpv6 = true, preferred = v4),
+        )
+        assertEquals(emptyList<InetAddress>(), TunnelPolicy.orderUpstreams(emptyList(), wantsIpv6 = false))
+    }
+
+    @Test
+    fun `the budget is divided so the last resolver is still reachable`() {
+        // Handing the whole budget to the first candidate is the same bug in another shape: the
+        // working resolver underneath a silent one never gets asked at all.
+        assertEquals(2_500, TunnelPolicy.attemptBudgetMs(remaining = 5_000, left = 2, floorMs = 1_200))
+        assertEquals(1_666, TunnelPolicy.attemptBudgetMs(remaining = 5_000, left = 3, floorMs = 1_200))
+        // The last one may have everything that is left.
+        assertEquals(5_000, TunnelPolicy.attemptBudgetMs(remaining = 5_000, left = 1, floorMs = 1_200))
+        // A floor, so a long list doesn't slice the budget into intervals too short to answer in.
+        assertEquals(1_200, TunnelPolicy.attemptBudgetMs(remaining = 5_000, left = 8, floorMs = 1_200))
+        // …but never more than there is.
+        assertEquals(400, TunnelPolicy.attemptBudgetMs(remaining = 400, left = 4, floorMs = 1_200))
+    }
+
     // ---- the cheap per-query switches --------------------------------------------------------
 
     @Test

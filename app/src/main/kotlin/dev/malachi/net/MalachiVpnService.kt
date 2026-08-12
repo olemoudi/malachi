@@ -142,6 +142,10 @@ class MalachiVpnService : VpnService() {
 
     @Volatile private var upstreams: List<InetAddress> = emptyList()
 
+    /** The resolver that last answered, tried first next time. See [forward]. */
+    @Volatile private var lastGoodUpstream: InetAddress? = null
+    @Volatile private var lastSilentUpstreamLogMs = 0L
+
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
 
@@ -659,28 +663,66 @@ class MalachiVpnService : VpnService() {
             }
     }
 
-    /** Sends the query on to a real resolver and relays the answer back, byte for byte. */
+    /**
+     * Sends the query on to a real resolver and relays the answer back, byte for byte — trying
+     * each resolver the network offered until one replies.
+     *
+     * Asking only the first was enough to make an entire Wi-Fi look broken: its router advertised
+     * a resolver that never answered, Android's own resolver quietly moved to the second, and
+     * Malachi kept asking the silent one and dropping the lookup. The whole budget is still
+     * [UPSTREAM_TIMEOUT_MS] — it is divided between the candidates rather than spent on the first
+     * of them, so a dud cannot starve the one underneath it.
+     */
     private fun forward(request: UdpDatagram, query: ByteArray) {
         val wantsIpv6 = request.destinationAddress.size == 16
-        val target = TunnelPolicy.pickUpstream(upstreams, wantsIpv6) ?: return
-        val socket = sockets.borrow(target) ?: return
-        val answer = DnsRelay.exchange(
-            socket = socket,
-            query = query,
-            target = target,
-            port = DNS_PORT,
-            deadlineMs = SystemClock.elapsedRealtime() + UPSTREAM_TIMEOUT_MS,
-            bufferSize = UPSTREAM_BUFFER,
-            nowMs = SystemClock::elapsedRealtime,
-        )
-        // Nothing came back, so the socket may still deliver that answer to whoever borrows it
-        // next. It is not put back.
-        if (answer == null) {
-            runCatching { socket.close() }
+        val candidates = TunnelPolicy.orderUpstreams(upstreams, wantsIpv6, lastGoodUpstream)
+        if (candidates.isEmpty()) return
+        val deadline = SystemClock.elapsedRealtime() + UPSTREAM_TIMEOUT_MS
+
+        candidates.forEachIndexed { index, target ->
+            val remaining = deadline - SystemClock.elapsedRealtime()
+            if (remaining <= 0) return@forEachIndexed
+            val socket = sockets.borrow(target) ?: return@forEachIndexed
+            val answer = DnsRelay.exchange(
+                socket = socket,
+                query = query,
+                target = target,
+                port = DNS_PORT,
+                deadlineMs = SystemClock.elapsedRealtime() +
+                    TunnelPolicy.attemptBudgetMs(remaining, candidates.size - index, MIN_UPSTREAM_ATTEMPT_MS),
+                bufferSize = UPSTREAM_BUFFER,
+                nowMs = SystemClock::elapsedRealtime,
+            )
+            if (answer == null) {
+                // Nothing came back, so this socket may still deliver that answer to whoever
+                // borrows it next. It is not put back.
+                runCatching { socket.close() }
+                noteSilentUpstream(target)
+                return@forEachIndexed
+            }
+            sockets.give(socket)
+            // Remembered so the next lookup starts with the one that works rather than paying
+            // the dud's timeout again.
+            lastGoodUpstream = target
+            writeToTun(IpPacket.buildUdpResponse(request, resolveTruncated(answer, query, target)))
             return
         }
-        sockets.give(socket)
-        writeToTun(IpPacket.buildUdpResponse(request, resolveTruncated(answer, query, target)))
+        dropUnroutable("no resolver answered (${candidates.size} tried)")
+    }
+
+    /**
+     * Names a resolver that went quiet, at most once a minute.
+     *
+     * Rate-limited because this is the hot path and a network whose resolver is down produces one
+     * of these per lookup — but worth saying at all, because "which resolver stopped answering"
+     * is the single fact that explains a phone that resolves nothing on one Wi-Fi and is fine on
+     * every other network.
+     */
+    private fun noteSilentUpstream(target: InetAddress) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSilentUpstreamLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
+        lastSilentUpstreamLogMs = now
+        DebugLog.w(TAG, "no answer from ${target.hostAddress}; trying the next resolver")
     }
 
     /**
@@ -829,6 +871,8 @@ class MalachiVpnService : VpnService() {
         VpnStatus.privateDns(privateDnsActive, privateDnsHost)
         publishLockdown()
         upstreams = resolveUpstreams()
+        // The resolver that worked belonged to the network that has just gone.
+        lastGoodUpstream = null
         // Tells the system which network our forwarded queries really travel over, so they are
         // billed and routed correctly instead of appearing to come from the tunnel.
         runCatching { setUnderlyingNetworks(arrayOf(network)) }
@@ -1115,6 +1159,10 @@ class MalachiVpnService : VpnService() {
         private const val UPSTREAM_BUFFER = 4032
         private const val IP_UDP_OVERHEAD = 48
         private const val UPSTREAM_TIMEOUT_MS = 5_000
+
+        /** The least a resolver is given before the next one is tried. */
+        private const val MIN_UPSTREAM_ATTEMPT_MS = 1_200L
+        private const val SILENT_UPSTREAM_LOG_INTERVAL_MS = 60_000L
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L

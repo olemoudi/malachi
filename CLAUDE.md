@@ -288,6 +288,17 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **`android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve on a current
   AOSP build** — checked, not assumed. `ACTION_WIRELESS_SETTINGS` opens the network dashboard,
   which carries the Private DNS entry, and is the fallback.
+- **A network's first DNS server is not necessarily one that answers, and Android hides that.**
+  Routers advertise two or three resolvers, and the first is routinely a dud — it advertises
+  itself and then filters, or answers on the LAN and nowhere else. Android's own resolver tries
+  them all and remembers which replied, so with the filter *off* the network looks perfectly
+  healthy. Asking one and dropping the lookup made a whole Wi-Fi resolve nothing while mobile
+  data was fine; the query log showed every domain asked for a dozen times, all "allowed",
+  because the verdict was right and the answer never came back. `forward` now tries each
+  resolver, splits the one timeout budget between them so a silent one cannot starve the rest,
+  and remembers the winner so the dud costs its timeout once rather than on every lookup.
+  Reproduced on a device with `192.0.2.1` (TEST-NET-1) listed first: 3.7s for the first lookup,
+  then 0.9s and 0.6s.
 - **A VPN is metered unless it says otherwise, and that belief spreads to the whole phone.**
   Without `Builder.setMetered(false)` the tunnel's capabilities come back without `NOT_METERED`
   while the Wi-Fi underneath it has it — measured with `dumpsys connectivity`, before and after.
