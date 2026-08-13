@@ -5,6 +5,7 @@ Self-contained (stdlib only) so CI needs no third-party action. Reads instructio
 coverage across all rows and writes a flat SVG badge.
 """
 import csv
+import math
 import sys
 from pathlib import Path
 
@@ -29,16 +30,43 @@ def color(pct: float) -> str:
     return "#e05d44"
 
 
+# Advance widths in pixels, measured from DejaVu Sans at 11px -- the font this SVG actually
+# gets wherever Verdana and Geneva are absent, which is every Linux renderer.
+#
+# This used to be a flat 6.5px per character, and that is what printed the digits of "91%" on
+# top of one another. The average is fair for lowercase ("coverage" came out 52 against a real
+# 51.06, an invisible pixel of stretch) and badly wrong for anything else: "%" is 10.45px, over
+# half again the assumption. So the value cell was built 19px wide to hold 24.45px of glyphs,
+# and `textLength` has to obey -- with the default `lengthAdjust` it may only alter the spacing,
+# so it used *negative* spacing and the glyphs overlapped.
+#
+# Hence the rule this table exists to keep: never under-measure. A cell a pixel too wide spreads
+# the gaps by a fraction nobody can see; a cell a pixel too narrow overlaps the text. Unknown
+# characters are therefore charged the widest glyph here rather than an average.
+_GLYPH_WIDTHS = {
+    'a': 6.73, 'b': 6.98, 'c': 6.05, 'd': 6.98, 'e': 6.77, 'f': 3.88, 'g': 6.98,
+    'h': 6.97, 'i': 3.06, 'j': 3.06, 'k': 6.38, 'l': 3.06, 'm': 10.72, 'n': 6.97,
+    'o': 6.73, 'p': 6.98, 'q': 6.98, 'r': 4.52, 's': 5.73, 't': 4.31, 'u': 6.97,
+    'v': 6.52, 'w': 9.00, 'x': 6.52, 'y': 6.52, 'z': 5.78,
+    '0': 7.00, '1': 7.00, '2': 7.00, '3': 7.00, '4': 7.00,
+    '5': 7.00, '6': 7.00, '7': 7.00, '8': 7.00, '9': 7.00,
+    '%': 10.45, '.': 3.50, ' ': 3.50,
+}
+_WIDEST_GLYPH = max(_GLYPH_WIDTHS.values())
+
+
 def text_width(s: str) -> int:
-    # Rough average glyph width for Verdana 11px; good enough for a badge.
-    return int(len(s) * 6.5) + 10
+    """Width of the cell holding `s`: the text's own width, rounded up, plus 10px of padding."""
+    return math.ceil(sum(_GLYPH_WIDTHS.get(c, _WIDEST_GLYPH) for c in s)) + 10
 
 
 def badge(pct: float) -> str:
     label, value = "coverage", f"{pct:.0f}%"
     lw, rw = text_width(label), text_width(value)
     w = lw + rw
-    lx, rx = lw * 10 // 2, (lw + rw // 2) * 10
+    # Cell centres, in the 10x coordinate space the text is drawn in. Doubled before halving so
+    # an odd cell width does not lose half a pixel to integer division.
+    lx, rx = lw * 10 // 2, (2 * lw + rw) * 10 // 2
     ltl, rtl = (lw - 10) * 10, (rw - 10) * 10
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="20" role="img" aria-label="{label}: {value}">
 <title>{label}: {value}</title>
