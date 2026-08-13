@@ -37,13 +37,27 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug
 
+      # The badge is a picture, and this step runs four minutes after the checkout — by which
+      # time main has usually moved, because cutting a release pushes an empty `chore: cut`
+      # commit seconds behind the commit being tested. A plain push is then rejected as a
+      # non-fast-forward, `bash -e` returns 1, and a wholly green build is reported as a failure
+      # by email. That happened on every release for two days and there was nothing to act on.
+      #
+      # So: rebase onto whatever is there now and try again, and never fail the build over it.
+      # `continue-on-error` is the belt to the retry's braces — if the badge is lost, the next
+      # green run writes it again.
       - name: Commit coverage badge
         if: github.ref == 'refs/heads/main'
+        continue-on-error: true
         run: |
-          if ! git diff --quiet .github/badges/coverage.svg; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add .github/badges/coverage.svg
-            git commit -m "chore: update coverage badge [skip ci]"
-            git push
-          fi
+          git diff --quiet .github/badges/coverage.svg && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/coverage.svg
+          git commit -m "chore: update coverage badge [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            echo "main moved under us; rebasing and retrying ($attempt of 3)"
+            git fetch origin main && git rebase origin/main || exit 0
+          done
+          exit 0

@@ -594,6 +594,13 @@ the one path every revival has in common.
   updates.
 - **Bumping a version:** raise `versionCode` (and `versionName`) in `app/build.gradle.kts`,
   then push a `v*` tag. CI derives `version.json` from `versionCode`.
+- **The badge push races the release, and it used to report a green build as a failure.** CI
+  checks out a commit, spends four minutes on it, and then pushes the coverage badge — by which
+  time `chore: cut vX.Y.Z` has landed and the push is rejected as a non-fast-forward. Tests,
+  coverage and APK all passed; the run went red and mailed a failure with nothing in it to act
+  on, on every release for two days. The step now rebases and retries, and carries
+  `continue-on-error` so a picture can never fail a build. **A red CI on a release commit is
+  worth reading before believing** — check which step failed.
 - **Never tag the coverage-badge commit.** CI pushes `chore: update coverage badge [skip ci]`
   after every green run, and GitHub honours `[skip ci]` for *every* event on that commit — so a
   tag that lands on it produces no Release run at all, silently: no failure, no run, nothing to
