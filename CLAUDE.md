@@ -717,6 +717,17 @@ the one path every revival has in common.
   on, on every release for two days. The step now rebases and retries, and carries
   `continue-on-error` so a picture can never fail a build. **A red CI on a release commit is
   worth reading before believing** — check which step failed.
+- **The second way a green commit gets mailed out as a failure is Maven Central saying no.** It
+  rate-limits CI runners: on 2026-08-13 every single dependency came back `429 Too Many Requests`,
+  so Gradle resolved nothing, compiled nothing, and ran none of the 507 tests — and the failure
+  reads like eighteen unrelated broken dependencies unless you notice the status code. The tell
+  that it is transient and not ours: the Release workflow resolved the same dependencies a minute
+  later and went green. Every Gradle invocation in CI now goes through `scripts/gradle_retry.sh`,
+  which retries with a widening gap **only** when the log carries a resolution failure — a red
+  test is still reported on the first attempt, because retrying that would treble the time to a
+  real red and quietly turn a flaky test green. `cache: gradle` on `setup-java` is the other half:
+  most runs now ask Maven Central for nothing at all. **Before diagnosing a CI failure, check
+  whether it got as far as running a test** — `Could not resolve` is not a broken build.
 - **Never tag the coverage-badge commit.** CI pushes `chore: update coverage badge [skip ci]`
   after every green run, and GitHub honours `[skip ci]` for *every* event on that commit — so a
   tag that lands on it produces no Release run at all, silently: no failure, no run, nothing to

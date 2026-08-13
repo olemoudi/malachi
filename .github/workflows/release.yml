@@ -24,15 +24,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Through gradle_retry.sh, for a reason this workflow feels more sharply than CI does: a
+      # rate limiter that cannot be reached here does not merely go red, it abandons a tag that
+      # has already been pushed, leaving a version nobody can install and a tag that has to be
+      # deleted before it can be cut again.
       - name: Run tests
-        run: ./gradlew test
+        run: scripts/gradle_retry.sh test
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease
+        run: scripts/gradle_retry.sh :app:assembleRelease
 
       # malachi.apk is the canonical asset name and carries no release stage on purpose: it is
       # the URL baked into every install link and into every copy of the app already on a phone,

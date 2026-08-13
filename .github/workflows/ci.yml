@@ -21,21 +21,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Most runs then resolve nothing over the network at all, which is the cheapest
+          # possible answer to a rate limiter. The retry below covers the cache miss.
+          cache: gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Through gradle_retry.sh: Maven Central answered 429 to every request on 2026-08-13 and
+      # a green commit was mailed out as a failure. A test failure is still reported on the
+      # first attempt — see the script.
       - name: Run unit tests
-        run: ./gradlew test
+        run: scripts/gradle_retry.sh test
 
       - name: Aggregated coverage report
-        run: ./gradlew jacocoAggregatedReport
+        run: scripts/gradle_retry.sh jacocoAggregatedReport
 
       - name: Generate coverage badge
         run: python3 scripts/coverage_badge.py
 
       - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug
+        run: scripts/gradle_retry.sh :app:assembleDebug
 
       # The badge is a picture, and this step runs four minutes after the checkout — by which
       # time main has usually moved, because cutting a release pushes an empty `chore: cut`

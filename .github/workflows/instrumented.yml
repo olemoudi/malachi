@@ -34,6 +34,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -47,8 +48,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # Through gradle_retry.sh: this is the job's first Gradle invocation and therefore the one
+      # that resolves everything. The two inside the emulator script below are deliberately left
+      # bare — by then this step has populated the Gradle cache in the same job, so they ask
+      # Maven Central for nothing, and the emulator action feeds that script to sh in a way that
+      # is already fragile enough (see the note about backslash continuations).
       - name: Build the app and the test APK
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+        run: scripts/gradle_retry.sh :app:assembleDebug :app:assembleDebugAndroidTest
 
       - name: Run them on an emulator
         uses: reactivecircus/android-emulator-runner@v2
