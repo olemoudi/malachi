@@ -567,6 +567,41 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **While the window is open, drops are not rate-limited.** One line a minute hides the pattern
   being hunted — a client retrying over TCP, which this tunnel routes and cannot answer.
 
+### Backup (the one thing that cannot be rebuilt)
+
+- **What a backup carries is decisions, never observations.** The rules somebody wrote, the lists
+  they chose, the apps they excluded, where lookups go. Never the query log, never the statistics,
+  never a domain this phone was seen asking for — a file the user hands to a cloud drive is the
+  last place an observation should surface. A rule someone typed is theirs and is already on this
+  disk; a name their phone looked up is not the same thing.
+- **Restoring must not paste one phone's state onto another.** `filteringEnabled`, the pause, the
+  diagnostics window, which notices have been dismissed: none of it is in the file, because
+  restoring a paused state onto a working phone stops the filter for fifteen minutes with nothing
+  on screen to explain why.
+- **Reading a file from another version works in both directions, and it is bought with habits
+  rather than cleverness.** Every field has a default, so an older file is missing nothing;
+  unknown keys are ignored, so a newer file is merely partly understood; and **a field is never
+  renamed or repurposed** — new meaning, new field. `Backup.FORMAT` moves only for a change those
+  three cannot absorb. A file from a newer app is read rather than refused: telling somebody
+  their own backup is unreadable because they downgraded is the wrong answer.
+- **The reminder follows the work, not the calendar.** `decisionsFingerprint` over the rules and
+  the list choices is compared with what the last export covered — which beats instrumenting
+  every place a rule can change, because the place that gets forgotten is a reminder that never
+  fires and a backup somebody thought they had. It also means a fresh install with nothing to
+  lose is never asked, and **once a copy exists nothing is said again until the decisions
+  actually change**. Deliberately narrower than what the file carries: nagging because somebody
+  changed the theme is how a reminder gets switched off for good.
+- **No notification for it, ever.** This app's notifications are for a pause, a stopped filter,
+  and the transient one the platform demands. A backup is not an interruption; it is a card on
+  the home screen with a way out that lasts (`backupRemindersOff`, reversible in settings).
+- **The file goes where the user says, through the storage access framework.** No storage
+  permission, and nothing of theirs is visible to us. A backup this app filed away in its own
+  folder would be lost with the app, which is the one moment it exists for.
+- **`openOutputStream(uri, "wt")` — the `t` is load-bearing.** Without it the provider opens for
+  writing without truncating, so a shorter backup written over a longer one leaves the tail of
+  the old file behind and the result parses as nothing. There is an instrumented test for exactly
+  this, because it is discovered on the day it is needed and not before.
+
 ### Privacy constraints (non-negotiable)
 - **A domain never touches disk.** The query log lives in memory only and dies with the process.
   The statistics persist *counts* — per app, per day — and must never gain a hostname field, a

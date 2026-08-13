@@ -274,6 +274,26 @@
     <string name="bypass_public_hint">Atrapa a las apps que llevan 8.8.8.8 y similares dentro. Su DNS cifrado dejará de funcionar, que es justo la intención… y a veces el problema.</string>
 
     <!-- Ajustes: el resto -->
+    <!-- Copia de seguridad -->
+    <string name="settings_backup_title">Copia de seguridad</string>
+    <string name="settings_backup_hint">Tus reglas y las listas que has elegido, en un fichero que guardas tú. Todo lo demás se rehace solo en un móvil nuevo; esto no.</string>
+    <string name="settings_backup_export">Guardar una copia…</string>
+    <string name="settings_backup_unsaved">Tienes cambios que no están en ninguna copia.</string>
+    <string name="settings_backup_never">Todavía no has guardado ninguna copia.</string>
+    <string name="settings_backup_saved">Está todo guardado.</string>
+    <string name="settings_backup_import">Restaurar desde una copia…</string>
+    <string name="settings_backup_import_hint">Sustituye tus reglas y tus listas por las del fichero.</string>
+    <string name="settings_backup_reminders">Recordarme guardar una copia</string>
+    <string name="settings_backup_reminders_hint">Desactivado. No se volverá a avisar cuando cambien tus reglas.</string>
+    <string name="backup_exported">Copia guardada: %1$d reglas y %2$d listas.</string>
+    <string name="backup_export_failed">No se ha podido escribir la copia ahí.</string>
+    <string name="backup_imported">Restaurado: %1$d reglas y %2$d listas.</string>
+    <string name="backup_import_failed">Ese fichero no es una copia de Malachi.</string>
+    <string name="home_backup_suggestion">Has escrito reglas tuyas. Guarda una copia para que un móvil perdido o cambiado no se las lleve con él.</string>
+    <string name="action_backup_now">Guardar copia</string>
+    <string name="action_remind_later">Más tarde</string>
+    <string name="action_never_remind">No volver a avisar</string>
+
     <string name="settings_privacy_title">Privacidad</string>
     <string name="settings_query_log">Registrar las consultas</string>
     <string name="settings_query_log_hint">Se guarda solo en memoria, nunca en disco, y desaparece al detener el filtro. Los contadores siguen funcionando igualmente.</string>

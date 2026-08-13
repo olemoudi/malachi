@@ -43,10 +43,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
+import dev.malachi.data.BackupPolicy
 import dev.malachi.net.TunnelProblem
 import dev.malachi.net.VpnController
+import dev.malachi.ui.BackupMessage
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.Screen
+import dev.malachi.ui.rememberBackupActions
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.CardPosition
 import dev.malachi.stats.Counts
@@ -101,6 +104,8 @@ fun HomeScreen(
     val listedDomains by vm.listedDomains.collectAsStateWithLifecycle()
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
     val anotherVpn by vm.anotherVpn.collectAsStateWithLifecycle()
+    val backup = rememberBackupActions(vm)
+    BackupMessage(vm)
     val spacing = Tokens.spacing
 
     LazyColumn(
@@ -248,6 +253,25 @@ fun HomeScreen(
                     onAction = vm::openVpnSettings,
                     secondary = stringResource(R.string.action_got_it),
                     onSecondary = vm::dismissAlwaysOnTip,
+                )
+            }
+        }
+
+        // The one thing in this app that cannot be rebuilt on a new phone: the rules somebody
+        // wrote one broken app at a time, and the lists they settled on. Offered when there is
+        // something unsaved, put off on a widening schedule, and never mentioned again once a
+        // copy exists — until the decisions change. See BackupPolicy.
+        if (BackupPolicy.reminderDue(settings, System.currentTimeMillis())) {
+            item {
+                Notice(
+                    tone = Tone.Suggestion,
+                    text = stringResource(R.string.home_backup_suggestion),
+                    action = stringResource(R.string.action_backup_now),
+                    onAction = backup.export,
+                    secondary = stringResource(R.string.action_remind_later),
+                    onSecondary = vm::remindBackupLater,
+                    tertiary = stringResource(R.string.action_never_remind),
+                    onTertiary = vm::stopBackupReminders,
                 )
             }
         }
@@ -502,6 +526,8 @@ private fun Notice(
     onAction: () -> Unit = {},
     secondary: String? = null,
     onSecondary: () -> Unit = {},
+    tertiary: String? = null,
+    onTertiary: () -> Unit = {},
 ) {
     val spacing = Tokens.spacing
     val container = when (tone) {
@@ -552,6 +578,16 @@ private fun Notice(
                 ) {
                     SecondaryAction(text = secondary, onClick = onSecondary, onContainer = onContainer)
                     PrimaryAction(text = action, onClick = onAction, onContainer = onContainer, container = container)
+                }
+                // The way out of a recurring suggestion gets its own line rather than a third
+                // seat in that row: three labels of ordinary length — "Don't ask again", "Later",
+                // "Save a copy" — do not fit across a narrow phone, and in Spanish they fit
+                // less. It also belongs apart from the other two: those are about right now, and
+                // this one is a decision about every time after.
+                if (tertiary != null) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        SecondaryAction(text = tertiary, onClick = onTertiary, onContainer = onContainer)
+                    }
                 }
             }
         }

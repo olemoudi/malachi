@@ -171,6 +171,25 @@ data class MalachiSettings(
     val privateDnsNoteDismissed: Boolean = false,
 
     /**
+     * The fingerprint of the decisions the last exported (or imported) backup covered.
+     *
+     * Empty means no backup has ever been made. Comparing it with [decisionsFingerprint] is what
+     * tells the app there is something worth saving that isn't saved — which beats instrumenting
+     * every place a rule can change, because a place that gets forgotten is a reminder that never
+     * fires and a backup somebody thought they had.
+     */
+    val backupFingerprint: String = "",
+
+    /** Wall clock before which the backup reminder stays quiet; 0 when it may show at once. */
+    val backupRemindAtMs: Long = 0,
+
+    /** How many times the reminder has been put off, which decides the next gap. */
+    val backupRemindStage: Int = 0,
+
+    /** "Don't remind me again". Reversible from the settings screen, and nowhere else. */
+    val backupRemindersOff: Boolean = false,
+
+    /**
      * Wall clock until which the tunnel narrates every lookup into the in-memory log; 0 when it
      * isn't. See [isDiagnosing].
      *
@@ -223,6 +242,35 @@ data class MalachiSettings(
     fun isFiltering(nowMs: Long = System.currentTimeMillis()): Boolean = filteringEnabled && !isPaused(nowMs)
 
     fun appRulesFor(packageName: String): List<AppRule> = appRules.filter { it.packageName == packageName }
+
+    /**
+     * Everything a backup is *for*, reduced to one comparable string: the rules the user wrote
+     * and the lists they turned on or off.
+     *
+     * Deliberately narrower than what the backup file carries. A file also holds the upstream,
+     * the scope, the block answer and the rest — but those are a moment's work to set again,
+     * while a year of exceptions written one broken app at a time is not, and reminding somebody
+     * to re-export because they changed the theme is how a reminder gets switched off for good.
+     *
+     * Sorted, so the same decisions in a different order are the same fingerprint.
+     */
+    fun decisionsFingerprint(): String = buildString {
+        append(userBlocked.sorted().joinToString(","))
+        append('|')
+        append(userAllowed.sorted().joinToString(","))
+        append('|')
+        append(appRules.map { "${it.packageName}:${it.domain}:${it.block}" }.sorted().joinToString(","))
+        append('|')
+        append(listChoices.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" })
+    }
+
+    /**
+     * Whether there is anything a backup would be worth making. A fresh install has no rules and
+     * no list of its own, so nothing to lose — and nobody should be asked to save an empty file
+     * before they have used the app once.
+     */
+    fun hasDecisionsWorthKeeping(): Boolean =
+        userBlocked.isNotEmpty() || userAllowed.isNotEmpty() || appRules.isNotEmpty() || listChoices.isNotEmpty()
 
     /**
      * Whether [packageName] is in scope. Note this is *also* enforced when the tunnel is built

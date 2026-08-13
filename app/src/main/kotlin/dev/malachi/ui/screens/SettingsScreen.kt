@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -25,13 +27,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
+import dev.malachi.data.BackupPolicy
 import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
 import dev.malachi.data.ThemeMode
 import dev.malachi.data.UpstreamDns
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
+import dev.malachi.ui.BackupMessage
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.rememberBackupActions
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.ChoiceRow
 import dev.malachi.ui.components.NavRow
@@ -61,6 +66,8 @@ fun SettingsScreen(
     val theme by vm.themeMode.collectAsStateWithLifecycle()
     val update by vm.updateState.collectAsStateWithLifecycle()
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
+    val backup = rememberBackupActions(vm)
+    BackupMessage(vm)
     val spacing = Tokens.spacing
 
     var editingUpstream by remember { mutableStateOf(false) }
@@ -177,6 +184,51 @@ fun SettingsScreen(
                     value = stringResource(R.string.action_open),
                     onClick = vm::openVpnSettings,
                 )
+            }
+
+            item {
+                SectionHeader(
+                    title = stringResource(R.string.settings_backup_title),
+                    supporting = stringResource(R.string.settings_backup_hint),
+                )
+            }
+            item {
+                CardGroup {
+                    NavRow(
+                        icon = Icons.Filled.Save,
+                        title = stringResource(R.string.settings_backup_export),
+                        // The state of the copy, in the row that makes one. "Everything saved"
+                        // is as much the point as the button: the reminder exists because
+                        // nobody can tell by looking whether their rules are anywhere else.
+                        subtitle = if (BackupPolicy.isStale(settings)) {
+                            stringResource(R.string.settings_backup_unsaved)
+                        } else if (settings.backupFingerprint.isEmpty()) {
+                            stringResource(R.string.settings_backup_never)
+                        } else {
+                            stringResource(R.string.settings_backup_saved)
+                        },
+                        onClick = backup.export,
+                        position = cardPosition(0, if (settings.backupRemindersOff) 3 else 2),
+                    )
+                    NavRow(
+                        icon = Icons.Filled.Restore,
+                        title = stringResource(R.string.settings_backup_import),
+                        subtitle = stringResource(R.string.settings_backup_import_hint),
+                        onClick = backup.import,
+                        position = cardPosition(1, if (settings.backupRemindersOff) 3 else 2),
+                    )
+                    // Only once it has been switched off, because a switch that is on by default
+                    // and never touched is a row that explains nothing to the people who read it.
+                    if (settings.backupRemindersOff) {
+                        SwitchRow(
+                            title = stringResource(R.string.settings_backup_reminders),
+                            subtitle = stringResource(R.string.settings_backup_reminders_hint),
+                            checked = false,
+                            onCheckedChange = vm::setBackupReminders,
+                            position = cardPosition(2, 3),
+                        )
+                    }
+                }
             }
 
             item { SectionHeader(stringResource(R.string.settings_privacy_title)) }

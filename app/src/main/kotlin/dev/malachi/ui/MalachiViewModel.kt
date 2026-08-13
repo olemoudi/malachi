@@ -1,19 +1,25 @@
 package dev.malachi.ui
 
+import android.net.Uri
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.malachi.MalachiApplication
+import dev.malachi.R
 import dev.malachi.data.AppInventory
 import dev.malachi.data.AppRule
 import dev.malachi.data.AppScopeMode
+import dev.malachi.data.Backup
+import dev.malachi.data.BackupPolicy
+import dev.malachi.data.BackupStore
 import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
 import dev.malachi.data.DomainInput
 import dev.malachi.data.InstalledApp
 import dev.malachi.data.MalachiSettings
 import dev.malachi.data.ThemeMode
+import dev.malachi.debug.DebugLog
 import dev.malachi.data.UpstreamDns
 import dev.malachi.filter.QueryLog
 import dev.malachi.filter.QueryLogState
@@ -314,6 +320,61 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun setUpdateWifiOnly(wifiOnly: Boolean) = update { it.copy(updateWifiOnly = wifiOnly) }
 
+    // ---- backup -------------------------------------------------------------------------
+
+    /**
+     * The outcome of the last export or import, for the screen to show once and forget.
+     *
+     * Built here rather than in the composable because it counts what was actually written or
+     * read, and "restored 47 rules and 6 lists" is the sentence that tells somebody the file they
+     * picked was the right one — which is the only feedback that matters when the alternative is
+     * silently overwriting a year of work with an empty file.
+     */
+    private val _backupMessage = MutableStateFlow<String?>(null)
+    val backupMessage: StateFlow<String?> = _backupMessage.asStateFlow()
+
+    fun clearBackupMessage() { _backupMessage.value = null }
+
+    fun exportBackup(uri: Uri) {
+        viewModelScope.launch {
+            val settings = app.settingsStore.current()
+            val backup = Backup.of(settings, versionName, System.currentTimeMillis())
+            val written = withContext(Dispatchers.IO) {
+                BackupStore(app.contentResolver).write(uri, Backup.encode(backup))
+            }
+            if (written) {
+                // Only now: a fingerprint stored for a file that failed to write is a reminder
+                // switched off for a backup that does not exist.
+                update { BackupPolicy.backedUp(it) }
+                _backupMessage.value = app.getString(R.string.backup_exported, backup.ruleCount, backup.listCount)
+            } else {
+                _backupMessage.value = app.getString(R.string.backup_export_failed)
+            }
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) { BackupStore(app.contentResolver).read(uri) }
+            val backup = text?.let { Backup.decode(it).getOrNull() }
+            if (backup == null) {
+                _backupMessage.value = app.getString(R.string.backup_import_failed)
+                return@launch
+            }
+            DebugLog.i(TAG, "restoring a backup written by ${backup.appVersion.ifEmpty { "an unknown version" }} (format ${backup.format})")
+            update { backup.restoredInto(it) }
+            _backupMessage.value = app.getString(R.string.backup_imported, backup.ruleCount, backup.listCount)
+        }
+    }
+
+    fun remindBackupLater() = update { BackupPolicy.laterFrom(it, System.currentTimeMillis()) }
+
+    fun stopBackupReminders() = update { BackupPolicy.silenced(it) }
+
+    fun setBackupReminders(on: Boolean) = update {
+        if (on) BackupPolicy.unsilenced(it) else BackupPolicy.silenced(it)
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { app.themeStore.setMode(mode) }
     }
@@ -354,5 +415,9 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     class Factory(private val app: MalachiApplication) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = MalachiViewModel(app) as T
+    }
+
+    private companion object {
+        const val TAG = "MalachiUi"
     }
 }

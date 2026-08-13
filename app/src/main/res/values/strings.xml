@@ -275,6 +275,26 @@
     <string name="bypass_public_hint">Catches apps that hard-code 8.8.8.8 and the like. Their encrypted DNS will stop working, which is the point — and occasionally the problem.</string>
 
     <!-- Settings: the rest -->
+    <!-- Backup -->
+    <string name="settings_backup_title">Backup</string>
+    <string name="settings_backup_hint">Your rules and your chosen lists, in a file you keep. Everything else rebuilds itself on a new phone; these do not.</string>
+    <string name="settings_backup_export">Save a copy…</string>
+    <string name="settings_backup_unsaved">You have changes that aren\'t in any copy yet.</string>
+    <string name="settings_backup_never">No copy has been saved yet.</string>
+    <string name="settings_backup_saved">Everything is saved.</string>
+    <string name="settings_backup_import">Restore from a copy…</string>
+    <string name="settings_backup_import_hint">Replaces your rules and lists with the ones in the file.</string>
+    <string name="settings_backup_reminders">Remind me to save a copy</string>
+    <string name="settings_backup_reminders_hint">Off. Nothing will be said again when your rules change.</string>
+    <string name="backup_exported">Copy saved: %1$d rules and %2$d lists.</string>
+    <string name="backup_export_failed">The copy could not be written there.</string>
+    <string name="backup_imported">Restored: %1$d rules and %2$d lists.</string>
+    <string name="backup_import_failed">That file isn\'t a Malachi backup.</string>
+    <string name="home_backup_suggestion">You\'ve made rules of your own. Save a copy so a lost or replaced phone doesn\'t take them with it.</string>
+    <string name="action_backup_now">Save a copy</string>
+    <string name="action_remind_later">Later</string>
+    <string name="action_never_remind">Don\'t ask again</string>
+
     <string name="settings_privacy_title">Privacy</string>
     <string name="settings_query_log">Record the query log</string>
     <string name="settings_query_log_hint">Kept in memory only, never written to disk, and gone when the filter stops. Counters keep working either way.</string>
