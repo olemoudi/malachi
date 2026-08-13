@@ -365,6 +365,25 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   those v6 addresses is not the network you are on), and the app's own updater downloading 45 MB
   happily throughout, because *it* resolves outside the tunnel. A VPN answer is now resolved one
   step down to the network underneath, and anything that cannot be resolved is logged.
+- **Once the tunnel is up, the default-network callback never mentions the network underneath it
+  again — measured on a phone, not inferred.** Twenty minutes of walking around a house on 0.9.7:
+  three handovers, three correct adoptions, and *every one of them* preceded by `no resolver
+  answered and this network offers others` — the emergency re-read. The only adoption the callback
+  ever produced was one second before `tunnel up`. For this app the default network becomes the
+  tunnel, and the tunnel's `Network` does not change when what is under it does. So a **second**
+  callback asks the question the first stops answering: a `NetworkRequest` with
+  `NET_CAPABILITY_NOT_VPN`, and on API 31+ `registerBestMatchingNetworkCallback`, which names the
+  platform's own best match — better than any ranking of ours, because it is the same choice our
+  protected sockets are about to follow. Below 31 every match reports itself, so those events are
+  only a prompt to go and decide again; adopting the last one to speak is the 0.9.0 bug.
+- **This is not only about latency: the resolvers and the route have to change together.** A
+  protected socket leaves by the *system default route*, which we do not choose. While the resolver
+  list belongs to one network and the route to another, the tunnel asks a LAN resolver
+  (`100.90.1.1`) over mobile, or an ISP's mobile resolvers over Wi-Fi, and gets nothing either way.
+  Both failures are in the same trace, an hour apart.
+- **A stack trace in the log can be older than the bug you are reading it for.** The debug log
+  survives updates on purpose, so a report can open with fifty `Network.bindSocket EPERM` traces
+  from 0.9.3 and a fix that landed in 0.9.4. Read `installed=` before diagnosing anything.
 - **`NetworkCapabilities.getUnderlyingNetworks()` is not in the public SDK** — checked against
   `android-35/android.jar`, not assumed. Which network is under the VPN has to be inferred:
   validated, non-VPN, has internet, ranked wire → Wi-Fi → mobile, which is the platform's own

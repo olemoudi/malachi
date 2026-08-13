@@ -11,8 +11,11 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.SystemClock
@@ -166,6 +169,13 @@ class MalachiVpnService : VpnService() {
      * budget on them delays the client's retry by five seconds for nothing.
      */
     @Volatile private var networkGeneration = 0
+
+    /**
+     * Whether the platform will pick the best non-VPN network for us rather than reporting all of
+     * them. `registerBestMatchingNetworkCallback` is Android 12; below that we rank them
+     * ourselves. See [registerNetworkCallback].
+     */
+    private val platformPicksBest = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     @Volatile private var lastLockdown = false
     @Volatile private var privateDnsActive = false
     @Volatile private var privateDnsHost: String? = null
@@ -266,6 +276,28 @@ class MalachiVpnService : VpnService() {
                     upstreams.joinToString { it.hostAddress.orEmpty() },
             )
         }
+    }
+
+    /**
+     * The networks under the tunnel, which is a different question from "what is my default
+     * network" and has to be asked separately once the tunnel is up. See [registerNetworkCallback].
+     *
+     * Every event here is only a prompt to decide again. On Android 12 and up the platform has
+     * already decided — it reports its best match and nothing else — so that network is taken as
+     * named; below that anything matching reports itself, and choosing the last one to speak is
+     * how this app once ended up adopting the resolvers of a network it was sending nothing over.
+     */
+    private val underlyingCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = adoptUnderlying(network.takeIf { platformPicksBest })
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
+            adoptUnderlying(network.takeIf { platformPicksBest })
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+            adoptUnderlying(network.takeIf { platformPicksBest })
+
+        // Whatever went away, the question is the same: which network is under us now.
+        override fun onLost(network: Network) = adoptUnderlying(null)
     }
 
     /**
@@ -977,6 +1009,33 @@ class MalachiVpnService : VpnService() {
     private fun registerNetworkCallback() {
         runCatching { cm.registerDefaultNetworkCallback(networkCallback) }
             .onFailure { DebugLog.w(TAG, "cannot watch the underlying network", it) }
+
+        // And a second one that asks for what the first stops saying. Measured on a phone over
+        // twenty minutes of walking around a house: after `tunnel up`, every single adoption came
+        // from a lookup failing, and not one from the default-network callback — because once the
+        // tunnel is established *our* default network is the tunnel, and that network does not
+        // change when the thing underneath it does. NET_CAPABILITY_NOT_VPN is how to ask about
+        // the thing underneath.
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching {
+            // The check is spelled out here rather than read from [platformPicksBest] because
+            // lint only recognises the inline form, and a NewApi it cannot see through fails
+            // `lintVitalRelease` — which is to say the release build, not this one.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12 and up will name its *best* match and nothing else, which is the
+                // question being asked — our protected sockets leave by the platform's choice,
+                // not by ours, so its answer beats any ranking of our own.
+                cm.registerBestMatchingNetworkCallback(request, underlyingCallback, Handler(Looper.getMainLooper()))
+            } else {
+                // Below that, every matching network reports itself and the last one to speak
+                // would win — the bug this app already paid for once. So these events are only a
+                // signal to go and decide again; see [bestUnderlyingNetwork].
+                cm.registerNetworkCallback(request, underlyingCallback)
+            }
+        }.onFailure { DebugLog.w(TAG, "cannot watch the networks under the tunnel", it) }
     }
 
     private fun registerPackageChanges() {
@@ -1071,33 +1130,47 @@ class MalachiVpnService : VpnService() {
      */
     private fun realNetwork(reported: Network): Network? {
         if (!isVpn(reported)) return reported
-        // `NetworkCapabilities.getUnderlyingNetworks()` would answer this exactly, and it is not
-        // in the public SDK — the compiler said so, it was not assumed. So the phone is asked for
-        // every network it has and they are ranked the way the platform ranks them itself, which
-        // is the same answer in every case where it matters: one validated network, or Wi-Fi and
-        // mobile both up with Wi-Fi winning.
-        @Suppress("DEPRECATION")
-        val candidate = runCatching {
-            cm.allNetworks
-                .mapNotNull { network -> cm.getNetworkCapabilities(network)?.let { network to it } }
-                .filter { (_, caps) ->
-                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                }
-                .minByOrNull { (_, caps) ->
-                    TunnelPolicy.transportRank(
-                        wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
-                        ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
-                        cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
-                    )
-                }
-                ?.first
-        }.getOrNull()
+        val candidate = bestUnderlyingNetwork()
         // Never silent. A tunnel that cannot name the network underneath it keeps the resolvers
         // it already had, and whoever reads this log has to be told that is what happened.
         if (candidate == null) DebugLog.w(TAG, "the default network is a VPN with nothing usable underneath it")
         return candidate
+    }
+
+    /**
+     * The network our forwarded queries leave by, chosen by us.
+     *
+     * `NetworkCapabilities.getUnderlyingNetworks()` would answer this exactly, and it is not in
+     * the public SDK — the compiler said so, it was not assumed. So the phone is asked for every
+     * network it has and they are ranked the way the platform ranks them itself: validated, with
+     * internet, not a VPN, wire before Wi-Fi before mobile. On Android 12 and up this is only a
+     * fallback — [underlyingCallback] gets the platform's own answer, which is better than any
+     * ranking because it is the same choice our sockets are about to follow.
+     */
+    private fun bestUnderlyingNetwork(): Network? = runCatching {
+        @Suppress("DEPRECATION")
+        cm.allNetworks
+            .mapNotNull { network -> cm.getNetworkCapabilities(network)?.let { network to it } }
+            .filter { (_, caps) ->
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
+            .minByOrNull { (_, caps) ->
+                TunnelPolicy.transportRank(
+                    wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                    ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                    cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                )
+            }
+            ?.first
+    }.getOrNull()
+
+    /** Adopts [named] if the platform named it, and otherwise whichever network we would pick. */
+    private fun adoptUnderlying(named: Network?) {
+        val network = named ?: bestUnderlyingNetwork() ?: return
+        val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return
+        adoptNetwork(network, linkProperties)
     }
 
     private fun isVpn(network: Network): Boolean =
@@ -1295,6 +1368,7 @@ class MalachiVpnService : VpnService() {
         stopTunnel()
         cancelRetry()
         runCatching { cm.unregisterNetworkCallback(networkCallback) }
+        runCatching { cm.unregisterNetworkCallback(underlyingCallback) }
         runCatching { unregisterReceiver(packageChanges) }
         scope.cancel()
         forwarders.shutdownNow()
