@@ -28,10 +28,33 @@ internal object LogFormat {
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
 
     /** Appends [entry], trimming from the front so the list never exceeds [max]. */
-    fun cap(entries: List<LogEntry>, entry: LogEntry, max: Int): List<LogEntry> {
-        val next = entries + entry
+    /**
+     * Adds [entry] and keeps the buffer within [max], with a quota of [maxTraces] for the
+     * diagnostics lines so that one kind of line cannot evict the other.
+     *
+     * Without the quota the two compete for one ceiling, and they are not evenly matched: a
+     * trace is written per lookup and the rest are written per event, so a quarter of an hour of
+     * diagnostics pushes every network adoption, every pin, every resolver change out of the
+     * buffer — which is to say, out of the text the copy button produces. Turning the window on
+     * to investigate something therefore destroyed the evidence of everything that led to it,
+     * and the standing advice became "do not turn it on", which is not what a diagnostic is for.
+     *
+     * This is the same mistake as one global ceiling in the query log, where the chattiest app
+     * evicted everybody else's history, and it has the same fix.
+     */
+    fun cap(entries: List<LogEntry>, entry: LogEntry, max: Int, maxTraces: Int = max): List<LogEntry> {
+        var next = entries + entry
+        if (entry.level == TRACE) {
+            var excess = next.count { it.level == TRACE } - maxTraces
+            if (excess > 0) {
+                next = next.filterNot { it.level == TRACE && excess-- > 0 }
+            }
+        }
         return if (next.size <= max) next else next.subList(next.size - max, next.size)
     }
+
+    /** The level of a diagnostics-window line; see [DebugLog.trace]. */
+    const val TRACE = 'T'
 
     fun line(e: LogEntry): String =
         "${TIME.format(Instant.ofEpochMilli(e.epochMillis))} ${e.level}/${e.tag}: ${e.message}"
@@ -55,6 +78,14 @@ internal object LogFormat {
  */
 object DebugLog {
     private const val MAX_ENTRIES = 500
+
+    /**
+     * How much of the buffer the diagnostics window may hold. The rest is reserved for the lines
+     * that are written per *event* — a network adopted, a resolver gone quiet, a tunnel rebuilt —
+     * which are sparse enough that two hundred of them is hours of history, and are exactly what
+     * a report needs alongside the traces. See [LogFormat.cap].
+     */
+    private const val MAX_TRACES = 300
     private const val MAX_FILE_BYTES = 128 * 1024
     private const val TRIM_TO_BYTES = 64 * 1024
 
@@ -111,8 +142,8 @@ object DebugLog {
      * process ends. It is what makes "some apps report connection errors" answerable at all.
      */
     fun trace(tag: String, message: String) {
-        val entry = LogEntry(System.currentTimeMillis(), 'T', tag, message.take(MAX_ENTRY_CHARS))
-        mutable.update { LogFormat.cap(it, entry, MAX_ENTRIES) }
+        val entry = LogEntry(System.currentTimeMillis(), LogFormat.TRACE, tag, message.take(MAX_ENTRY_CHARS))
+        mutable.update { LogFormat.cap(it, entry, MAX_ENTRIES, MAX_TRACES) }
     }
 
     private fun add(level: Char, tag: String, message: String, t: Throwable?) {

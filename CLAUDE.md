@@ -556,6 +556,14 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   version, the upstream *setting*, the resolvers actually in use, what the network handed out,
   Private DNS, scope, bypass guard, lockdown — and then per lookup, which resolver answered, how
   long it took, or that none did. Without the header the rest is unreadable at a distance.
+- **The traces have their own quota in the buffer, and without it the window was self-defeating.**
+  `trace` and `i`/`w`/`e` shared one 500-line ceiling, and they are not evenly matched: one line
+  per lookup against one line per event. A quarter of an hour of diagnostics pushed every network
+  adoption, every resolver change, every pin out of the text the copy button produces — so
+  turning the window on to investigate something destroyed the record of what led to it, and the
+  standing advice became "don't turn it on". Same mistake as one global ceiling in the query log,
+  same fix: `MAX_TRACES` inside `MAX_ENTRIES`. **Ask for the window whenever the question is about
+  a lookup; the per-event history survives it now.**
 - **While the window is open, drops are not rate-limited.** One line a minute hides the pattern
   being hunted — a client retrying over TCP, which this tunnel routes and cannot answer.
 
