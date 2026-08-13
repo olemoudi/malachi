@@ -37,6 +37,7 @@ import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.ui.BackupMessage
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.RestoreConfirmation
 import dev.malachi.ui.rememberBackupActions
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.ChoiceRow
@@ -69,6 +70,7 @@ fun SettingsScreen(
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
     val backup = rememberBackupActions(vm)
     BackupMessage(vm)
+    RestoreConfirmation(vm)
     val spacing = Tokens.spacing
 
     var editingUpstream by remember { mutableStateOf(false) }

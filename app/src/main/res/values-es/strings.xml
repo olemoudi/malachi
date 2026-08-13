@@ -52,7 +52,7 @@
     <string name="nav_activity_subtitle">Qué dominios está consultando cada app</string>
     <string name="nav_rules">Mis reglas</string>
     <string name="nav_settings">Ajustes</string>
-    <string name="nav_settings_subtitle">Bloqueo, resolutor, actualizaciones</string>
+    <string name="nav_settings_subtitle">Bloqueo, servidor DNS, actualizaciones</string>
 
     <!-- Estado del filtro -->
     <string name="status_starting">Levantando el filtro…</string>
@@ -60,10 +60,10 @@
     <string name="status_displaced">Hay otra app de VPN en marcha. Android solo permite una a la vez.</string>
     <string name="status_no_apps_selected">No hay ninguna app seleccionada, así que no se está filtrando nada.</string>
     <string name="status_tunnel_closed">El filtro se detuvo de forma inesperada.</string>
-    <string name="warning_private_dns_strict">El DNS privado apunta a %1$s, así que todas las consultas salen cifradas del teléfono directas a ese resolutor. Malachi no ve ninguna y no se está filtrando nada. Pon el DNS privado en Desactivado o Automático para que el filtrado funcione.</string>
-    <string name="note_private_dns_automatic">El DNS privado está en Automático. El filtrado funciona con normalidad: Android solo cifra si el resolutor se lo ofrece, y dentro del túnel no se lo ofrece. A cambio, mientras Malachi esté activo tus consultas se reenvían sin cifrar.</string>
+    <string name="warning_private_dns_strict">El DNS privado apunta a %1$s, así que todas las consultas salen cifradas del teléfono, directas a ese servidor. Malachi no ve ninguna y no se está filtrando nada. Pon el DNS privado en Desactivado o Automático para que el filtrado funcione.</string>
+    <string name="note_private_dns_automatic">El DNS privado está en Automático. El filtrado funciona con normalidad: Android solo cifra si el servidor del otro lado se lo ofrece, y Malachi no se lo ofrece. A cambio, mientras Malachi esté activo tus consultas se reenvían sin cifrar.</string>
     <string name="action_open_private_dns">Ajustes de DNS privado</string>
-    <string name="warning_lockdown">«Bloquear conexiones sin VPN» está activado. Malachi solo enruta el DNS por el túnel, así que Android está descartando todo lo demás y el teléfono se queda sin conexión. Desactiva esa opción; la VPN siempre activa por sí sola sí es lo que quieres.</string>
+    <string name="warning_lockdown">«Bloquear conexiones sin VPN» está activado. Malachi solo transporta consultas, así que Android está descartando todo lo demás y el teléfono se queda sin conexión. Desactiva esa opción; la VPN siempre activa por sí sola sí es lo que quieres.</string>
     <string name="warning_no_lists">Todavía no se ha descargado ninguna lista, así que no se está bloqueando nada.</string>
 
     <!-- Notificación -->
@@ -95,7 +95,7 @@
 
     <!-- Detalle de una app -->
     <string name="app_detail_filtered">Filtrar esta app</string>
-    <string name="app_detail_filtered_subtitle">Si está desactivado, el DNS de esta app nunca llega a Malachi.</string>
+    <string name="app_detail_filtered_subtitle">Si está desactivado, esta app se queda al margen del todo: Malachi no ve lo que consulta.</string>
     <string name="app_detail_rules_title">Reglas para esta app</string>
     <string name="app_detail_rules_hint">Tienen prioridad sobre tus reglas globales y sobre cualquier lista, solo para esta app.</string>
     <string name="app_detail_seen_title">Los más consultados</string>
@@ -130,7 +130,7 @@
 
     <!-- Reglas -->
     <string name="rules_add_title">Añadir una regla</string>
-    <string name="rules_add_hint">Una regla cubre el dominio y todo lo que cuelga de él. Puedes pegar una URL y Malachi extraerá el nombre de host.</string>
+    <string name="rules_add_hint">Una regla cubre el dominio y todo lo que cuelga de él. Puedes pegar una dirección web entera y Malachi sacará el dominio.</string>
     <string name="rules_domain_label">Dominio</string>
     <string name="rules_domain_invalid">Eso no parece un dominio.</string>
     <string name="rules_blocked_title">Siempre bloqueados</string>
@@ -245,11 +245,11 @@
     <string name="block_answer_nxdomain">El nombre no existe</string>
     <string name="block_answer_nxdomain_hint">Más limpio en teoría, pero algunas apps lo interpretan como red rota y reintentan en bucle.</string>
     <string name="block_answer_refused">Rechazada</string>
-    <string name="block_answer_refused_hint">Inequívoco cuando estás depurando; algunos resolutores reaccionan probando otro servidor.</string>
+    <string name="block_answer_refused_hint">No deja lugar a dudas cuando estás averiguando qué pasa; algunas apps reaccionan probando otro servidor.</string>
 
     <!-- Ajustes: resolutor -->
-    <string name="settings_upstream_title">Resolutor</string>
-    <string name="settings_upstream_hint">A dónde se envían las consultas que Malachi permite.</string>
+    <string name="settings_upstream_title">Servidor DNS</string>
+    <string name="settings_upstream_hint">Una consulta que Malachi permite tiene que contestarla alguien. Esto decide quién.</string>
     <string name="upstream_system">El que dé la red</string>
     <string name="upstream_system_hint">Sigue al Wi-Fi o a la red móvil en la que estés. La opción más segura.</string>
     <string name="upstream_cloudflare">Cloudflare</string>
@@ -257,20 +257,20 @@
     <string name="upstream_quad9">Quad9</string>
     <string name="upstream_adguard">AdGuard DNS</string>
     <string name="upstream_custom">Personalizado</string>
-    <string name="upstream_custom_hint">Define tus propias direcciones de resolutor.</string>
+    <string name="upstream_custom_hint">Escribe las direcciones de los servidores DNS que quieras usar.</string>
     <string name="upstream_custom_label">Direcciones</string>
-    <string name="upstream_custom_dialog_hint">Solo direcciones IP, separadas por comas. No se aceptan nombres de host: resolver uno requeriría el resolutor que estás configurando.</string>
+    <string name="upstream_custom_dialog_hint">Solo direcciones IP, separadas por comas. No se aceptan nombres: para resolver uno haría falta el propio servidor que estás configurando.</string>
 
     <!-- Ajustes: evasión -->
     <string name="settings_allow_bypass">Dejar que las apps alcancen la red que piden</string>
     <string name="settings_allow_bypass_hint">Android Auto, enviar a la tele y los portales cautivos necesitan hablar con un dispositivo directamente, y Android se lo niega a toda app mientras hay una VPN salvo que se permita esto. Una app que lo pida a propósito deja de filtrarse: nada que sirva anuncios lo hace, pero desactivarlo es lo más estricto que este filtro puede ser.</string>
     <string name="settings_bypass_title">Apps que esquivan el filtro</string>
-    <string name="settings_bypass_hint">Una app con un resolutor incrustado nunca pregunta al sistema cuál usar. Atraparla obliga a encaminar esas direcciones por Malachi, lo que puede romper su otro tráfico.</string>
+    <string name="settings_bypass_hint">Algunas apps llevan dentro la dirección de un servidor DNS y nunca preguntan al sistema cuál usar; así se saltan cualquier filtro. Atraparlas obliga a mandar también esa dirección por Malachi, y eso puede romper el resto del tráfico de esa app.</string>
     <string name="bypass_off">Desactivado</string>
-    <string name="bypass_off_hint">Solo las consultas que siguen al resolutor del sistema. Nada puede romperse por culpa de Malachi.</string>
-    <string name="bypass_system">También los resolutores de esta red</string>
-    <string name="bypass_system_hint">Atrapa a las apps que se dirigen directamente al router o al resolutor del operador. Recomendado.</string>
-    <string name="bypass_public">También los resolutores públicos conocidos</string>
+    <string name="bypass_off_hint">Solo las apps que preguntan al sistema dónde consultar, que son casi todas. Nada puede romperse por culpa de Malachi.</string>
+    <string name="bypass_system">También los servidores DNS de esta red</string>
+    <string name="bypass_system_hint">Atrapa a las apps que van directas a tu router o a tu operador en vez de preguntar. Recomendado.</string>
+    <string name="bypass_public">También los públicos más conocidos</string>
     <string name="bypass_public_hint">Atrapa a las apps que llevan 8.8.8.8 y similares dentro. Su DNS cifrado dejará de funcionar, que es justo la intención… y a veces el problema.</string>
 
     <!-- Ajustes: el resto -->
@@ -291,6 +291,11 @@
     <string name="backup_exported">Copia guardada: %1$d reglas y %2$d listas.</string>
     <string name="backup_export_failed">No se ha podido escribir la copia ahí.</string>
     <string name="backup_imported">Restaurado: %1$d reglas y %2$d listas.</string>
+    <string name="backup_restore_title">¿Restaurar esta copia?</string>
+    <string name="backup_restore_body">El fichero tiene %1$d reglas y %2$d listas. Sustituirán a las %3$d reglas y %4$d listas de este móvil, y eso no se puede deshacer.</string>
+    <string name="backup_restore_written">Guardada el %1$s con Malachi %2$s</string>
+    <string name="backup_restore_unknown_version">una versión desconocida</string>
+    <string name="backup_restore_confirm">Restaurar</string>
     <string name="backup_import_failed">Ese fichero no es una copia de Malachi.</string>
     <string name="home_backup_suggestion">Has escrito reglas tuyas. Guarda una copia para que un móvil perdido o cambiado no se las lleve con él.</string>
     <string name="action_backup_now">Guardar copia</string>
@@ -314,7 +319,7 @@
     <string name="settings_trace_hint">Anota cada consulta y cada paquete descartado durante %1$d minutos, para poder leer el problema en el registro. Solo en memoria: nunca se escribe en disco y desaparece al detener el filtrado.</string>
     <string name="settings_trace_running">Grabando. Se apaga sola en %1$d min. Abre el registro de abajo y cópialo.</string>
     <string name="settings_debug_log">Registro de depuración</string>
-    <string name="settings_debug_log_hint">Lo que han estado haciendo el túnel, las listas y el actualizador.</string>
+    <string name="settings_debug_log_hint">Lo que han estado haciendo el filtro, las listas y el actualizador.</string>
     <string name="settings_about">Acerca de</string>
     <string name="settings_about_hint">Versión %1$s</string>
     <string name="debug_log_empty">Todavía no hay nada registrado.</string>
@@ -348,9 +353,9 @@
     <string name="action_turn_on">Activar</string>
     <string name="status_retrying">El filtro no pudo arrancar. Se reintentará en breve.</string>
     <string name="status_another_app">otra app</string>
-    <string name="status_always_on_elsewhere">Otra app está configurada como VPN siempre activa, así que Android no cede el túnel.</string>
+    <string name="status_always_on_elsewhere">Otra app está configurada como VPN siempre activa, y Android solo permite una a la vez.</string>
     <string name="status_always_on_elsewhere_long">%1$s está configurada como VPN siempre activa. Android no dejará que Malachi tome el relevo hasta que la desactives en los ajustes de VPN.</string>
-    <string name="home_always_on_suggestion">Configura Malachi como tu VPN siempre activa para que el filtrado sobreviva a un reinicio y ninguna otra app pueda quedarse con el túnel. Deja «Bloquear conexiones sin VPN» desactivado: Malachi solo enruta el DNS, así que esa opción dejaría sin conexión a todo lo demás.</string>
+    <string name="home_always_on_suggestion">Configura Malachi como tu VPN siempre activa para que el filtrado sobreviva a un reinicio y ninguna otra app pueda quedarse con la ranura de VPN. Deja «Bloquear conexiones sin VPN» desactivado: Malachi solo enruta el DNS, así que esa opción dejaría sin conexión a todo lo demás.</string>
     <string name="settings_connection_title">Conexión</string>
     <string name="settings_always_on">VPN siempre activa</string>
     <string name="settings_always_on_hint">Android solo ejecuta una VPN a la vez. La opción «siempre activa» la reserva para Malachi y recupera el filtro tras un reinicio.</string>
@@ -428,4 +433,17 @@
         <item quantity="one">vista una vez</item>
         <item quantity="other">vista %d veces</item>
     </plurals>
+
+    <!-- Primera ejecución -->
+    <string name="welcome_title">Malachi</string>
+    <string name="welcome_subtitle">Un bloqueador de anuncios y rastreadores que funciona en todas las apps del móvil, no solo en el navegador.</string>
+    <string name="welcome_what_title">Qué hace</string>
+    <string name="welcome_what_body">Antes de cargar nada, una app pregunta por una dirección. Malachi lee esas preguntas y a las que son de publicidad y rastreo no les responde, así que el anuncio no llega a descargarse. Por eso las páginas cargan antes y por eso dejan de informar a casa apps que ni has abierto.</string>
+    <string name="welcome_vpn_title">Por qué Android va a hablarte de una VPN</string>
+    <string name="welcome_vpn_body">Android solo deja ver esas preguntas a una app que se registre como VPN, así que en un momento el sistema te pedirá permiso y te avisará de que Malachi «puede monitorizar todo el tráfico de red». Ese aviso es sobre el permiso, no sobre esta app: aquí no sale nada del móvil y no hay ningún servidor al otro lado. El otro lado es Malachi.</string>
+    <string name="welcome_privacy_title">Adónde van tus datos</string>
+    <string name="welcome_privacy_body">A ninguna parte. No hay cuenta, ni analítica, ni empresa. La lista de lo que ha consultado tu móvil vive en memoria y desaparece al parar el filtrado; los contadores de la pantalla de inicio son números sin ningún nombre dentro. Lo único que Malachi descarga son las listas de bloqueo y sus propias actualizaciones.</string>
+    <string name="welcome_start">Activar el filtrado</string>
+    <string name="welcome_later">Mirar primero</string>
+
 </resources>

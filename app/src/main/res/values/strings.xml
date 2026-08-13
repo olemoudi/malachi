@@ -53,7 +53,7 @@
     <string name="nav_activity_subtitle">What each app has been looking up</string>
     <string name="nav_rules">My rules</string>
     <string name="nav_settings">Settings</string>
-    <string name="nav_settings_subtitle">Blocking, resolver, updates</string>
+    <string name="nav_settings_subtitle">Blocking, DNS server, updates</string>
 
     <!-- Filter status -->
     <string name="status_starting">Bringing the filter up…</string>
@@ -61,10 +61,10 @@
     <string name="status_displaced">Another VPN app is running. Android allows only one at a time.</string>
     <string name="status_no_apps_selected">No apps are selected, so nothing is being filtered.</string>
     <string name="status_tunnel_closed">The filter stopped unexpectedly.</string>
-    <string name="warning_private_dns_strict">Private DNS is set to %1$s, so every lookup leaves the phone encrypted straight to that resolver. Malachi never sees one, and nothing is being filtered. Set Private DNS to Off or Automatic for filtering to work.</string>
-    <string name="note_private_dns_automatic">Private DNS is set to Automatic. Filtering works normally — Android only encrypts when the resolver offers it, and inside the tunnel it does not. The trade is that while Malachi is on, your lookups are forwarded unencrypted.</string>
+    <string name="warning_private_dns_strict">Private DNS is set to %1$s, so every lookup leaves the phone encrypted, straight to that server. Malachi never sees one, and nothing is being filtered. Set Private DNS to Off or Automatic for filtering to work.</string>
+    <string name="note_private_dns_automatic">Private DNS is set to Automatic. Filtering works normally — Android only encrypts when the server on the other end offers it, and Malachi does not. The trade is that while Malachi is on, your lookups are forwarded unencrypted.</string>
     <string name="action_open_private_dns">Private DNS settings</string>
-    <string name="warning_lockdown">“Block connections without VPN” is on. Malachi routes only DNS through the tunnel, so Android is dropping everything else and the phone has no working connection. Turn that setting off; always-on VPN on its own is fine and is what you want.</string>
+    <string name="warning_lockdown">“Block connections without VPN” is on. Malachi only carries lookups, so Android is dropping everything else and the phone has no working connection. Turn that setting off; always-on VPN on its own is fine and is what you want.</string>
     <string name="warning_no_lists">No blocklist has been downloaded yet, so nothing is being blocked.</string>
 
     <!-- Notification -->
@@ -96,7 +96,7 @@
 
     <!-- App detail -->
     <string name="app_detail_filtered">Filter this app</string>
-    <string name="app_detail_filtered_subtitle">When off, this app\'s DNS never reaches Malachi.</string>
+    <string name="app_detail_filtered_subtitle">When off, this app is left alone entirely — Malachi never sees what it looks up.</string>
     <string name="app_detail_rules_title">Rules for this app</string>
     <string name="app_detail_rules_hint">These beat your global rules and every blocklist, for this app only.</string>
     <string name="app_detail_seen_title">Most looked up</string>
@@ -131,7 +131,7 @@
 
     <!-- Rules -->
     <string name="rules_add_title">Add a rule</string>
-    <string name="rules_add_hint">A rule covers the domain and everything under it. Paste a URL and Malachi will take the hostname out of it.</string>
+    <string name="rules_add_hint">A rule covers the domain and everything under it. Paste a whole web address and Malachi will take the domain out of it.</string>
     <string name="rules_domain_label">Domain</string>
     <string name="rules_domain_invalid">That doesn\'t look like a domain.</string>
     <string name="rules_blocked_title">Always blocked</string>
@@ -246,11 +246,11 @@
     <string name="block_answer_nxdomain">Name does not exist</string>
     <string name="block_answer_nxdomain_hint">Cleaner in theory, but some apps read it as a broken network and retry in a loop.</string>
     <string name="block_answer_refused">Refused</string>
-    <string name="block_answer_refused_hint">Unambiguous when you are debugging; some resolvers respond by trying another server.</string>
+    <string name="block_answer_refused_hint">Unambiguous when you are working out what is happening; some apps respond by trying a different server.</string>
 
     <!-- Settings: upstream resolver -->
-    <string name="settings_upstream_title">Resolver</string>
-    <string name="settings_upstream_hint">Where lookups Malachi allows are sent.</string>
+    <string name="settings_upstream_title">DNS server</string>
+    <string name="settings_upstream_hint">A lookup Malachi allows still has to be answered by somebody. This is who answers it.</string>
     <string name="upstream_system">Whatever the network provides</string>
     <string name="upstream_system_hint">Follows the Wi-Fi or mobile network you are on. The safest default.</string>
     <string name="upstream_cloudflare">Cloudflare</string>
@@ -258,20 +258,20 @@
     <string name="upstream_quad9">Quad9</string>
     <string name="upstream_adguard">AdGuard DNS</string>
     <string name="upstream_custom">Custom</string>
-    <string name="upstream_custom_hint">Set your own resolver addresses.</string>
+    <string name="upstream_custom_hint">Type the addresses of the DNS servers you want to use.</string>
     <string name="upstream_custom_label">Addresses</string>
-    <string name="upstream_custom_dialog_hint">IP addresses only, separated by commas. Host names are not accepted — resolving one would need the resolver you are configuring.</string>
+    <string name="upstream_custom_dialog_hint">IP addresses only, separated by commas. Names are not accepted — looking one up would need the very server you are setting.</string>
 
     <!-- Settings: bypass guard -->
     <string name="settings_allow_bypass">Let apps reach a network they ask for</string>
     <string name="settings_allow_bypass_hint">Android Auto, casting and captive portals need to talk to a device directly, and Android refuses that to every app while a VPN is on unless this is allowed. An app that deliberately asks is then not filtered — nothing that serves an advert does, but turning this off is the strictest this filter gets.</string>
     <string name="settings_bypass_title">Apps that go around the filter</string>
-    <string name="settings_bypass_hint">An app with a resolver hard-coded into it never asks the system which one to use. Catching those means routing those addresses through Malachi, which can break their other traffic.</string>
+    <string name="settings_bypass_hint">Some apps carry a DNS server address inside them and never ask the system which one to use, which is how they slip past a filter. Catching them means sending that address through Malachi too, and that can break the app\'s other traffic.</string>
     <string name="bypass_off">Off</string>
-    <string name="bypass_off_hint">Only lookups that follow the system resolver. Nothing can break because of Malachi.</string>
-    <string name="bypass_system">Also this network\'s resolvers</string>
-    <string name="bypass_system_hint">Catches apps that address the router or the carrier\'s resolver directly. Recommended.</string>
-    <string name="bypass_public">Also well-known public resolvers</string>
+    <string name="bypass_off_hint">Only the apps that ask the system where to look, which is nearly all of them. Nothing can break because of Malachi.</string>
+    <string name="bypass_system">Also this network\'s own DNS servers</string>
+    <string name="bypass_system_hint">Catches apps that go straight to your router or your carrier instead of asking. Recommended.</string>
+    <string name="bypass_public">Also the well-known public ones</string>
     <string name="bypass_public_hint">Catches apps that hard-code 8.8.8.8 and the like. Their encrypted DNS will stop working, which is the point — and occasionally the problem.</string>
 
     <!-- Settings: the rest -->
@@ -292,6 +292,11 @@
     <string name="backup_exported">Copy saved: %1$d rules and %2$d lists.</string>
     <string name="backup_export_failed">The copy could not be written there.</string>
     <string name="backup_imported">Restored: %1$d rules and %2$d lists.</string>
+    <string name="backup_restore_title">Restore this copy?</string>
+    <string name="backup_restore_body">The file holds %1$d rules and %2$d lists. They will replace the %3$d rules and %4$d lists on this phone, and that cannot be undone.</string>
+    <string name="backup_restore_written">Saved %1$s by Malachi %2$s</string>
+    <string name="backup_restore_unknown_version">an unknown version</string>
+    <string name="backup_restore_confirm">Restore</string>
     <string name="backup_import_failed">That file isn\'t a Malachi backup.</string>
     <string name="home_backup_suggestion">You\'ve made rules of your own. Save a copy so a lost or replaced phone doesn\'t take them with it.</string>
     <string name="action_backup_now">Save a copy</string>
@@ -315,7 +320,7 @@
     <string name="settings_trace_hint">Records every lookup and every dropped packet for %1$d minutes, so a problem can be read off the log. In memory only — it is never written to disk and is gone when filtering stops.</string>
     <string name="settings_trace_running">Recording. Stops by itself in %1$d min. Open the log below and copy it.</string>
     <string name="settings_debug_log">Debug log</string>
-    <string name="settings_debug_log_hint">What the tunnel, the lists and the updater have been doing.</string>
+    <string name="settings_debug_log_hint">What the filter, the lists and the updater have been doing.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_hint">Version %1$s</string>
     <string name="debug_log_empty">Nothing logged yet.</string>
@@ -349,9 +354,9 @@
     <string name="action_turn_on">Turn on</string>
     <string name="status_retrying">The filter could not start. Trying again shortly.</string>
     <string name="status_another_app">another app</string>
-    <string name="status_always_on_elsewhere">Another app is set as the always-on VPN, so Android will not hand the tunnel over.</string>
+    <string name="status_always_on_elsewhere">Another app is set as the always-on VPN, and Android only allows one at a time.</string>
     <string name="status_always_on_elsewhere_long">%1$s is set as the always-on VPN. Android will not let Malachi take over until that is turned off in VPN settings.</string>
-    <string name="home_always_on_suggestion">Set Malachi as your always-on VPN so filtering survives a reboot and no other app can quietly take the tunnel. Leave “Block connections without VPN” off — Malachi routes only DNS, so that setting would cut off everything else.</string>
+    <string name="home_always_on_suggestion">Set Malachi as your always-on VPN so filtering survives a reboot and no other app can quietly take the VPN slot. Leave “Block connections without VPN” off — Malachi routes only DNS, so that setting would cut off everything else.</string>
     <string name="settings_connection_title">Connection</string>
     <string name="settings_always_on">Always-on VPN</string>
     <string name="settings_always_on_hint">Android only runs one VPN at a time. Always-on reserves it for Malachi and brings the filter back after a reboot.</string>
@@ -429,4 +434,17 @@
         <item quantity="one">seen once</item>
         <item quantity="other">seen %d times</item>
     </plurals>
+
+    <!-- First run -->
+    <string name="welcome_title">Malachi</string>
+    <string name="welcome_subtitle">An ad and tracker blocker that works for every app on the phone, not just the browser.</string>
+    <string name="welcome_what_title">What it does</string>
+    <string name="welcome_what_body">Apps ask for an address before they can load anything. Malachi reads those requests and answers the ones that belong to advertising and tracking with nothing, so the advert is never fetched. It is why pages load faster and why apps you never opened stop reporting home.</string>
+    <string name="welcome_vpn_title">Why Android will mention a VPN</string>
+    <string name="welcome_vpn_body">Android only lets an app see those requests if it registers as a VPN, so in a moment the system will ask you to allow a connection and warn that Malachi “can monitor all network traffic”. That warning is about the permission, not about this app: nothing here leaves your phone, and there is no server on the other end. Malachi is the other end.</string>
+    <string name="welcome_privacy_title">Where your data goes</string>
+    <string name="welcome_privacy_body">Nowhere. There is no account, no analytics and no company. The list of what your phone looked up is kept in memory and disappears when filtering stops; the counters on the home screen are numbers with no names in them. The only things Malachi downloads are the blocklists and its own updates.</string>
+    <string name="welcome_start">Turn on filtering</string>
+    <string name="welcome_later">Look around first</string>
+
 </resources>

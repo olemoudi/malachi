@@ -75,6 +75,7 @@ class BackupTest {
             pausedUntilMs = 0,
             diagnosticsUntilMs = 0,
             alwaysOnTipDismissed = true,
+            welcomeSeen = true,
         )
         val fromAPausedPhone = Backup.of(
             decided.copy(filteringEnabled = false, pausedUntilMs = 9_999_999),
@@ -87,6 +88,9 @@ class BackupTest {
         assertTrue(restored.filteringEnabled)
         assertEquals(0, restored.pausedUntilMs)
         assertTrue(restored.alwaysOnTipDismissed)
+        // Nor the introduction: it is about this install, and showing it again to somebody
+        // restoring onto a phone they have been using for a year would be nonsense.
+        assertTrue(restored.welcomeSeen)
         assertEquals(decided.userBlocked, restored.userBlocked)
     }
 

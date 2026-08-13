@@ -171,6 +171,15 @@ data class MalachiSettings(
     val privateDnsNoteDismissed: Boolean = false,
 
     /**
+     * Whether the one-time introduction has been seen.
+     *
+     * It exists for the moment Android asks for VPN permission with a sentence written for a very
+     * different kind of VPN — "can monitor all network traffic" — which is the point at which
+     * somebody who was never told what this app is decides it is spyware and uninstalls it.
+     */
+    val welcomeSeen: Boolean = false,
+
+    /**
      * The fingerprint of the decisions the last exported (or imported) backup covered.
      *
      * Empty means no backup has ever been made. Comparing it with [decisionsFingerprint] is what

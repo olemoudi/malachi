@@ -29,6 +29,9 @@ import dev.malachi.ui.screens.ListCategoryScreen
 import dev.malachi.ui.screens.ListsScreen
 import dev.malachi.ui.screens.RulesScreen
 import dev.malachi.ui.screens.SettingsScreen
+import dev.malachi.ui.screens.WelcomeScreen
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.ui.theme.Tokens
 
 /** Every place the app can be. A sealed set rather than route strings: it can't be misspelled. */
@@ -54,6 +57,25 @@ sealed interface Screen {
  */
 @Composable
 fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
+
+    // Before anything else, once. The system's VPN dialog says this app "can monitor all network
+    // traffic", which is true of the permission and untrue of what is done with it — and somebody
+    // meeting that sentence with no context has been given every reason to uninstall. It is shown
+    // instead of the app rather than over it, because a dialog on top of a screen full of
+    // controls is read as an obstacle and dismissed.
+    if (!settings.welcomeSeen) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Box(Modifier.fillMaxSize().systemBarsPadding()) {
+                WelcomeScreen(
+                    onStart = { vm.markWelcomeSeen(); onRequestVpnConsent() },
+                    onSkip = vm::markWelcomeSeen,
+                )
+            }
+        }
+        return
+    }
+
     val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
     val current = stack.last()
 

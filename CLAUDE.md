@@ -621,6 +621,25 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   the old file behind and the result parses as nothing. There is an instrumented test for exactly
   this, because it is discovered on the day it is needed and not before.
 
+### Writing for somebody who is not you
+
+- **The word is "DNS server", never "resolver".** Precision is not lost by using the name people
+  have already seen in a router's settings; it is lost by using the one they have not. The same
+  goes for "hostname" (say the domain), and for "the tunnel" in anything user-facing (say Malachi,
+  or the filter). "VPN" stays, because Android says it and the user will read it in a system
+  dialog either way.
+- **The first run has to answer the question the system is about to provoke.** Android's consent
+  dialog says this app "can monitor all network traffic" — a sentence written for a VPN that
+  carries a phone's whole life to somebody else's server — and somebody meeting it with no context
+  has been handed every reason to uninstall. `WelcomeScreen` says, one screen earlier: what it
+  does, why Android will mention a VPN, and where the data goes (nowhere). It is shown *instead*
+  of the app rather than over it; a dialog on top of a screen full of controls reads as an
+  obstacle and is dismissed unread.
+- **Restoring is the only irreversible thing in this app, so it is the only thing that asks.** And
+  it asks with numbers on both sides — what the file holds against what is on the phone — because
+  picking the wrong file from a list of filenames is an ordinary mistake and "0 rules" is the only
+  moment anybody would catch it.
+
 ### Privacy constraints (non-negotiable)
 - **A domain never touches disk.** The query log lives in memory only and dies with the process.
   The statistics persist *counts* — per app, per day — and must never gain a hostname field, a

@@ -48,6 +48,7 @@ import dev.malachi.net.TunnelProblem
 import dev.malachi.net.VpnController
 import dev.malachi.ui.BackupMessage
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.RestoreConfirmation
 import dev.malachi.ui.Screen
 import dev.malachi.ui.rememberBackupActions
 import dev.malachi.ui.components.CardGroup
@@ -106,6 +107,7 @@ fun HomeScreen(
     val anotherVpn by vm.anotherVpn.collectAsStateWithLifecycle()
     val backup = rememberBackupActions(vm)
     BackupMessage(vm)
+    RestoreConfirmation(vm)
     val spacing = Tokens.spacing
 
     LazyColumn(

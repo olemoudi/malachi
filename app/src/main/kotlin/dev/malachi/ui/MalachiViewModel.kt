@@ -177,6 +177,8 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun dismissAlwaysOnTip() = update { it.copy(alwaysOnTipDismissed = true) }
 
+    fun markWelcomeSeen() = update { it.copy(welcomeSeen = true) }
+
     fun dismissPrivateDnsNote() = update { it.copy(privateDnsNoteDismissed = true) }
 
     /**
@@ -354,6 +356,18 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         }
     }
 
+    /**
+     * A file that has been read and understood, waiting for the user to say yes.
+     *
+     * Restoring is the only thing in this app that cannot be undone — it replaces work that took
+     * months to accumulate with the contents of a file picked from a list of filenames — so it
+     * asks first, and it asks with numbers: what is in the file, and what is about to be replaced.
+     * Picking the wrong file is an ordinary mistake, and "0 rules" on the confirmation is the only
+     * moment anybody would catch it.
+     */
+    private val _pendingRestore = MutableStateFlow<Backup?>(null)
+    val pendingRestore: StateFlow<Backup?> = _pendingRestore.asStateFlow()
+
     fun importBackup(uri: Uri) {
         viewModelScope.launch {
             val text = withContext(Dispatchers.IO) { BackupStore(app.contentResolver).read(uri) }
@@ -362,10 +376,18 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
                 _backupMessage.value = app.getString(R.string.backup_import_failed)
                 return@launch
             }
-            DebugLog.i(TAG, "restoring a backup written by ${backup.appVersion.ifEmpty { "an unknown version" }} (format ${backup.format})")
-            update { backup.restoredInto(it) }
-            _backupMessage.value = app.getString(R.string.backup_imported, backup.ruleCount, backup.listCount)
+            _pendingRestore.value = backup
         }
+    }
+
+    fun cancelRestore() { _pendingRestore.value = null }
+
+    fun confirmRestore() {
+        val backup = _pendingRestore.value ?: return
+        _pendingRestore.value = null
+        DebugLog.i(TAG, "restoring a backup written by ${backup.appVersion.ifEmpty { "an unknown version" }} (format ${backup.format})")
+        update { backup.restoredInto(it) }
+        _backupMessage.value = app.getString(R.string.backup_imported, backup.ruleCount, backup.listCount)
     }
 
     /**
