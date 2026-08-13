@@ -98,6 +98,13 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         .map { it.listedDomains }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /**
+     * The live filter, so a screen can ask what *would* happen to a domain right now rather than
+     * only what happened when it was last looked up. Free to read: it is the same immutable
+     * engine the tunnel holds, rebuilt on a rule change, never per query.
+     */
+    val engine = app.filterRepository.engine
+
     private val _apps = MutableStateFlow<List<InstalledApp>>(emptyList())
 
     /** The installed apps, loaded once — enumerating them takes a noticeable moment. */
@@ -277,9 +284,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     // ---- lists -------------------------------------------------------------------------
 
-    fun setListEnabled(id: String, enabled: Boolean) = update {
-        it.copy(listChoices = it.listChoices + (id to enabled))
-    }
+    fun setListEnabled(id: String, enabled: Boolean) = update { it.withListEnabled(id, enabled) }
 
     fun setListUpdateHours(hours: Int) = update { it.copy(listUpdateHours = hours) }
 

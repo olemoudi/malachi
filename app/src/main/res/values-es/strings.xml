@@ -118,6 +118,15 @@
     <string name="verdict_allowed_your_rule">Permitido por tu regla</string>
     <string name="verdict_allowed_app_rule">Permitido por una regla de la app</string>
     <string name="verdict_allowed_exception">Exceptuado por %1$s</string>
+    <string name="verdict_blocked_rule_for">Bloqueado por tu regla para %1$s</string>
+    <string name="verdict_allowed_rule_for">Permitido por tu regla para %1$s</string>
+
+    <!-- Alcance de una regla -->
+    <string name="rule_scope_title_block">Bloquear en %1$s</string>
+    <string name="rule_scope_title_allow">Permitir en %1$s</string>
+    <string name="rule_scope_hint">Una regla se aplica también a todo lo que cuelga del nombre que elijas. Elige cuánto quieres abarcar.</string>
+    <string name="rule_scope_exact">Solo este nombre</string>
+    <string name="rule_scope_covers">Todos los nombres que acaben así, incluido %1$s</string>
 
     <!-- Reglas -->
     <string name="rules_add_title">Añadir una regla</string>
@@ -145,6 +154,9 @@
     <string name="lists_pending">Pendiente de descargar…</string>
     <string name="lists_last_error">La última actualización falló: %1$s</string>
     <string name="lists_about">%1$s · unos %2$s dominios</string>
+    <string name="lists_recent_title">Activadas recientemente</string>
+    <string name="lists_recent_hint">Las más recientes primero. Si una app ha dejado de funcionar, casi siempre es una de estas: desactívala aquí y vuelve a probar.</string>
+    <string name="lists_enabled_when">Activada %1$s</string>
     <string name="lists_catalogue_title">Catálogo</string>
     <string name="lists_catalogue_hint">Cada lista está desactivada salvo que tú la actives. Añádelas de una en una y dales un día.</string>
     <string name="lists_category_enabled">Habilitado: %1$d de %2$d</string>

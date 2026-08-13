@@ -119,6 +119,15 @@
     <string name="verdict_allowed_your_rule">Allowed by your rule</string>
     <string name="verdict_allowed_app_rule">Allowed by an app rule</string>
     <string name="verdict_allowed_exception">Excepted by %1$s</string>
+    <string name="verdict_blocked_rule_for">Blocked by your rule for %1$s</string>
+    <string name="verdict_allowed_rule_for">Allowed by your rule for %1$s</string>
+
+    <!-- Choosing how far a rule reaches -->
+    <string name="rule_scope_title_block">Block in %1$s</string>
+    <string name="rule_scope_title_allow">Allow in %1$s</string>
+    <string name="rule_scope_hint">A rule also applies to everything under the name you choose. Pick how much it should cover.</string>
+    <string name="rule_scope_exact">Only this name</string>
+    <string name="rule_scope_covers">Every name ending in this, including %1$s</string>
 
     <!-- Rules -->
     <string name="rules_add_title">Add a rule</string>
@@ -146,6 +155,9 @@
     <string name="lists_pending">Waiting to download…</string>
     <string name="lists_last_error">Last refresh failed: %1$s</string>
     <string name="lists_about">%1$s · about %2$s domains</string>
+    <string name="lists_recent_title">Recently turned on</string>
+    <string name="lists_recent_hint">Newest first. If an app stopped working, it is usually one of these — switch it off here and try again.</string>
+    <string name="lists_enabled_when">Turned on %1$s</string>
     <string name="lists_catalogue_title">Catalogue</string>
     <string name="lists_catalogue_hint">Every list is off unless you turn it on. Add one at a time and give it a day.</string>
     <string name="lists_category_enabled">Enabled: %1$d of %2$d</string>

@@ -3,6 +3,7 @@ package dev.malachi.data
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlinx.serialization.json.Json
@@ -110,6 +111,7 @@ class SettingsTest {
             userBlocked = setOf("ads.example.com"),
             appRules = listOf(AppRule("t.example.com", "com.example.game", block = true)),
             listChoices = mapOf("adaway" to false),
+            listEnabledAtMs = mapOf("oisd-big" to 1_700_000_000_000),
             upstream = UpstreamDns.QUAD9,
             bypassGuard = BypassGuard.PUBLIC_RESOLVERS,
         )
@@ -118,6 +120,41 @@ class SettingsTest {
             json.encodeToString(MalachiSettings.serializer(), settings),
         )
         assertEquals(settings, decoded)
+    }
+
+    // ---- when a list was switched on ----------------------------------------------------
+
+    @Test
+    fun `switching a list on records when, and switching it off forgets`() {
+        // The whole point: an app broke, and the answer is nearly always the last list enabled.
+        val on = MalachiSettings().withListEnabled("oisd-big", enabled = true, nowMs = 1_000)
+        assertEquals(mapOf("oisd-big" to true), on.listChoices)
+        assertEquals(1_000L, on.listEnabledAtMs["oisd-big"])
+
+        // Off is not "enabled at an older time", it is not enabled — the row must not keep
+        // offering a date for something that isn't on.
+        val off = on.withListEnabled("oisd-big", enabled = false, nowMs = 2_000)
+        assertEquals(false, off.listChoices["oisd-big"])
+        assertNull(off.listEnabledAtMs["oisd-big"])
+
+        // And re-enabling dates it from now, not from the first time it was ever on.
+        val again = off.withListEnabled("oisd-big", enabled = true, nowMs = 3_000)
+        assertEquals(3_000L, again.listEnabledAtMs["oisd-big"])
+    }
+
+    @Test
+    fun `a list that was never switched on has no date`() {
+        // The two that ship on were not switched on by anybody, and an install that predates
+        // this has no honest date to show. Both are left undated rather than dated by guesswork.
+        assertNull(MalachiSettings().listEnabledAtMs["adguard-dns"])
+        assertTrue(MalachiSettings(listChoices = mapOf("oisd-big" to true)).listEnabledAtMs.isEmpty())
+    }
+
+    @Test
+    fun `when a list was enabled does not change the tunnel`() {
+        // A rebuild tears down the tunnel; a list being switched on must never cause one.
+        val base = MalachiSettings(filteringEnabled = true)
+        assertEquals(base.tunnelShape(), base.withListEnabled("oisd-big", true, nowMs = 1).tunnelShape())
     }
 
     @Test

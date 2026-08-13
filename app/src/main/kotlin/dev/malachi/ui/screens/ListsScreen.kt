@@ -1,5 +1,6 @@
 package dev.malachi.ui.screens
 
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,6 +28,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -70,6 +72,13 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
     val refreshing by vm.refreshingLists.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
+    // Above everything, because this is the screen somebody opens when an app has just broken —
+    // and the answer to that is nearly always the list they turned on last. It is absent for
+    // anybody who has never turned one on, so it costs the other case nothing.
+    val recent = remember(settings.listChoices, settings.listEnabledAtMs) {
+        BlocklistCatalog.recentlyEnabled(settings.listChoices, settings.listEnabledAtMs, RECENT_SHOWN)
+    }
+
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.nav_lists), onBack) {
             if (refreshing) {
@@ -86,6 +95,28 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
             contentPadding = PaddingValues(spacing.screen, 0.dp, spacing.screen, spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
+            if (recent.isNotEmpty()) {
+                item {
+                    SectionHeader(
+                        title = stringResource(R.string.lists_recent_title),
+                        supporting = stringResource(R.string.lists_recent_hint),
+                    )
+                }
+                item {
+                    CardGroup {
+                        recent.forEachIndexed { index, source ->
+                            SwitchRow(
+                                title = source.title,
+                                subtitle = turnedOn(settings.listEnabledAtMs[source.id]),
+                                checked = true,
+                                onCheckedChange = { vm.setListEnabled(source.id, it) },
+                                position = cardPosition(index, recent.size),
+                            )
+                        }
+                    }
+                }
+            }
+
             item { SectionHeader(stringResource(R.string.lists_schedule_title)) }
             item {
                 CardGroup {
@@ -198,6 +229,7 @@ fun ListCategoryScreen(
                                 state = states[source.id],
                                 approximateEntries = source.approximateEntries,
                                 enabled = BlocklistCatalog.isEnabled(source.id, settings.listChoices),
+                                enabledAtMs = settings.listEnabledAtMs[source.id],
                                 onToggle = { vm.setListEnabled(source.id, it) },
                                 position = cardPosition(index, tier.size),
                             )
@@ -218,6 +250,7 @@ private fun ListRow(
     state: ListState?,
     approximateEntries: Int,
     enabled: Boolean,
+    enabledAtMs: Long?,
     onToggle: (Boolean) -> Unit,
     position: CardPosition,
 ) {
@@ -253,6 +286,15 @@ private fun ListRow(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+                // When this one was switched on, so the list that broke something last week can be
+                // recognised without remembering the day it was added.
+                turnedOn(enabledAtMs)?.let { since ->
+                    Text(
+                        since,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 // Where the rules come from. One line, and shortened from the middle rather than
                 // the end: most of the catalogue is fetched from one host, so a plain ellipsis
                 // truncates every row to the same forty characters of "adguardteam.github.io/Host…"
@@ -273,6 +315,25 @@ private fun ListRow(
 }
 
 /**
+ * "Turned on 3 days ago", in the device's own words, or null when nothing was recorded.
+ *
+ * Relative rather than a date, because the question being asked is "which of these did I add
+ * last" and a short date makes somebody count backwards to answer it. The platform formats it,
+ * so it is translated everywhere the app is and reads naturally in each language.
+ */
+@Composable
+private fun turnedOn(atMs: Long?): String? {
+    if (atMs == null || atMs <= 0L) return null
+    // One instant for the life of the composition: rows compared against different "now"s could
+    // disagree about their order, which is the one thing this line exists to settle.
+    val now = remember { System.currentTimeMillis() }
+    return stringResource(
+        R.string.lists_enabled_when,
+        DateUtils.getRelativeTimeSpanString(atMs, now, DateUtils.MINUTE_IN_MILLIS),
+    )
+}
+
+/**
  * A download URL as one short line: the host, and the filename that distinguishes it.
  *
  * The scheme is dropped because a test guarantees every one of them is https, so it is eight
@@ -289,6 +350,15 @@ internal fun shortSource(url: String): String {
     val last = path.substringAfterLast('/')
     return if (path == last) "$host/$path" else "$host/…/$last"
 }
+
+/**
+ * How many of the recently enabled lists the shortcut at the top shows.
+ *
+ * Not all of them: somebody who has turned on twenty lists would get the catalogue again, sorted
+ * by date, above the catalogue. Everything past this still carries its own date on its own row,
+ * so nothing is hidden — only the shortcut is bounded.
+ */
+private const val RECENT_SHOWN = 5
 
 /** Cycles the refresh interval through the handful of values anyone actually wants. */
 private fun nextInterval(current: Int): Int = when (current) {

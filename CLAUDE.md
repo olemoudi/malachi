@@ -231,6 +231,15 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   the app scope, the bypass routes — needs a rebuild, and `MalachiSettings.tunnelShape()` is
   what detects that. Everything else (rules, lists, block answer) is read per query and must
   never cause a rebuild.
+- **A rule is a suffix, so a parent domain *is* the wildcard.** Blocking `bbva.es` blocks
+  everything under it; there is no glob syntax to offer and none to invent. What the UI offers
+  instead is the chain of parent names (`DomainInput.scopes`), which is a question a person can
+  answer about their own bank without knowing what a subdomain is.
+- **A single label can never be a rule, and that is deliberate.** `DomainIndex.normalizeHost`
+  refuses anything without a dot, so `com` or `es` is not a rule this engine can hold — and that
+  refusal is load-bearing well outside the UI: it is what stops a hosts file's `127.0.0.1
+  localhost` line from compiling into a rule that stops the phone resolving `localhost`. Blocking
+  a whole TLD would mean moving the check into `RuleParser` and accepting that blast radius.
 - **Never hold a whole blocklist as text.** Lists reach a quarter of a million domains;
   they are streamed line by line into `DomainIndex.Builder` and kept as a sorted `LongArray`.
 

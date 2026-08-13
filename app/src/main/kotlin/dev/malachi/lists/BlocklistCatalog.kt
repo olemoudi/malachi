@@ -639,6 +639,27 @@ object BlocklistCatalog {
     fun isEnabled(id: String, choices: Map<String, Boolean>): Boolean =
         choices[id] ?: (byId(id)?.enabledByDefault ?: false)
 
+    /**
+     * The lists that are on, most recently switched on first — the answer to "what did I change
+     * just before this app stopped working".
+     *
+     * Only a list with a recorded moment appears. The two that ship on were never switched on by
+     * anybody, and anything enabled before the app started recording the moment has no honest
+     * date, so neither is dated by guesswork; they are simply not part of this question.
+     */
+    fun recentlyEnabled(
+        choices: Map<String, Boolean>,
+        enabledAtMs: Map<String, Long>,
+        limit: Int = Int.MAX_VALUE,
+    ): List<BlocklistSource> =
+        enabledAtMs.entries
+            .filter { isEnabled(it.key, choices) }
+            .sortedByDescending { it.value }
+            // An id that is no longer in the catalogue drops out here rather than showing a row
+            // nothing can be done with.
+            .mapNotNull { byId(it.key) }
+            .take(limit)
+
     /** How many of [category] are on, for the "3 of 7" the category index shows. */
     fun enabledCount(category: BlocklistCategory, choices: Map<String, Boolean>): Int =
         inCategory(category).count { isEnabled(it.id, choices) }

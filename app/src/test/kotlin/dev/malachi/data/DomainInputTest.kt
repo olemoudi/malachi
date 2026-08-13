@@ -2,6 +2,7 @@ package dev.malachi.data
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -45,6 +46,33 @@ class DomainInputTest {
         assertNull(DomainInput.parse("[2001:db8::1]"))
         assertNull(DomainInput.parse("https://"))
         assertNull(DomainInput.parse("..example.com"))
+    }
+
+    @Test
+    fun `the scopes of a domain are itself and every parent down to two labels`() {
+        // What the "block this" dialog offers. Suffix matching means a parent is the wildcard,
+        // so this list is the whole of "and every subdomain" without a glob to type.
+        assertEquals(
+            listOf(
+                "mcbj8f8s.device.marketingcloudapis.com",
+                "device.marketingcloudapis.com",
+                "marketingcloudapis.com",
+            ),
+            DomainInput.scopes("mcbj8f8s.device.marketingcloudapis.com"),
+        )
+        assertEquals(listOf("movil.bbva.es", "bbva.es"), DomainInput.scopes("movil.bbva.es"))
+        // Already as broad as it can go: one choice, not a choice between it and nothing.
+        assertEquals(listOf("bbva.es"), DomainInput.scopes("bbva.es"))
+    }
+
+    @Test
+    fun `the scopes never reach a bare top level domain`() {
+        // The engine refuses a single label, and that refusal is what stops a hosts file's
+        // `localhost` line from compiling into a rule. Offering `.com` would be a dead choice
+        // that silently did nothing.
+        assertTrue(DomainInput.scopes("a.b.example.com").none { !it.contains('.') })
+        assertTrue(DomainInput.scopes("com").isEmpty())
+        assertTrue(DomainInput.scopes("not a domain").isEmpty())
     }
 
     @Test

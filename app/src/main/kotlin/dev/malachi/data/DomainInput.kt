@@ -33,4 +33,29 @@ object DomainInput {
 
         return DomainIndex.normalizeHost(s)
     }
+
+    /**
+     * The names a rule for [domain] could reasonably be written against, most specific first:
+     * the name itself, then each parent down to two labels.
+     *
+     * This is what a "wildcard" would be, spelled out. Matching is by suffix, so a rule for
+     * `bbva.es` already catches `movil.bbva.es` and everything else under it — there is nothing
+     * to type, only a choice of how far up to go, and that is a question a person can answer
+     * about their own bank without knowing what a subdomain is.
+     *
+     * The walk stops before the last label because the engine refuses a single one
+     * ([DomainIndex.normalizeHost]), and that refusal is load-bearing elsewhere: it is what keeps
+     * a hosts file's `localhost` line from compiling into a rule that breaks the phone.
+     */
+    fun scopes(domain: String): List<String> {
+        val host = DomainIndex.normalizeHost(domain) ?: return emptyList()
+        val scopes = mutableListOf<String>()
+        var current = host
+        while (true) {
+            scopes += current
+            val parent = current.substringAfter('.', "")
+            if (!parent.contains('.')) return scopes
+            current = parent
+        }
+    }
 }

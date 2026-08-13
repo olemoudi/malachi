@@ -172,4 +172,36 @@ class BlocklistCatalogTest {
         assertTrue(enabled.none { it.id == "a-list-we-removed" })
         assertNotNull(BlocklistCatalog.byId("adaway"))
     }
+
+    @Test
+    fun `recently enabled answers the newest first`() {
+        // The support question this exists for: an app broke, which list did I add last.
+        val choices = mapOf("oisd-big" to true, "hagezi-pro" to true, "nocoin" to true)
+        val when_ = mapOf("oisd-big" to 100L, "hagezi-pro" to 300L, "nocoin" to 200L)
+        assertEquals(
+            listOf("hagezi-pro", "nocoin", "oisd-big"),
+            BlocklistCatalog.recentlyEnabled(choices, when_).map { it.id },
+        )
+        assertEquals(listOf("hagezi-pro"), BlocklistCatalog.recentlyEnabled(choices, when_, limit = 1).map { it.id })
+    }
+
+    @Test
+    fun `only lists that are actually on, and only ones with a recorded moment`() {
+        // A date left behind by a list since switched off would offer to switch off something
+        // already off; a list on by default was never switched on by anybody and has no date.
+        assertTrue(
+            BlocklistCatalog.recentlyEnabled(
+                choices = mapOf("oisd-big" to false),
+                enabledAtMs = mapOf("oisd-big" to 100L),
+            ).isEmpty(),
+        )
+        assertTrue(BlocklistCatalog.recentlyEnabled(choices = emptyMap(), enabledAtMs = emptyMap()).isEmpty())
+        // And an id from a release that has since dropped the list is not a row.
+        assertTrue(
+            BlocklistCatalog.recentlyEnabled(
+                choices = mapOf("a-list-we-removed" to true),
+                enabledAtMs = mapOf("a-list-we-removed" to 100L),
+            ).isEmpty(),
+        )
+    }
 }

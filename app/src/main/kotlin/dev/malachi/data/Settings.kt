@@ -95,6 +95,21 @@ data class MalachiSettings(
     /** Catalog id → enabled. A source absent from the map uses the catalog's own default. */
     val listChoices: Map<String, Boolean> = emptyMap(),
 
+    /**
+     * Catalog id → the moment the user switched it on, for the lists that are on.
+     *
+     * This exists for one question, and it is the most common support question a blocker gets:
+     * an app stopped working, and the cause is almost always the last list that was enabled.
+     * Nothing else on disk can answer it — [dev.malachi.lists.ListState.fetchedAtMs] is when the
+     * list was last *downloaded*, which moves every day for lists that have been on for months.
+     *
+     * Absent means genuinely unknown rather than "long ago": the two lists that ship on were
+     * never switched on by anybody, and a list enabled before this was recorded has no honest
+     * date. Both are left undated instead of being dated by guesswork. Cleared on disable, so the
+     * map only ever holds ids that are on and stays as bounded as [listChoices].
+     */
+    val listEnabledAtMs: Map<String, Long> = emptyMap(),
+
     val listUpdateHours: Int = 24,
     val listUpdateWifiOnly: Boolean = true,
 
@@ -190,6 +205,19 @@ data class MalachiSettings(
         }
 
     fun isPaused(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < pausedUntilMs
+
+    /**
+     * One list switched on or off, with the moment it happened. The clock is a parameter so this
+     * is testable without waiting for one; see [listEnabledAtMs] for why the moment is kept.
+     */
+    fun withListEnabled(
+        id: String,
+        enabled: Boolean,
+        nowMs: Long = System.currentTimeMillis(),
+    ): MalachiSettings = copy(
+        listChoices = listChoices + (id to enabled),
+        listEnabledAtMs = if (enabled) listEnabledAtMs + (id to nowMs) else listEnabledAtMs - id,
+    )
 
     /** True when the filter should be doing work right now. */
     fun isFiltering(nowMs: Long = System.currentTimeMillis()): Boolean = filteringEnabled && !isPaused(nowMs)
