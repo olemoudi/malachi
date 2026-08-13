@@ -189,6 +189,7 @@ class MalachiVpnService : VpnService() {
 
     /** Consecutive refusals of [pin]; at [PIN_ATTEMPTS] the tunnel stops asking. */
     @Volatile private var pinFailures = 0
+    @Volatile private var lastUnvalidatedLogMs = 0L
 
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
@@ -1216,13 +1217,22 @@ class MalachiVpnService : VpnService() {
      */
     private fun bestUnderlyingNetwork(): Network? = runCatching {
         @Suppress("DEPRECATION")
-        cm.allNetworks
+        val candidates = cm.allNetworks
             .mapNotNull { network -> cm.getNetworkCapabilities(network)?.let { network to it } }
-            .filter { (_, caps) ->
-                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            }
+            .filterNot { (_, caps) -> caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
+            .filter { (_, caps) -> caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) }
+
+        // A network that is connected and that the system has decided reaches nothing. Worth a
+        // line, because from inside this app it is otherwise invisible: the phone sits on mobile
+        // data next to its own router, Android calls the Wi-Fi "low quality" and does not
+        // re-check it until something forces a re-evaluation — which starting or stopping a VPN
+        // happens to do. That is the platform's judgement and not ours to override, but a report
+        // that says "it connects and the phone won't use it" should not need guessing at.
+        candidates.filterNot { (_, caps) -> caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
+            .forEach { (network, _) -> noteUnvalidated(network) }
+
+        candidates
+            .filter { (_, caps) -> caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
             .minByOrNull { (_, caps) ->
                 TunnelPolicy.transportRank(
                     wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
@@ -1249,6 +1259,15 @@ class MalachiVpnService : VpnService() {
 
     private fun isVpn(network: Network): Boolean =
         cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+
+    /** Names a connected network the system will not use, at most once a minute. */
+    private fun noteUnvalidated(network: Network) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastUnvalidatedLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
+        lastUnvalidatedLogMs = now
+        val name = runCatching { cm.getLinkProperties(network)?.interfaceName }.getOrNull() ?: "a network"
+        DebugLog.w(TAG, "$name is connected but the system has not validated it; its resolvers are not adopted")
+    }
 
     /** Whether the platform has confirmed this network actually reaches the internet. */
     private fun isValidated(network: Network): Boolean =

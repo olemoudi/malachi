@@ -384,6 +384,14 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   platform's own best match — better than any ranking of ours, because it is the same choice our
   protected sockets are about to follow. Below 31 every match reports itself, so those events are
   only a prompt to go and decide again; adopting the last one to speak is the 0.9.0 bug.
+- **"The Wi-Fi connects and the phone won't use it" is Android's, not ours, and toggling a VPN is
+  what un-sticks it.** Reported from beside the router: with the filter off the phone stayed on
+  5G and marked the Wi-Fi *low quality*; switching the filter **on** made it join. The mark is
+  Android's avoid-bad-wifi state, it is sticky, and it is re-evaluated on events — establishing
+  or tearing down a VPN is one. With the filter off this app is not running at all, so it cannot
+  be the cause; what it can do is *say so*, which `noteUnvalidated` now does. Do not reach for
+  `reportNetworkConnectivity(network, false)` to force a re-check: it asserts a network is broken
+  when we do not know that, and it can push the phone off a good one.
 - **That request must carry `NET_CAPABILITY_VALIDATED`, and forgetting it is not cosmetic.** A
   Wi-Fi that has associated but reaches nothing still has `INTERNET`, so the platform will happily
   name it the best match — and the tunnel then adopts a router's resolvers and, since sockets are
