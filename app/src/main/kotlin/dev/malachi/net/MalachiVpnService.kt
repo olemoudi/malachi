@@ -187,6 +187,9 @@ class MalachiVpnService : VpnService() {
     @Volatile private var lastSilentUpstreamLogMs = 0L
     @Volatile private var lastSocketTroubleLogMs = 0L
 
+    /** Consecutive refusals of [pin]; at [PIN_ATTEMPTS] the tunnel stops asking. */
+    @Volatile private var pinFailures = 0
+
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
 
@@ -195,20 +198,7 @@ class MalachiVpnService : VpnService() {
      * forwarded query from being routed back into our own tunnel, and it is the expensive part;
      * see [UpstreamSockets] for why they are also connected.
      */
-    private val sockets = UpstreamSockets(capacity = FORWARD_THREADS) { target ->
-        runCatching {
-            DatagramSocket().also { socket ->
-                if (!protect(socket)) {
-                    noteSocketTrouble("could not protect a socket for ${target.hostAddress}")
-                    socket.close()
-                    return@runCatching null
-                }
-                socket.connect(target, DNS_PORT)
-            }
-        }.onFailure {
-            noteSocketTrouble("no socket for ${target.hostAddress}: ${it.javaClass.simpleName}: ${it.message}")
-        }.getOrNull()
-    }
+    private val sockets = UpstreamSockets(capacity = FORWARD_THREADS) { target -> openUpstream(target) }
 
     private var resumeJob: Job? = null
     private var retryJob: Job? = null
@@ -884,6 +874,76 @@ class MalachiVpnService : VpnService() {
     }
 
     /**
+     * A protected socket for talking to [target], pinned to the network its resolver came from
+     * when the platform allows it.
+     *
+     * **Why pin at all.** `protect()` says "do not route this back into my own tunnel"; it does
+     * not choose a way out of the phone, so the packet follows the system's default route. That
+     * is the same network our resolvers came from — except for the seconds around a handover,
+     * which on a phone walking around a house with weak Wi-Fi is most of the interesting time.
+     * The failure is silent and total: a LAN resolver asked over mobile, or an ISP's mobile
+     * resolvers asked over Wi-Fi, and nothing answers either way. Both are in one user's trace an
+     * hour apart. Pinning makes the resolver and the route agree by construction rather than by
+     * timing.
+     *
+     * **Why this is not the thing that was reverted in 0.9.4.** That code pinned to a network
+     * reference held in a field only the default-network callback ever updated — and that
+     * callback goes quiet once the tunnel is up, so it was very likely pinning sockets to a
+     * network that no longer existed, which is one of the things `EPERM` means. The reference
+     * used here is kept current by [underlyingCallback] and re-read on every adoption. That is a
+     * diagnosis and not a certainty — a device that simply refuses the call would look identical
+     * — so it is best-effort in both directions: a refused pin costs one socket, three in a row
+     * turn pinning off for the life of the service, and the diagnostics header says which
+     * happened. RethinkDNS pins its DNS sockets the same way, which is what suggested the
+     * reference rather than the call was at fault.
+     */
+    private fun openUpstream(target: InetAddress): DatagramSocket? {
+        val network = activeNetwork.takeIf { pinFailures < PIN_ATTEMPTS }
+        if (network != null) {
+            newUpstream(target, network)?.let { return it }
+            // The pin was refused and the socket it may have damaged is already closed. An
+            // unpinned socket still works; it just follows the default route, as it did before.
+        }
+        return newUpstream(target, null)
+    }
+
+    private fun newUpstream(target: InetAddress, pinTo: Network?): DatagramSocket? = runCatching {
+        DatagramSocket().also { socket ->
+            if (!protect(socket)) {
+                noteSocketTrouble("could not protect a socket for ${target.hostAddress}")
+                socket.close()
+                return null
+            }
+            if (pinTo != null && !pin(socket, pinTo, target)) {
+                socket.close()
+                return null
+            }
+            socket.connect(target, DNS_PORT)
+        }
+    }.onFailure {
+        noteSocketTrouble("no socket for ${target.hostAddress}: ${it.javaClass.simpleName}: ${it.message}")
+    }.getOrNull()
+
+    /** Ties one socket to one network. False when the platform refused; never throws. */
+    private fun pin(socket: DatagramSocket, network: Network, target: InetAddress): Boolean =
+        runCatching {
+            network.bindSocket(socket)
+            // Only consecutive failures count: one refusal is a network that went away between
+            // the adoption and the socket, which is ordinary on a phone that keeps changing.
+            pinFailures = 0
+            true
+        }.onFailure {
+            pinFailures++
+            noteSocketTrouble(
+                "could not pin a socket for ${target.hostAddress} to its network: " +
+                    "${it.javaClass.simpleName}: ${it.message}",
+            )
+            if (pinFailures == PIN_ATTEMPTS) {
+                DebugLog.w(TAG, "this device refuses to pin sockets to a network; following the default route instead")
+            }
+        }.getOrDefault(false)
+
+    /**
      * If the upstream truncated its answer it expects the client to ask again over TCP — which
      * this tunnel does not carry, so that retry would vanish into it. We make the TCP query
      * ourselves and hand back the complete answer over UDP instead. Rare (mostly DNSSEC and
@@ -1427,6 +1487,10 @@ class MalachiVpnService : VpnService() {
                 "dns=${networkDnsServers.joinToString { it.hostAddress.orEmpty() }} " +
                 "private=${privateDnsHost ?: if (privateDnsActive) "automatic" else "off"}",
         )
+        // Whether the queries are leaving by the network their resolvers came from or merely by
+        // whatever the default route happens to be. The whole question of 0.9.2 through 0.9.10,
+        // in one word, on the phone that can answer it.
+        DebugLog.trace(TAG, "sockets pinned to their network=${if (pinFailures < PIN_ATTEMPTS) "yes" else "no, refused"}")
         DebugLog.trace(TAG, "scope=${settings.scopeMode} bypass=${settings.bypassAllowed} guard=${settings.bypassGuard} lockdown=$lastLockdown")
     }
 
@@ -1527,6 +1591,15 @@ class MalachiVpnService : VpnService() {
          * not turn into two binder calls per lookup for as long as it lasts.
          */
         private const val RESOLVER_RECHECK_INTERVAL_MS = 5_000L
+
+        /**
+         * How many sockets in a row may fail to pin before the tunnel stops trying.
+         *
+         * Three rather than one because a refusal is also what a network that vanished between
+         * the adoption and the socket looks like, and that is ordinary on a phone that changes
+         * network every few minutes. A device that refuses the call outright fails all three.
+         */
+        private const val PIN_ATTEMPTS = 3
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L

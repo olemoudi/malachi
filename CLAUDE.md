@@ -305,12 +305,20 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **`android.settings.PRIVATE_DNS_SETTINGS` is not in the SDK and does not resolve on a current
   AOSP build** — checked, not assumed. `ACTION_WIRELESS_SETTINGS` opens the network dashboard,
   which carries the Private DNS entry, and is the fallback.
-- **Do not call `Network.bindSocket` on an upstream socket.** Tried in 0.9.2 on the theory that
-  `protect()` does not choose an interface; it returned `EPERM` for every socket on a Pixel 8 Pro,
-  and it does not fail cleanly — it duplicates the descriptor before throwing and the socket that
-  comes back is broken. The trace signature is unmistakable: a resolver "not answering" in one
-  millisecond where it answered in eighty a second earlier, and four resolvers exhausted in three
-  milliseconds. `protect()` is what this tunnel needs and all it needs. Reverted in 0.9.4.
+- **`Network.bindSocket` is how a query leaves by the network its resolver came from — the 0.9.2
+  failure was the *reference*, not the call.** That version pinned every upstream socket to a
+  `Network` held in a field only the default-network callback updated, and that callback goes
+  quiet the moment the tunnel is up (see below), so it was pinning sockets to a network that had
+  very likely ceased to exist — one of the things `EPERM` means. The whole idea was reverted in
+  0.9.4 on the strength of the symptom, and the symptom is worth knowing: a resolver "not
+  answering" in one millisecond where it answered in eighty a second earlier, and four resolvers
+  exhausted in three milliseconds. It also does not fail cleanly, so a socket whose pin was
+  refused is thrown away rather than reused.
+  RethinkDNS pins its DNS sockets exactly this way — `protect()` first, then `bindSocket` to the
+  network that offered *that* resolver — which is what suggested the reference was at fault.
+  0.9.10 pins again, against a reference kept current by the non-VPN callback, best-effort: three
+  refusals in a row turn it off for the life of the service, and the diagnostics header says
+  which happened. **If it is ever reverted again, say in the log which of the two it was.**
 - **A per-socket failure must never be logged with its throwable.** On a phone that cannot reach
   its resolvers it is one fifteen-line stack per lookup; the log filled with identical traces and
   evicted the lines that explained what was happening — diagnostics defeated by their own noise.
@@ -381,6 +389,18 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   list belongs to one network and the route to another, the tunnel asks a LAN resolver
   (`100.90.1.1`) over mobile, or an ISP's mobile resolvers over Wi-Fi, and gets nothing either way.
   Both failures are in the same trace, an hour apart.
+- **Read against RethinkDNS when the platform is the problem.** It solves the same problem on the
+  same OS with years of field reports behind it (`ConnectionMonitor.kt`, `BraveVPNService.kt`;
+  Apache-2.0, so patterns, never code). Three things were taken from it and one was deliberately
+  left: it keeps a `Map<InetAddress, Network>` of every resolver to the network that offered it
+  and pins DNS sockets to that network; it never uses `registerDefaultNetworkCallback`, only
+  broad `registerNetworkCallback` requests it decides between itself; and it conflates a storm of
+  callbacks into one settled event. **What was not taken is `setUnderlyingNetworks` with the whole
+  ordered list** — the platform derives `NOT_METERED` from *all* of them, so listing cellular
+  beside Wi-Fi makes the tunnel metered and brings back the bug fixed in 0.9.0. One network, the
+  one in use. The conflation was skipped too: their handler probes several addresses per network
+  over the network, and ours reads `LinkProperties` and closes some sockets, so a debounce would
+  only delay the adoption it is meant to protect.
 - **A stack trace in the log can be older than the bug you are reading it for.** The debug log
   survives updates on purpose, so a report can open with fifty `Network.bindSocket EPERM` traces
   from 0.9.3 and a fix that landed in 0.9.4. Read `installed=` before diagnosing anything.
@@ -661,6 +681,10 @@ the one path every revival has in common.
   is a parameter (`record(nowMs = …)`), and the coroutine tests use `runTest`'s virtual time, so
   a year of statistics, a month of failed retries and a day of backoff all run in milliseconds.
   `SoakTest` is where that lives; a test that sleeps is a test nobody runs.
+- **Measure a duration with `System.nanoTime`, never `measureTimeMillis`.** The latter is
+  `currentTimeMillis`, which is a wall clock, and a wall clock steps: the fix for the test below
+  failed on the very next run with a duration of **minus 1599 milliseconds**, because the machine
+  corrected its time by NTP while the operation being measured was blocked.
 - **A concurrency test that timestamps *after* the call is timing the scheduler, not the lock.**
   `BlocklistRefreshTest` recorded when each coroutine finished and asserted an order; but the
   waiting one is resumed the instant the lock is released, so on a loaded machine it can stamp

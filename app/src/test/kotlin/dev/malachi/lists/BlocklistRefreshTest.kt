@@ -18,7 +18,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.system.measureTimeMillis
 
 /**
  * The download half of [BlocklistStore], against a real HTTP server.
@@ -250,7 +249,12 @@ class BlocklistRefreshTest {
             // Long enough that the request is on the wire and its body is still being held.
             delay(150)
             launch(Dispatchers.IO) {
-                pruneTookMs = measureTimeMillis { store.prune(listOf(slow)) }
+                // `nanoTime`, deliberately: `measureTimeMillis` is a wall clock, and a wall clock
+                // steps. This test failed with a duration of *minus* 1599ms on a machine that
+                // corrected its time by NTP while the prune was blocked.
+                val startedAt = System.nanoTime()
+                store.prune(listOf(slow))
+                pruneTookMs = (System.nanoTime() - startedAt) / 1_000_000
             }
             refresh.join()
         }
