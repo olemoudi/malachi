@@ -369,6 +369,27 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   `android-35/android.jar`, not assumed. Which network is under the VPN has to be inferred:
   validated, non-VPN, has internet, ranked wire → Wi-Fi → mobile, which is the platform's own
   preference and therefore the same answer in every case that matters.
+- **On a handover the new default is announced before the old network finishes going away, so
+  `onLost` must check *which* network it lost.** It used to wipe the resolvers whichever one
+  disappeared: walking out of Wi-Fi range threw away the mobile resolvers adopted one callback
+  earlier, and the whole phone moved to the Cloudflare fallback silently. That is working DNS
+  sent somewhere the user never chose — and on a network with names of its own, or one that
+  blocks outside resolvers, it is not even working. Losing the active network now looks for its
+  replacement immediately, and falling back is logged.
+- **A phone that changes network often gets one dead HTTP request per change.** The pooled
+  HTTP/2 connection from the last network answers `REFUSED_STREAM` or times out — seen twice in
+  one night's log. The updater survives it by retrying; a blocklist download does not, and comes
+  back as a red line on the Lists screen until the next refresh. The pool is evicted on adoption.
+- **A lookup in flight when the network changes is already dead**, and the rest of its
+  five-second budget is spent on resolvers that have gone — which is five seconds of delay
+  before the client's retry can use the new ones. A generation counter, bumped on adoption, is
+  checked between resolvers.
+- **The bypass guard's routes are frozen at `establish()` and deliberately left that way.** On a
+  new network the guard no longer covers *that* network's resolvers, and fixing it means
+  rebuilding the tun on every handover — a blink of unfiltered DNS and a teardown each time,
+  which on a phone that changes network every few minutes is far worse than the hole. The hole is
+  narrow: the public resolvers an app actually hardcodes are static and still routed, and an app
+  does not hardcode a resolver it could only have learned from the system it was avoiding.
 - **The network callback is a fast path, not a guarantee, so the tunnel must be able to notice on
   its own.** When a lookup exhausts every resolver, the phone is re-asked what it has (at most
   once every five seconds, only on the path where everything already failed) and the answer is

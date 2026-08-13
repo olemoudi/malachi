@@ -156,6 +156,16 @@ class MalachiVpnService : VpnService() {
     @Volatile private var networkLabel: String = ""
     @Volatile private var adoptedAtMs = 0L
     @Volatile private var lastResolverRecheckMs = 0L
+
+    /**
+     * Bumped whenever the resolvers change under us, so a lookup already in flight can tell.
+     *
+     * A forward holds the list it started with. On a phone that changes network in the middle of
+     * one — which is the whole of walking around a house with bad Wi-Fi — the remaining resolvers
+     * in that list belong to a network that is gone, and spending the rest of a five-second
+     * budget on them delays the client's retry by five seconds for nothing.
+     */
+    @Volatile private var networkGeneration = 0
     @Volatile private var lastLockdown = false
     @Volatile private var privateDnsActive = false
     @Volatile private var privateDnsHost: String? = null
@@ -223,9 +233,38 @@ class MalachiVpnService : VpnService() {
             adoptNetwork(network, linkProperties)
         }
 
+        /**
+         * Only the network we are actually asking matters here.
+         *
+         * This used to wipe the resolvers whichever network went away — and on a handover the
+         * platform announces the new default *before* the old one finishes disappearing. So
+         * walking out of Wi-Fi range threw away the mobile resolvers that had just been adopted
+         * one callback earlier, and every lookup on the phone moved to the fallback resolver
+         * without a word: working DNS, sent somewhere the user never chose, until something else
+         * happened to change. On a network with names of its own — a router, a NAS — or one that
+         * blocks outside resolvers, it is not even working DNS.
+         */
         override fun onLost(network: Network) {
+            if (network != activeNetwork) return
+            activeNetwork = null
+            // The replacement is usually already up: this is a handover, not an outage. Adopting
+            // it here rather than waiting means the gap is one callback long instead of however
+            // long the new network takes to mention its link properties.
+            val replacement = runCatching { cm.activeNetwork }.getOrNull()?.let { realNetwork(it) }
+            val linkProperties = replacement?.let { runCatching { cm.getLinkProperties(it) }.getOrNull() }
+            if (replacement != null && linkProperties != null) {
+                adoptNetwork(replacement, linkProperties)
+                return
+            }
             networkDnsServers = emptyList()
             upstreams = resolveUpstreams()
+            // Never silent: this is the moment the phone stops asking the resolvers it was given
+            // and starts asking the fallback.
+            DebugLog.w(
+                TAG,
+                "the network we were asking has gone and nothing replaced it yet; falling back to " +
+                    upstreams.joinToString { it.hostAddress.orEmpty() },
+            )
         }
     }
 
@@ -715,8 +754,17 @@ class MalachiVpnService : VpnService() {
         val candidates = TunnelPolicy.orderUpstreams(upstreams, wantsIpv6, lastGoodUpstream)
         if (candidates.isEmpty()) return
         val deadline = SystemClock.elapsedRealtime() + UPSTREAM_TIMEOUT_MS
+        val generation = networkGeneration
 
         candidates.forEachIndexed { index, target ->
+            // The network moved while we were waiting. Everything left in this list belongs to
+            // the network that has gone, so the rest of the budget would be spent on resolvers
+            // that cannot answer — and the client's retry, which will use the new ones, is held
+            // up for exactly that long.
+            if (networkGeneration != generation) {
+                if (tracing()) DebugLog.trace(TAG, "$name: the network changed mid-lookup; dropping")
+                return dropUnroutable("the network changed mid-lookup")
+            }
             val remaining = deadline - SystemClock.elapsedRealtime()
             if (remaining <= 0) return@forEachIndexed
             val socket = sockets.borrow(target) ?: run {
@@ -981,6 +1029,14 @@ class MalachiVpnService : VpnService() {
             lastGoodUpstream = null
             // Pooled sockets are bound to the network that existed when they were made.
             sockets.closeAll()
+            // And so is every idle HTTP connection: a phone that changes networks often gets a
+            // `REFUSED_STREAM` or a timeout on the first request after each change, because the
+            // pooled HTTP/2 connection left over from the last network is dead. The updater
+            // survives it by retrying; a blocklist download does not, and comes back as a red
+            // line on the Lists screen until the next scheduled refresh.
+            runCatching { Http.client.connectionPool.evictAll() }
+            // Anything already waiting on the old network's resolvers is now waiting for nothing.
+            networkGeneration++
         }
 
         privateDnsActive = linkProperties.isPrivateDnsActive
