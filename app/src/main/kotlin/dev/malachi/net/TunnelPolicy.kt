@@ -140,6 +140,37 @@ object TunnelPolicy {
     }
 
     /**
+     * How a network ranks when the platform will not say which one is the default and we have to
+     * choose — lowest first.
+     *
+     * This is only reached when the default reported to this app is a VPN, which is to say ours:
+     * the question then is which network our protected sockets actually leave by, and the
+     * platform's own preference (a wire over Wi-Fi over mobile) is the best available answer.
+     * Getting it wrong is not fatal — the resolvers of the other network are usually reachable
+     * from this one — but getting it right is what stops a phone on Wi-Fi asking a mobile
+     * network's resolvers.
+     */
+    fun transportRank(wifi: Boolean, ethernet: Boolean, cellular: Boolean): Int = when {
+        ethernet -> 0
+        wifi -> 1
+        cellular -> 2
+        else -> 3
+    }
+
+    /**
+     * Whether what the phone says it has now is worth taking over what the tunnel is holding.
+     *
+     * Two refusals, and both were paid for. **Empty is never worth adopting**: `LinkProperties`
+     * arrive in stages and one that has no DNS servers yet would replace a working list with the
+     * fallback, so a network coming up would briefly send every lookup to Cloudflare. And **the
+     * same list is not worth adopting either**, because adopting closes every pooled socket and
+     * forgets which resolver was answering — a re-check that fired on every failed lookup would
+     * otherwise make a network outage cost more than the outage.
+     */
+    fun worthAdopting(current: List<InetAddress>, offered: List<InetAddress>): Boolean =
+        offered.isNotEmpty() && offered != current
+
+    /**
      * The resolver to ask for a query that arrived over [wantsIpv6], preferring one of the same
      * family so the answer can travel back the way it came.
      */

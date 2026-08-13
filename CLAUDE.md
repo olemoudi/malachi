@@ -355,6 +355,25 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   Without it the platform simply omits the control, so Malachi's entry in Settings → VPN had a
   gear that led nowhere.
 - **`Os.pipe2` is not in the SDK; `Os.pipe()` is.**
+- **Once the tunnel is up, the default network reported to this app can be the tunnel itself, and
+  discarding that silently cost a phone eleven hours of DNS.** `adoptNetwork` guarded against
+  adopting a VPN — correctly, forwarding into our own tun is a loop — with a bare `return` and no
+  log. The last adoption in the trace was one second before `tunnel up`; after that every network
+  change was dropped on the floor, and the filter spent the night asking a mobile network's four
+  resolvers over a Wi-Fi that routed to none of them. The signature: IPv4 resolvers timing out at
+  their full budget while IPv6 ones fail in **0 ms** (`ENETUNREACH` — the network handing out
+  those v6 addresses is not the network you are on), and the app's own updater downloading 45 MB
+  happily throughout, because *it* resolves outside the tunnel. A VPN answer is now resolved one
+  step down to the network underneath, and anything that cannot be resolved is logged.
+- **`NetworkCapabilities.getUnderlyingNetworks()` is not in the public SDK** — checked against
+  `android-35/android.jar`, not assumed. Which network is under the VPN has to be inferred:
+  validated, non-VPN, has internet, ranked wire → Wi-Fi → mobile, which is the platform's own
+  preference and therefore the same answer in every case that matters.
+- **The network callback is a fast path, not a guarantee, so the tunnel must be able to notice on
+  its own.** When a lookup exhausts every resolver, the phone is re-asked what it has (at most
+  once every five seconds, only on the path where everything already failed) and the answer is
+  adopted if it differs. Without that floor, a callback that never arrives is indistinguishable
+  from a network that is down — and lasts until something else happens to change.
 - **`registerNetworkCallback(request, cb)` fires for *every* network that matches, not the one in
   use.** With Wi-Fi and mobile both up, the last network to speak wins, and Malachi would adopt
   the resolvers of a network its (protected, default-routed) upstream sockets never touch —

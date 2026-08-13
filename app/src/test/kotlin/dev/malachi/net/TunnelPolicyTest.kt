@@ -224,6 +224,51 @@ class TunnelPolicyTest {
         assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
     }
 
+    // ---- noticing that the resolvers belong to a network we have left -----------------------
+
+    @Test
+    fun `resolvers offered by the network we are on now are worth adopting`() {
+        // Reported from a phone: the tunnel held a mobile network's four resolvers for eleven
+        // hours after the phone joined a Wi-Fi that routed to none of them. Every lookup timed
+        // out through all four, and nothing said why.
+        val mobile = listOf(parse("80.58.61.250")!!, parse("80.58.61.254")!!)
+        val wifi = listOf(parse("192.168.1.1")!!)
+        assertTrue(TunnelPolicy.worthAdopting(mobile, wifi))
+    }
+
+    @Test
+    fun `the same resolvers are not worth adopting again`() {
+        // Adopting closes every pooled socket and forgets which resolver was answering. A
+        // re-check that fires whenever a lookup fails must cost nothing when nothing has changed,
+        // or a network outage becomes more expensive than the outage.
+        val current = listOf(parse("192.168.1.1")!!)
+        assertFalse(TunnelPolicy.worthAdopting(current, listOf(parse("192.168.1.1")!!)))
+    }
+
+    @Test
+    fun `nothing is never worth adopting`() {
+        // LinkProperties arrive in stages. One that has no DNS servers yet would replace a
+        // working list with the Cloudflare fallback — every lookup on the phone silently
+        // rerouted to a resolver the user did not choose, for as long as the gap lasted.
+        val current = listOf(parse("192.168.1.1")!!)
+        assertFalse(TunnelPolicy.worthAdopting(current, emptyList()))
+        assertFalse(TunnelPolicy.worthAdopting(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun `when we have to choose a network ourselves, we choose the way android does`() {
+        // Only reached when the platform says the default is a VPN — ours — and will not say
+        // what is underneath it. Wi-Fi over mobile is the platform's own preference, and picking
+        // the other one is how a phone ends up asking the resolvers of a network it isn't using.
+        val wifi = TunnelPolicy.transportRank(wifi = true, ethernet = false, cellular = false)
+        val cellular = TunnelPolicy.transportRank(wifi = false, ethernet = false, cellular = true)
+        val ethernet = TunnelPolicy.transportRank(wifi = false, ethernet = true, cellular = false)
+        val other = TunnelPolicy.transportRank(wifi = false, ethernet = false, cellular = false)
+        assertTrue(ethernet < wifi)
+        assertTrue(wifi < cellular)
+        assertTrue(cellular < other)
+    }
+
     @Test
     fun `a custom resolver typed wrong falls back instead of black-holing DNS`() {
         val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.CUSTOM, "not an address", emptyList(), sentinels, ::parse)

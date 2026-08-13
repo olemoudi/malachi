@@ -145,6 +145,17 @@ class MalachiVpnService : VpnService() {
 
     /** The network the current resolvers came from, for the diagnostics header. */
     @Volatile private var activeNetwork: Network? = null
+
+    /**
+     * Its interface name and when it was adopted, both for the diagnostics header.
+     *
+     * "These are `rmnet16`'s resolvers and they were adopted eleven hours ago" is the whole
+     * diagnosis of a phone that resolves nothing on a Wi-Fi, and it did not fit in the header
+     * that was there — which named the addresses without saying whose they were or how old.
+     */
+    @Volatile private var networkLabel: String = ""
+    @Volatile private var adoptedAtMs = 0L
+    @Volatile private var lastResolverRecheckMs = 0L
     @Volatile private var lastLockdown = false
     @Volatile private var privateDnsActive = false
     @Volatile private var privateDnsHost: String? = null
@@ -199,6 +210,15 @@ class MalachiVpnService : VpnService() {
     private var foregroundStarted = false
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        /**
+         * Both of these adopt, and [adoptNetwork] is idempotent, because missing one of them is
+         * not a missing log line — it is a phone asking a network's resolvers hours after leaving
+         * that network, with every lookup timing out and nothing anywhere saying why.
+         */
+        override fun onAvailable(network: Network) {
+            runCatching { cm.getLinkProperties(network) }.getOrNull()?.let { adoptNetwork(network, it) }
+        }
+
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
             adoptNetwork(network, linkProperties)
         }
@@ -745,6 +765,10 @@ class MalachiVpnService : VpnService() {
         }
         if (tracing()) DebugLog.trace(TAG, "$name: NOTHING ANSWERED — ${candidates.size} resolver(s) tried")
         dropUnroutable("no resolver answered (${candidates.size} tried)")
+        // Every resolver we hold is silent. Either the network is down — in which case this
+        // costs two binder calls every five seconds and finds nothing — or we are holding the
+        // resolvers of a network we have left, which is exactly what it exists to notice.
+        recheckResolvers()
     }
 
     /**
@@ -919,32 +943,53 @@ class MalachiVpnService : VpnService() {
         }.onFailure { DebugLog.w(TAG, "cannot watch package changes", it) }
     }
 
-    private fun adoptNetwork(network: Network, linkProperties: LinkProperties) {
-        // Belt and braces against ever pointing the filter at itself: our own tunnel is a
-        // network too, and forwarding into it would be a loop with no exit.
-        if (cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) return
+    private fun adoptNetwork(reported: Network, reportedLinkProperties: LinkProperties) {
+        // Our own tunnel is a network too, and adopting it would point the filter at its own
+        // sentinel — a loop with no exit. This used to `return` here, and that silence cost a
+        // phone eleven hours of DNS: once the tunnel is up the default network reported to this
+        // app can be the tunnel itself, so every network change after that was discarded without
+        // a word, and the filter went on asking a mobile network's resolvers over a Wi-Fi that
+        // routed to none of them. A VPN answer is resolved one step down instead.
+        val network = realNetwork(reported) ?: return
+        val linkProperties = if (network == reported) {
+            reportedLinkProperties
+        } else {
+            runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return
+        }
+
+        val dnsServers = linkProperties.dnsServers.orEmpty()
+        // Adoption arrives more than once for the same network — onAvailable and then
+        // onLinkPropertiesChanged — and it is not free: it closes every pooled socket and
+        // forgets which resolver was answering. Only a real change is worth that.
+        val changed = network != activeNetwork || dnsServers != networkDnsServers
         activeNetwork = network
-        networkDnsServers = linkProperties.dnsServers.orEmpty()
-        // Named, not counted. "Which resolvers did this network actually hand us" is the first
-        // question for every report of "it does not resolve on this Wi-Fi", and until now the log
-        // answered it with the word "system".
-        DebugLog.i(
-            TAG,
-            "network ${linkProperties.interfaceName}: dns=" +
-                networkDnsServers.joinToString(prefix = "[", postfix = "]") { it.hostAddress.orEmpty() },
-        )
+        networkDnsServers = dnsServers
+
+        if (changed) {
+            networkLabel = linkProperties.interfaceName.orEmpty()
+            adoptedAtMs = SystemClock.elapsedRealtime()
+            // Named, not counted. "Which resolvers did this network actually hand us" is the
+            // first question for every report of "it does not resolve on this Wi-Fi", and until
+            // now the log answered it with the word "system".
+            DebugLog.i(
+                TAG,
+                "network $networkLabel: dns=" +
+                    dnsServers.joinToString(prefix = "[", postfix = "]") { it.hostAddress.orEmpty() },
+            )
+            upstreams = resolveUpstreams()
+            // The resolver that worked belonged to the network that has just gone.
+            lastGoodUpstream = null
+            // Pooled sockets are bound to the network that existed when they were made.
+            sockets.closeAll()
+        }
+
         privateDnsActive = linkProperties.isPrivateDnsActive
         privateDnsHost = linkProperties.privateDnsServerName
         VpnStatus.privateDns(privateDnsActive, privateDnsHost)
         publishLockdown()
-        upstreams = resolveUpstreams()
-        // The resolver that worked belonged to the network that has just gone.
-        lastGoodUpstream = null
         // Tells the system which network our forwarded queries really travel over, so they are
         // billed and routed correctly instead of appearing to come from the tunnel.
         runCatching { setUnderlyingNetworks(arrayOf(network)) }
-        // Pooled sockets are bound to the network that existed when they were made.
-        sockets.closeAll()
 
         if (tunnel != null) {
             VpnStatus.up(upstreamLabel(), privateDnsActive, privateDnsHost)
@@ -955,6 +1000,75 @@ class MalachiVpnService : VpnService() {
             cancelRetry()
             retryAttempt = 0
             scheduleRetry(TunnelProblem.DISPLACED, getString(R.string.status_displaced), immediate = true)
+        }
+    }
+
+    /**
+     * The network our forwarded queries really leave by, given whatever the platform called the
+     * default — or null when there is nothing to forward over.
+     *
+     * A VPN is never the answer: ours is the only tunnel our own sockets are protected from, and
+     * adopting its resolvers means forwarding to our own sentinel. From API 31 the VPN's own
+     * capabilities name what it was built on, which is exactly the question being asked. Below
+     * that, and when the platform declares nothing, the phone is asked for every network it has
+     * and the validated non-VPN one is taken.
+     */
+    private fun realNetwork(reported: Network): Network? {
+        if (!isVpn(reported)) return reported
+        // `NetworkCapabilities.getUnderlyingNetworks()` would answer this exactly, and it is not
+        // in the public SDK — the compiler said so, it was not assumed. So the phone is asked for
+        // every network it has and they are ranked the way the platform ranks them itself, which
+        // is the same answer in every case where it matters: one validated network, or Wi-Fi and
+        // mobile both up with Wi-Fi winning.
+        @Suppress("DEPRECATION")
+        val candidate = runCatching {
+            cm.allNetworks
+                .mapNotNull { network -> cm.getNetworkCapabilities(network)?.let { network to it } }
+                .filter { (_, caps) ->
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                }
+                .minByOrNull { (_, caps) ->
+                    TunnelPolicy.transportRank(
+                        wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                        ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                        cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                    )
+                }
+                ?.first
+        }.getOrNull()
+        // Never silent. A tunnel that cannot name the network underneath it keeps the resolvers
+        // it already had, and whoever reads this log has to be told that is what happened.
+        if (candidate == null) DebugLog.w(TAG, "the default network is a VPN with nothing usable underneath it")
+        return candidate
+    }
+
+    private fun isVpn(network: Network): Boolean =
+        cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+
+    /**
+     * Asks the phone which resolvers it is on, after a lookup found that none of ours would
+     * answer — and adopts them if they are not the ones we hold.
+     *
+     * The network callback is the fast path and this is the floor underneath it. A callback that
+     * does not arrive, or arrives naming a network we cannot see past, used to mean the filter
+     * asked a dead resolver until something else happened to change; the only symptom was every
+     * lookup timing out, which is indistinguishable from a network that is simply down. Costs two
+     * binder calls, at most once every [RESOLVER_RECHECK_INTERVAL_MS], and only ever on the path
+     * where everything has already failed.
+     */
+    private fun recheckResolvers() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastResolverRecheckMs < RESOLVER_RECHECK_INTERVAL_MS) return
+        lastResolverRecheckMs = now
+        scope.launch {
+            val reported = runCatching { cm.activeNetwork }.getOrNull() ?: return@launch
+            val network = realNetwork(reported) ?: return@launch
+            val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return@launch
+            if (!TunnelPolicy.worthAdopting(networkDnsServers, linkProperties.dnsServers.orEmpty())) return@launch
+            DebugLog.w(TAG, "no resolver answered and this network offers others; adopting them")
+            adoptNetwork(network, linkProperties)
         }
     }
 
@@ -1174,7 +1288,15 @@ class MalachiVpnService : VpnService() {
         DebugLog.trace(TAG, "app ${dev.malachi.BuildConfig.VERSION_NAME} on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
         DebugLog.trace(TAG, "upstream setting=${settings.upstream}${if (settings.customUpstream.isNotBlank()) " (${settings.customUpstream})" else ""}")
         DebugLog.trace(TAG, "resolvers in use=${upstreams.joinToString { it.hostAddress.orEmpty() }}")
-        DebugLog.trace(TAG, "network dns=${networkDnsServers.joinToString { it.hostAddress.orEmpty() }} private=${privateDnsHost ?: if (privateDnsActive) "automatic" else "off"}")
+        // Whose resolvers, and how old. Without both, a list of four addresses that nothing
+        // answers reads as a broken network rather than as the last network's leftovers.
+        val adoptedAgo = if (adoptedAtMs == 0L) "never" else "${(SystemClock.elapsedRealtime() - adoptedAtMs) / 1000}s ago"
+        DebugLog.trace(
+            TAG,
+            "network=${networkLabel.ifEmpty { "unknown" }} (adopted $adoptedAgo) " +
+                "dns=${networkDnsServers.joinToString { it.hostAddress.orEmpty() }} " +
+                "private=${privateDnsHost ?: if (privateDnsActive) "automatic" else "off"}",
+        )
         DebugLog.trace(TAG, "scope=${settings.scopeMode} bypass=${settings.bypassAllowed} guard=${settings.bypassGuard} lockdown=$lastLockdown")
     }
 
@@ -1266,6 +1388,15 @@ class MalachiVpnService : VpnService() {
         /** The least a resolver is given before the next one is tried. */
         private const val MIN_UPSTREAM_ATTEMPT_MS = 1_200L
         private const val SILENT_UPSTREAM_LOG_INTERVAL_MS = 60_000L
+
+        /**
+         * How often the phone may be re-asked which resolvers it has, when ours answer nothing.
+         *
+         * Short, because until it fires nothing on the device resolves; bounded, because the
+         * other reason every resolver goes quiet is a network that is simply down, and that must
+         * not turn into two binder calls per lookup for as long as it lasts.
+         */
+        private const val RESOLVER_RECHECK_INTERVAL_MS = 5_000L
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L
