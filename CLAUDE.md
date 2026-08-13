@@ -384,6 +384,13 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   platform's own best match — better than any ranking of ours, because it is the same choice our
   protected sockets are about to follow. Below 31 every match reports itself, so those events are
   only a prompt to go and decide again; adopting the last one to speak is the 0.9.0 bug.
+- **That request must carry `NET_CAPABILITY_VALIDATED`, and forgetting it is not cosmetic.** A
+  Wi-Fi that has associated but reaches nothing still has `INTERNET`, so the platform will happily
+  name it the best match — and the tunnel then adopts a router's resolvers and, since sockets are
+  pinned, sends every lookup out of a network with no way out. That is precisely what walking back
+  into range of a weak access point looks like. Android does not switch to such a network either;
+  requiring `VALIDATED` is asking the question it asks. The network the platform names is
+  re-checked at adoption too, because validation can be lost without another callback.
 - **This is not only about latency: the resolvers and the route have to change together.** A
   protected socket leaves by the *system default route*, which we do not choose. While the resolver
   list belongs to one network and the route to another, the tunnel asks a LAN resolver

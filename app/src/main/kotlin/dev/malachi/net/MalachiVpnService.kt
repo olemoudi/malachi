@@ -1076,9 +1076,16 @@ class MalachiVpnService : VpnService() {
         // tunnel is established *our* default network is the tunnel, and that network does not
         // change when the thing underneath it does. NET_CAPABILITY_NOT_VPN is how to ask about
         // the thing underneath.
+        // VALIDATED, and it is not decoration: a Wi-Fi that has associated but cannot reach
+        // anything still has INTERNET, so without this the platform can name it the best match —
+        // and then the tunnel adopts a router's resolvers and (since sockets are pinned) sends
+        // every lookup out of a network with no way out. Which is what walking back into range of
+        // a weak access point looks like. Android does not switch to such a network either; this
+        // is asking the same question it asks.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
         runCatching {
             // The check is spelled out here rather than read from [platformPicksBest] because
@@ -1226,15 +1233,26 @@ class MalachiVpnService : VpnService() {
             ?.first
     }.getOrNull()
 
-    /** Adopts [named] if the platform named it, and otherwise whichever network we would pick. */
+    /**
+     * Adopts [named] if the platform named it, and otherwise whichever network we would pick.
+     *
+     * The naming is trusted only while it still holds up: a network is named as the best match
+     * and can lose its validation a moment later without another callback, and adopting a network
+     * that cannot reach anything is worse than keeping one that can — the sockets are pinned to
+     * it. Falling back to our own ranking asks the same question a second time.
+     */
     private fun adoptUnderlying(named: Network?) {
-        val network = named ?: bestUnderlyingNetwork() ?: return
+        val network = named?.takeIf { isValidated(it) } ?: bestUnderlyingNetwork() ?: return
         val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return
         adoptNetwork(network, linkProperties)
     }
 
     private fun isVpn(network: Network): Boolean =
         cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+
+    /** Whether the platform has confirmed this network actually reaches the internet. */
+    private fun isValidated(network: Network): Boolean =
+        cm.getNetworkCapabilities(network)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
 
     /**
      * Asks the phone which resolvers it is on, after a lookup found that none of ours would
