@@ -93,13 +93,23 @@ class BlocklistStore(private val dir: File) {
      * One list failing never fails the refresh: the others still update, and the failure is
      * recorded against that source so the UI can show it next to the list it belongs to.
      */
-    suspend fun refresh(sources: List<BlocklistSource>, force: Boolean = false): Boolean =
+    suspend fun refresh(
+        sources: List<BlocklistSource>,
+        force: Boolean = false,
+        /**
+         * Called after each list, with how many are done out of how many. A first run fetches
+         * twenty megabytes with nothing on screen to explain why the phone is busy, and "it is
+         * downloading, two of three" is the difference between waiting and uninstalling.
+         */
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): Boolean =
         refreshLock.withLock {
             withContext(Dispatchers.IO) {
                 dir.mkdirs()
                 val previous = states().toMutableMap()
                 var changed = false
-                for (source in sources) {
+                onProgress(0, sources.size)
+                for ((index, source) in sources.withIndex()) {
                     val before = previous[source.id] ?: ListState(source.id)
                     val after = runCatching { refreshOne(source, before, force) }
                         .getOrElse { t ->
@@ -111,6 +121,7 @@ class BlocklistStore(private val dir: File) {
                         // A 304 only moves the timestamp; that isn't a reason to recompile.
                         if (after.entries != before.entries || after.exceptions != before.exceptions) changed = true
                     }
+                    onProgress(index + 1, sources.size)
                 }
                 writeStates(previous.values.toList())
                 changed

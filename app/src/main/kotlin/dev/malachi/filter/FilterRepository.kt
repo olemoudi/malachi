@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** How many blocklists have been fetched out of how many, while a download is running. */
+data class ListProgress(val done: Int, val total: Int)
+
 /**
  * The live filter: the user's rules plus the compiled lists, assembled into one [FilterEngine]
  * and kept current as either side changes.
@@ -42,6 +45,16 @@ class FilterRepository(
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    /**
+     * How far along a download is, or null when nothing is downloading.
+     *
+     * Exists for the first run. A fresh install fetches twenty megabytes before it can block
+     * anything, and until this there was nothing on screen to say so: the phone was busy, the
+     * counter said zero, and the only available conclusion was that the app did not work.
+     */
+    private val _listProgress = MutableStateFlow<ListProgress?>(null)
+    val listProgress: StateFlow<ListProgress?> = _listProgress.asStateFlow()
 
     init {
         // Deliberately not read here and now: this runs inside Application.onCreate, and reading
@@ -84,12 +97,15 @@ class FilterRepository(
         _refreshing.value = true
         try {
             val sources = BlocklistCatalog.enabled(settingsStore.current().listChoices)
-            val changed = blocklistStore.refresh(sources, force)
+            val changed = blocklistStore.refresh(sources, force) { done, total ->
+                _listProgress.value = ListProgress(done, total)
+            }
             // Pruning takes the whole subscribed set, never the subset just fetched.
             blocklistStore.prune(sources)
             if (changed) reloadLists() else _listStates.value = blocklistStore.states()
         } finally {
             _refreshing.value = false
+            _listProgress.value = null
         }
     }
 
@@ -113,9 +129,13 @@ class FilterRepository(
         DebugLog.i(TAG, "downloading ${missing.size} list(s) that aren't on disk yet")
         _refreshing.value = true
         try {
-            if (blocklistStore.refresh(missing)) reloadLists() else _listStates.value = blocklistStore.states()
+            val changed = blocklistStore.refresh(missing) { done, total ->
+                _listProgress.value = ListProgress(done, total)
+            }
+            if (changed) reloadLists() else _listStates.value = blocklistStore.states()
         } finally {
             _refreshing.value = false
+            _listProgress.value = null
         }
     }
 

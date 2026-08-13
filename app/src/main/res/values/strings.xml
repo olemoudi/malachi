@@ -65,6 +65,7 @@
     <string name="note_private_dns_automatic">Private DNS is set to Automatic. Filtering works normally — Android only encrypts when the server on the other end offers it, and Malachi does not. The trade is that while Malachi is on, your lookups are forwarded unencrypted.</string>
     <string name="action_open_private_dns">Private DNS settings</string>
     <string name="warning_lockdown">“Block connections without VPN” is on. Malachi only carries lookups, so Android is dropping everything else and the phone has no working connection. Turn that setting off; always-on VPN on its own is fine and is what you want.</string>
+    <string name="home_lists_downloading">Getting the blocklists ready (%1$d of %2$d). This happens once, and blocking starts when it finishes.</string>
     <string name="warning_no_lists">No blocklist has been downloaded yet, so nothing is being blocked.</string>
 
     <!-- Notification -->
@@ -265,14 +266,14 @@
     <!-- Settings: bypass guard -->
     <string name="settings_allow_bypass">Let apps reach a network they ask for</string>
     <string name="settings_allow_bypass_hint">Android Auto, casting and captive portals need to talk to a device directly, and Android refuses that to every app while a VPN is on unless this is allowed. An app that deliberately asks is then not filtered — nothing that serves an advert does, but turning this off is the strictest this filter gets.</string>
-    <string name="settings_bypass_title">Apps that go around the filter</string>
-    <string name="settings_bypass_hint">Some apps carry a DNS server address inside them and never ask the system which one to use, which is how they slip past a filter. Catching them means sending that address through Malachi too, and that can break the app\'s other traffic.</string>
-    <string name="bypass_off">Off</string>
-    <string name="bypass_off_hint">Only the apps that ask the system where to look, which is nearly all of them. Nothing can break because of Malachi.</string>
-    <string name="bypass_system">Also this network\'s own DNS servers</string>
-    <string name="bypass_system_hint">Catches apps that go straight to your router or your carrier instead of asking. Recommended.</string>
-    <string name="bypass_public">Also the well-known public ones</string>
-    <string name="bypass_public_hint">Catches apps that hard-code 8.8.8.8 and the like. Their encrypted DNS will stop working, which is the point — and occasionally the problem.</string>
+    <string name="settings_bypass_title">Apps that dodge the filter</string>
+    <string name="settings_bypass_hint">Nearly every app asks the phone where to find a site, and Malachi answers those. A few skip the question and go straight to an address written inside them, which is how an advert gets through anyway. This is how far Malachi goes after them — each step catches more and risks more.</string>
+    <string name="bypass_off">Leave them be</string>
+    <string name="bypass_off_hint">The safest setting: nothing on this phone can break because of Malachi. The handful of apps that dodge keep their adverts.</string>
+    <string name="bypass_system">Catch the usual ones — recommended</string>
+    <string name="bypass_system_hint">Covers the apps that go straight to your router or your mobile operator, which is where nearly all of them go. It rarely breaks anything.</string>
+    <string name="bypass_public">Catch them all</string>
+    <string name="bypass_public_hint">Also covers the big public services some apps carry inside them, like Google\'s 8.8.8.8. Catches the most, and is the one that occasionally stops an app working — if something breaks, come back and take a step down.</string>
 
     <!-- Settings: the rest -->
     <!-- Backup -->

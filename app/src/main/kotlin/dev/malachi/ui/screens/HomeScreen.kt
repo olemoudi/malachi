@@ -103,6 +103,7 @@ fun HomeScreen(
     // And when the filter comes up or goes down, which moves them while the screen is open.
     LaunchedEffect(status.tunnelUp) { vm.refreshStats() }
     val listedDomains by vm.listedDomains.collectAsStateWithLifecycle()
+    val listProgress by vm.listProgress.collectAsStateWithLifecycle()
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
     val anotherVpn by vm.anotherVpn.collectAsStateWithLifecycle()
     val backup = rememberBackupActions(vm)
@@ -229,7 +230,19 @@ fun HomeScreen(
                 )
             }
         }
-        if (settings.filteringEnabled && listedDomains == 0) {
+        // A fresh install fetches twenty megabytes before it can block anything, and a phone
+        // that is visibly busy with no explanation is a phone somebody uninstalls. Shown while it
+        // runs and gone when it finishes, which is also why the empty-lists warning below waits
+        // for it: "nothing is being blocked" is alarming and, right now, merely early.
+        val progress = listProgress
+        if (progress != null) {
+            item {
+                Notice(
+                    tone = Tone.Working,
+                    text = stringResource(R.string.home_lists_downloading, progress.done + 1, progress.total),
+                )
+            }
+        } else if (settings.filteringEnabled && listedDomains == 0) {
             item {
                 Notice(
                     tone = Tone.Problem,

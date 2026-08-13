@@ -64,6 +64,7 @@
     <string name="note_private_dns_automatic">El DNS privado está en Automático. El filtrado funciona con normalidad: Android solo cifra si el servidor del otro lado se lo ofrece, y Malachi no se lo ofrece. A cambio, mientras Malachi esté activo tus consultas se reenvían sin cifrar.</string>
     <string name="action_open_private_dns">Ajustes de DNS privado</string>
     <string name="warning_lockdown">«Bloquear conexiones sin VPN» está activado. Malachi solo transporta consultas, así que Android está descartando todo lo demás y el teléfono se queda sin conexión. Desactiva esa opción; la VPN siempre activa por sí sola sí es lo que quieres.</string>
+    <string name="home_lists_downloading">Preparando las listas de bloqueo (%1$d de %2$d). Esto pasa una sola vez, y el bloqueo empieza al terminar.</string>
     <string name="warning_no_lists">Todavía no se ha descargado ninguna lista, así que no se está bloqueando nada.</string>
 
     <!-- Notificación -->
@@ -265,13 +266,13 @@
     <string name="settings_allow_bypass">Dejar que las apps alcancen la red que piden</string>
     <string name="settings_allow_bypass_hint">Android Auto, enviar a la tele y los portales cautivos necesitan hablar con un dispositivo directamente, y Android se lo niega a toda app mientras hay una VPN salvo que se permita esto. Una app que lo pida a propósito deja de filtrarse: nada que sirva anuncios lo hace, pero desactivarlo es lo más estricto que este filtro puede ser.</string>
     <string name="settings_bypass_title">Apps que esquivan el filtro</string>
-    <string name="settings_bypass_hint">Algunas apps llevan dentro la dirección de un servidor DNS y nunca preguntan al sistema cuál usar; así se saltan cualquier filtro. Atraparlas obliga a mandar también esa dirección por Malachi, y eso puede romper el resto del tráfico de esa app.</string>
-    <string name="bypass_off">Desactivado</string>
-    <string name="bypass_off_hint">Solo las apps que preguntan al sistema dónde consultar, que son casi todas. Nada puede romperse por culpa de Malachi.</string>
-    <string name="bypass_system">También los servidores DNS de esta red</string>
-    <string name="bypass_system_hint">Atrapa a las apps que van directas a tu router o a tu operador en vez de preguntar. Recomendado.</string>
-    <string name="bypass_public">También los públicos más conocidos</string>
-    <string name="bypass_public_hint">Atrapa a las apps que llevan 8.8.8.8 y similares dentro. Su DNS cifrado dejará de funcionar, que es justo la intención… y a veces el problema.</string>
+    <string name="settings_bypass_hint">Casi todas las apps le preguntan al móvil dónde está un sitio, y Malachi contesta. Unas pocas se saltan la pregunta y van directas a una dirección que llevan escrita dentro: así es como se cuela un anuncio igualmente. Esto decide hasta dónde ir a por ellas, y cada escalón pilla más y arriesga más.</string>
+    <string name="bypass_off">Dejarlas en paz</string>
+    <string name="bypass_off_hint">Lo más seguro: nada de este móvil puede romperse por culpa de Malachi. Las pocas apps que esquivan se quedan con sus anuncios.</string>
+    <string name="bypass_system">Pillar las habituales — recomendado</string>
+    <string name="bypass_system_hint">Cubre las apps que van directas a tu router o a tu operador, que es donde va casi toda la que esquiva. Rara vez rompe nada.</string>
+    <string name="bypass_public">Pillarlas todas</string>
+    <string name="bypass_public_hint">Cubre además los grandes servicios públicos que algunas apps llevan dentro, como el 8.8.8.8 de Google. Es la que más pilla, y la única que de vez en cuando deja una app sin funcionar: si algo se rompe, vuelve y baja un escalón.</string>
 
     <!-- Ajustes: el resto -->
     <!-- Copia de seguridad -->

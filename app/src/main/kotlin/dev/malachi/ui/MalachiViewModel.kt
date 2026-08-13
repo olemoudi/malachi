@@ -96,6 +96,9 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     val listStates = app.filterRepository.listStates
     val refreshingLists = app.filterRepository.refreshing
+
+    /** How far along a blocklist download is; see [dev.malachi.filter.FilterRepository.listProgress]. */
+    val listProgress = app.filterRepository.listProgress
     val updateState = UpdateCenter.state
     val themeMode: StateFlow<ThemeMode> = app.themeStore.mode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.SYSTEM)
