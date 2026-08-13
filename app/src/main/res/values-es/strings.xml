@@ -281,6 +281,9 @@
     <string name="settings_backup_unsaved">Tienes cambios que no están en ninguna copia.</string>
     <string name="settings_backup_never">Todavía no has guardado ninguna copia.</string>
     <string name="settings_backup_saved">Está todo guardado.</string>
+    <string name="settings_backup_share">Enviar una copia a otro sitio…</string>
+    <string name="settings_backup_share_hint">A un chat, a tu propio correo, a una nube: un fichero en este móvil se va con el móvil.</string>
+    <string name="backup_share_title">Enviar tu copia de Malachi</string>
     <string name="settings_backup_import">Restaurar desde una copia…</string>
     <string name="settings_backup_import_hint">Sustituye tus reglas y tus listas por las del fichero.</string>
     <string name="settings_backup_reminders">Recordarme guardar una copia</string>

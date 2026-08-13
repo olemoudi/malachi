@@ -190,6 +190,7 @@ class MalachiVpnService : VpnService() {
     /** Consecutive refusals of [pin]; at [PIN_ATTEMPTS] the tunnel stops asking. */
     @Volatile private var pinFailures = 0
     @Volatile private var lastUnvalidatedLogMs = 0L
+    @Volatile private var lastLockdownCheckMs = 0L
 
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
@@ -284,8 +285,29 @@ class MalachiVpnService : VpnService() {
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
             adoptUnderlying(network.takeIf { platformPicksBest })
 
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
-            adoptUnderlying(network.takeIf { platformPicksBest })
+        /**
+         * Capabilities move constantly and almost none of it matters here.
+         *
+         * On mobile this fires as the signal and the bandwidth estimates move — several times a
+         * minute on a phone being carried around — and a capability change on the network we are
+         * *already* using cannot change its resolvers: those arrive through
+         * [onLinkPropertiesChanged], and losing validation makes the network stop matching the
+         * request altogether, which arrives as [onLost]. So the common case is a reference
+         * comparison instead of the three or four binder round trips an adoption costs, in a
+         * process that stays alive for weeks.
+         *
+         * What is kept is lockdown: these callbacks are the only regular heartbeat this service
+         * has for noticing that the user turned "block connections without VPN" on in a screen
+         * this app sends them to, and one binder call a minute for that is affordable where one
+         * per tick is not.
+         */
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            if (network != activeNetwork) return adoptUnderlying(network.takeIf { platformPicksBest })
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastLockdownCheckMs < LOCKDOWN_CHECK_INTERVAL_MS) return
+            lastLockdownCheckMs = now
+            publishLockdown()
+        }
 
         // Whatever went away, the question is the same: which network is under us now.
         override fun onLost(network: Network) = adoptUnderlying(null)
@@ -1637,6 +1659,13 @@ class MalachiVpnService : VpnService() {
          * network every few minutes. A device that refuses the call outright fails all three.
          */
         private const val PIN_ATTEMPTS = 3
+
+        /**
+         * How often a capability change on the network already in use is allowed to cost a
+         * binder call. It buys one thing — noticing lockdown — and lockdown is a switch a person
+         * throws by hand, so a minute of lag is nothing and a call per tick is a battery bug.
+         */
+        private const val LOCKDOWN_CHECK_INTERVAL_MS = 60_000L
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L

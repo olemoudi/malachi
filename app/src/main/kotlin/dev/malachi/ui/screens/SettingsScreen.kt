@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -208,14 +209,23 @@ fun SettingsScreen(
                             stringResource(R.string.settings_backup_saved)
                         },
                         onClick = backup.export,
-                        position = cardPosition(0, if (settings.backupRemindersOff) 3 else 2),
+                        position = cardPosition(0, if (settings.backupRemindersOff) 4 else 3),
+                    )
+                    // Next to saving rather than hidden behind it: a file in Downloads is on the
+                    // phone that is about to be lost, and one sent to an inbox is not.
+                    NavRow(
+                        icon = Icons.Filled.Share,
+                        title = stringResource(R.string.settings_backup_share),
+                        subtitle = stringResource(R.string.settings_backup_share_hint),
+                        onClick = vm::shareBackup,
+                        position = cardPosition(1, if (settings.backupRemindersOff) 4 else 3),
                     )
                     NavRow(
                         icon = Icons.Filled.Restore,
                         title = stringResource(R.string.settings_backup_import),
                         subtitle = stringResource(R.string.settings_backup_import_hint),
                         onClick = backup.import,
-                        position = cardPosition(1, if (settings.backupRemindersOff) 3 else 2),
+                        position = cardPosition(2, if (settings.backupRemindersOff) 4 else 3),
                     )
                     // Only once it has been switched off, because a switch that is on by default
                     // and never touched is a row that explains nothing to the people who read it.
@@ -225,7 +235,7 @@ fun SettingsScreen(
                             subtitle = stringResource(R.string.settings_backup_reminders_hint),
                             checked = false,
                             onCheckedChange = vm::setBackupReminders,
-                            position = cardPosition(2, 3),
+                            position = cardPosition(3, 4),
                         )
                     }
                 }

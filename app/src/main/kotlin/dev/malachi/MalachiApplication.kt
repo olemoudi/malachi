@@ -76,20 +76,12 @@ class MalachiApplication : Application() {
         // saying it is on. This covers the first run and any install whose files were cleared.
         scope.launch { runCatching { filterRepository.downloadMissingLists() } }
 
-        scope.launch {
-            val settings = settingsStore.current()
-            ListUpdateWorker.schedule(this@MalachiApplication, settings.listUpdateHours, settings.listUpdateWifiOnly)
-        }
-
-        // Keep the app itself current. Deliberately the throttled variant: this process is
-        // restarted by the system more often than a user opens the app, and an unconditional
-        // check here would hit the network every time that happened.
+        // Keep the app itself current. The periodic job is what updates a phone whose owner
+        // never opens the app; the one-off check on launch belongs to the activity, which knows
+        // that somebody is actually there. Asking here as well meant a network request every
+        // time the *system* revived this process — a worker, a broadcast, a Doze cycle — which
+        // is many times more often than anyone opens anything.
         UpdateWorker.schedule(this)
-        UpdateWorker.runIfStale(this)
-
-        // Puts the filter back if something killed the process while it should have been
-        // running. Does nothing at all in the normal case; see FilterWatchdogWorker.
-        FilterWatchdogWorker.schedule(this)
         // Whatever brought this process back — a worker, a broadcast, the launcher — is also
         // the earliest moment we can notice the filter is missing, so we look now rather than
         // waiting for the periodic check to come round.
@@ -149,15 +141,27 @@ class MalachiApplication : Application() {
                 }
         }
 
-        // The refresh schedule is a setting, so it has to be re-applied when it changes rather
-        // than only at launch.
+        // Everything periodic this app asks the system for, applied from the settings rather than
+        // declared once at startup — and never dropping the first value, because that first value
+        // is what registers the work on a fresh process and cancels it on a phone that has since
+        // switched filtering off.
+        //
+        // Both of these earn their wakeups only while the filter is meant to be running: a
+        // watchdog looking for a filter nobody asked for finds nothing every half hour forever,
+        // and a blocklist refreshed for a filter that is off is twenty megabytes nothing will
+        // read, on somebody's data plan.
         scope.launch {
             settingsStore.settings
-                .map { it.listUpdateHours to it.listUpdateWifiOnly }
+                .map { Triple(it.filteringEnabled, it.listUpdateHours, it.listUpdateWifiOnly) }
                 .distinctUntilChanged()
-                .drop(1)
-                .collect { (hours, wifiOnly) ->
-                    ListUpdateWorker.schedule(this@MalachiApplication, hours, wifiOnly)
+                .collect { (filtering, hours, wifiOnly) ->
+                    if (filtering) {
+                        ListUpdateWorker.schedule(this@MalachiApplication, hours, wifiOnly)
+                        FilterWatchdogWorker.schedule(this@MalachiApplication)
+                    } else {
+                        ListUpdateWorker.cancel(this@MalachiApplication)
+                        FilterWatchdogWorker.cancel(this@MalachiApplication)
+                    }
                 }
         }
 

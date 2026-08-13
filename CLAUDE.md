@@ -500,6 +500,25 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 ### Battery rules for the tunnel (this is an always-on process)
 - **No unconditional timers.** Anything periodic is gated on the screen being on, or it does not
   exist. The notification refresh parks on a screen-state flow rather than ticking.
+- **Periodic work exists only while the filter is meant to be running.** The watchdog and the
+  blocklist refresh used to be declared at every process start, so a phone with filtering
+  *switched off* woke every half hour to read a setting that said no, and pulled twenty megabytes
+  of lists a filter would never consult. Both are now applied from the settings flow and cancelled
+  when filtering goes off; `BackgroundWorkTest` fails if that stops being true. The update check
+  is the exception and stays unconditional — a phone that is not filtering today still has to be
+  able to receive the fix that makes it filter tomorrow.
+- **A process start is not a person.** The launch update check belongs to `MainActivity.onResume`,
+  which knows somebody is there. Asking in `Application.onCreate` as well meant a network request
+  every time the *system* revived the process — a worker, a broadcast, a Doze cycle — which is
+  many times more often than anyone opens anything, and each one used to be able to drag another
+  process start along behind it.
+- **`onCapabilitiesChanged` fires several times a minute on a moving phone, and almost none of it
+  concerns this app.** Signal strength and bandwidth estimates are capabilities. A capability
+  change on the network *already in use* cannot change its resolvers — those arrive through
+  `onLinkPropertiesChanged`, and a lost validation makes the network stop matching the request
+  entirely (`onLost`). So that case is a reference comparison instead of the three or four binder
+  round trips an adoption costs. The one thing it is still worth waking for is noticing lockdown,
+  and that is capped at one binder call a minute.
 - **Nothing on the hot path may allocate or IPC without earning it.** Attribution
   (`getConnectionOwnerUid`) is a binder round trip and is skipped entirely unless the query log
   is on or a per-app rule exists. Upstream sockets are pooled so `protect()` — another round

@@ -68,6 +68,15 @@ class ListUpdateWorker(context: Context, params: WorkerParameters) : CoroutineWo
          * REPLACE keeps a user tapping "update now" from queueing five downloads of the same
          * twenty megabytes.
          */
+        /**
+         * Stops the periodic refresh. A blocklist exists to be consulted by a filter, so refreshing
+         * twenty megabytes of them on a schedule while nothing is being filtered spends a wakeup,
+         * a radio and somebody's data plan on a file nothing will read.
+         */
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
+        }
+
         fun runNow(context: Context, force: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<ListUpdateWorker>()
                 .setConstraints(constraints(wifiOnly = false))

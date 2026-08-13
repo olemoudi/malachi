@@ -282,6 +282,9 @@
     <string name="settings_backup_unsaved">You have changes that aren\'t in any copy yet.</string>
     <string name="settings_backup_never">No copy has been saved yet.</string>
     <string name="settings_backup_saved">Everything is saved.</string>
+    <string name="settings_backup_share">Send a copy somewhere…</string>
+    <string name="settings_backup_share_hint">To a chat, a mail to yourself, a cloud drive — a file on this phone goes with the phone.</string>
+    <string name="backup_share_title">Send your Malachi backup</string>
     <string name="settings_backup_import">Restore from a copy…</string>
     <string name="settings_backup_import_hint">Replaces your rules and lists with the ones in the file.</string>
     <string name="settings_backup_reminders">Remind me to save a copy</string>

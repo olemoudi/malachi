@@ -12,6 +12,7 @@ import dev.malachi.data.AppRule
 import dev.malachi.data.AppScopeMode
 import dev.malachi.data.Backup
 import dev.malachi.data.BackupPolicy
+import dev.malachi.data.BackupSharing
 import dev.malachi.data.BackupStore
 import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
@@ -364,6 +365,18 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
             DebugLog.i(TAG, "restoring a backup written by ${backup.appVersion.ifEmpty { "an unknown version" }} (format ${backup.format})")
             update { backup.restoredInto(it) }
             _backupMessage.value = app.getString(R.string.backup_imported, backup.ruleCount, backup.listCount)
+        }
+    }
+
+    /**
+     * Hands the backup to another app. Whether it counts as saved is decided by the share sheet
+     * reporting back, not here — see [dev.malachi.data.BackupSharedReceiver].
+     */
+    fun shareBackup() {
+        viewModelScope.launch {
+            val backup = Backup.of(app.settingsStore.current(), versionName, System.currentTimeMillis())
+            val opened = withContext(Dispatchers.IO) { BackupSharing.share(app, backup) }
+            if (!opened) _backupMessage.value = app.getString(R.string.backup_export_failed)
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import dev.malachi.lists.ListUpdateWorker
 import dev.malachi.net.FilterWatchdogWorker
 import dev.malachi.update.UpdateWorker
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,15 +48,44 @@ class BackgroundWorkTest {
     }
 
     @Test
-    fun theListRefreshIsScheduled() {
-        assertPending(ListUpdateWorker.PERIODIC)
+    fun theWorkThatOnlyMattersWhileFilteringComesAndGoesWithIt() {
+        // Both of these used to be declared unconditionally at every process start, which on a
+        // phone with filtering switched off is a wakeup every half hour to read a setting that
+        // says no, and a twenty-megabyte list refresh for a filter that will not consult it.
+        // The watchdog is still the floor under every other recovery path — but only while
+        // there is something to recover.
+        val store = (app as MalachiApplication).settingsStore
+        val before = runBlocking { store.current() }
+        try {
+            runBlocking { store.update { it.copy(filteringEnabled = false) } }
+            awaitGone(ListUpdateWorker.PERIODIC)
+            awaitGone(FilterWatchdogWorker.PERIODIC)
+
+            runBlocking { store.update { it.copy(filteringEnabled = true) } }
+            awaitPending(ListUpdateWorker.PERIODIC)
+            awaitPending(FilterWatchdogWorker.PERIODIC)
+        } finally {
+            runBlocking { store.update { before } }
+        }
     }
 
-    @Test
-    fun theFilterWatchdogIsScheduled() {
-        // The floor under every other recovery path: if nothing else revives the process, this
-        // is what notices the filter should be running and isn't.
-        assertPending(FilterWatchdogWorker.PERIODIC)
+    /** Polls, because the schedule is applied by a collector on the application's own scope. */
+    private fun awaitPending(uniqueName: String) = awaitState(uniqueName, wanted = true)
+
+    private fun awaitGone(uniqueName: String) = awaitState(uniqueName, wanted = false)
+
+    private fun awaitState(uniqueName: String, wanted: Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        while (System.nanoTime() < deadline) {
+            val pending = scheduled(uniqueName).any { !it.state.isFinished }
+            if (pending == wanted) return
+            Thread.sleep(250)
+        }
+        val states = scheduled(uniqueName).map { it.state }
+        throw AssertionError(
+            "$uniqueName should ${if (wanted) "be" else "not be"} scheduled while filtering is " +
+                "${if (wanted) "on" else "off"}; states were $states",
+        )
     }
 
     // There is deliberately no test here that calls schedule() itself. Enqueuing periodic work

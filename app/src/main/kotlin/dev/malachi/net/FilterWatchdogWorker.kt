@@ -64,10 +64,23 @@ class FilterWatchdogWorker(context: Context, params: WorkerParameters) : Corouti
             VpnController.start(context)
         }
 
+        /**
+         * Only while the filter is meant to be running, because that is the only time it can
+         * find anything.
+         *
+         * It used to be scheduled unconditionally at every process start, which on a phone with
+         * filtering switched off is a wakeup every half hour, forever, to look at a setting that
+         * says no — and each of those wakeups can start the whole process, which used to drag an
+         * update check along with it. See [cancel].
+         */
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<FilterWatchdogWorker>(30, TimeUnit.MINUTES).build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
+        }
+
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
         }
     }
 }

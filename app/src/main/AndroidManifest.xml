@@ -69,5 +69,29 @@
         <receiver
             android:name=".update.InstallReceiver"
             android:exported="false" />
+
+        <!--
+            Tells us which app the user picked from the share sheet, and therefore that a copy of
+            their backup really did leave — as opposed to the sheet being opened and dismissed.
+            Marking a backup as taken when it was not is how a reminder gets switched off for a
+            file that does not exist.
+        -->
+        <receiver
+            android:name=".data.BackupSharedReceiver"
+            android:exported="false" />
+
+        <!--
+            Hands a single backup file to whichever app the user shares it with, and nothing else:
+            see res/xml/file_paths.xml. Read permission is granted per-share and expires with it.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

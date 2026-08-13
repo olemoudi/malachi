@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The one directory this app ever hands to another app: a backup on its way out through a share
+    sheet. Nothing else is exposed, and the cache is the right home for it — the file is a copy
+    being sent somewhere, not a copy being kept, and the system may reclaim it whenever it likes.
+-->
+<paths>
+    <cache-path name="backups" path="backups/" />
+</paths>
