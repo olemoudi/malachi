@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.system.measureTimeMillis
 
 /**
  * The download half of [BlocklistStore], against a real HTTP server.
@@ -239,29 +240,34 @@ class BlocklistRefreshTest {
         // that writeIndex is mid-rename on, and the list it was writing ends up absent while its
         // state says it downloaded — a filter that reads as on and blocks nothing.
         bodies["/slow.txt"] = hosts(150, prefix = "slow")
-        slowPaths["/slow.txt"] = 600
+        slowPaths["/slow.txt"] = 1_000
         val store = BlocklistStore(directory)
         val slow = source("slow", "/slow.txt")
 
-        var refreshFinished = 0L
-        var pruneFinished = 0L
+        var pruneTookMs = 0L
         coroutineScope {
-            val refresh = launch(Dispatchers.IO) {
-                store.refresh(listOf(slow))
-                refreshFinished = System.nanoTime()
-            }
+            val refresh = launch(Dispatchers.IO) { store.refresh(listOf(slow)) }
             // Long enough that the request is on the wire and its body is still being held.
-            delay(200)
+            delay(150)
             launch(Dispatchers.IO) {
-                store.prune(listOf(slow))
-                pruneFinished = System.nanoTime()
+                pruneTookMs = measureTimeMillis { store.prune(listOf(slow)) }
             }
             refresh.join()
         }
 
+        // How long the prune itself took is the only honest measure of whether it waited:
+        // sweeping a directory with two files in it is a millisecond's work, so anything near
+        // the refresh's remaining second is the lock and nothing else. A slower machine makes
+        // the refresh longer, which makes this margin wider rather than narrower.
+        //
+        // It used to compare the instants at which the two coroutines *finished*, each recorded
+        // after its call returned — which is a race of its own. The prune is resumed the moment
+        // the refresh releases the lock, so on a loaded machine it can record its timestamp
+        // before the refresh coroutine is scheduled for its next line. Green for weeks here, red
+        // on CI, and it took a release down with it.
         assertTrue(
-            pruneFinished > refreshFinished,
-            "the prune ran while the refresh was still writing",
+            pruneTookMs > 400,
+            "the prune took ${pruneTookMs}ms, so it did not wait for the refresh",
         )
         // And the point of all that: the list the refresh was fetching survived it.
         assertTrue(File(directory, "slow.block").exists())

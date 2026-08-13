@@ -661,6 +661,13 @@ the one path every revival has in common.
   is a parameter (`record(nowMs = …)`), and the coroutine tests use `runTest`'s virtual time, so
   a year of statistics, a month of failed retries and a day of backoff all run in milliseconds.
   `SoakTest` is where that lives; a test that sleeps is a test nobody runs.
+- **A concurrency test that timestamps *after* the call is timing the scheduler, not the lock.**
+  `BlocklistRefreshTest` recorded when each coroutine finished and asserted an order; but the
+  waiting one is resumed the instant the lock is released, so on a loaded machine it can stamp
+  itself before the holder is scheduled for its next line. Green here for weeks, red on CI, and
+  it failed a release. Measure the *duration of the operation that should have blocked* instead —
+  a directory sweep is a millisecond, so hundreds of them can only be the lock, and a slower
+  machine widens that margin rather than narrowing it.
 - **Instrumented tests need VPN consent, which no test can grant itself:**
   `adb shell appops set dev.malachi ACTIVATE_VPN allow`. Without it the tunnel cases skip
   themselves rather than fail, so a run that looks green may have exercised nothing. CI passes
