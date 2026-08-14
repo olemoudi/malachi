@@ -1,6 +1,7 @@
 package dev.malachi.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -44,13 +46,21 @@ import dev.malachi.filter.QueryRecord
 import dev.malachi.filter.RuleSource
 import dev.malachi.filter.Verdict
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.rememberRuleAnnouncer
 import dev.malachi.ui.components.AppIcon
+import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.ChoiceRow
+import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
+import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.SwitchRow
+import dev.malachi.ui.components.UndoBarHost
 import dev.malachi.ui.components.cardPosition
+import dev.malachi.ui.components.lastSeenLabel
+import dev.malachi.ui.components.rememberUndoBar
+import dev.malachi.ui.components.shortDuration
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 
@@ -73,171 +83,253 @@ fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Uni
 
     val label = remember(packageName) { vm.labelFor(packageName) }
     val rules = settings.appRulesFor(packageName)
-    // Ranked by how often, not by how recently: "what does this app keep asking for" is the
-    // question somebody writing a rule has, and the noisiest domain is rarely the last one.
-    val seen = remember(log, packageName) {
+
+    var order by remember { mutableStateOf(SeenOrder.RECENT) }
+    val seen = remember(log, packageName, order) {
         log.records
+            .asSequence()
             .filter { it.packageName == packageName }
-            .sortedByDescending { it.count }
+            .filter { order != SeenOrder.BLOCKED || it.blocked }
+            .sortedWith(
+                when (order) {
+                    // Most recent first, and it is the default for a reason: somebody arrives
+                    // here because something broke a moment ago, and the domain that broke it was
+                    // asked for once or twice — buried, under frequency, beneath forty analytics
+                    // names the app has been repeating happily all day.
+                    SeenOrder.RECENT -> compareByDescending { it.lastSeenMs }
+                    SeenOrder.FREQUENT -> compareByDescending { it.count }
+                    SeenOrder.BLOCKED -> compareByDescending { it.lastSeenMs }
+                },
+            )
             .take(SEEN_LIMIT)
+            .toList()
     }
+    val now = remember(log) { System.currentTimeMillis() }
 
     var draft by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<PendingRule?>(null) }
+    val undo = rememberUndoBar()
+    val announcer = rememberRuleAnnouncer(undo)
 
-    Column(Modifier.fillMaxSize()) {
-        MalachiTopBar(label, onBack)
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(spacing.screen, 0.dp, spacing.screen, spacing.xxl),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
-        ) {
-            item {
-                MalachiCard {
-                    Row(Modifier.padding(spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-                        AppIcon(packageName, vm.inventory, size = 48.dp)
-                        Spacer(Modifier.width(spacing.md))
-                        Column {
-                            Text(label, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                packageName,
-                                style = MonoSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                SwitchRow(
-                    title = stringResource(R.string.app_detail_filtered),
-                    subtitle = stringResource(R.string.app_detail_filtered_subtitle),
-                    checked = settings.covers(packageName),
-                    onCheckedChange = { vm.setAppCovered(packageName, it) },
-                )
-            }
-
-            item {
-                SectionHeader(
-                    title = stringResource(R.string.app_detail_rules_title),
-                    supporting = stringResource(R.string.app_detail_rules_hint),
-                )
-            }
-
-            item {
-                Column {
-                    OutlinedTextField(
-                        value = draft,
-                        onValueChange = { draft = it; error = false },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = error,
-                        label = { Text(stringResource(R.string.rules_domain_label)) },
-                        supportingText = if (error) {
-                            { Text(stringResource(R.string.rules_domain_invalid)) }
-                        } else {
-                            null
-                        },
-                    )
-                    Spacer(Modifier.padding(top = spacing.sm))
-                    Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
-                        Button(
-                            onClick = {
-                                if (vm.setAppRule(draft, packageName, block = true) == null) error = true else draft = ""
-                            },
-                            enabled = draft.isNotBlank(),
-                        ) { Text(stringResource(R.string.action_block_here)) }
-                        OutlinedButton(
-                            onClick = {
-                                if (vm.setAppRule(draft, packageName, block = false) == null) error = true else draft = ""
-                            },
-                            enabled = draft.isNotBlank(),
-                        ) { Text(stringResource(R.string.action_allow_here)) }
-                    }
-                }
-            }
-
-            items(rules, key = { it.domain + it.block }) { rule ->
-                MalachiCard {
-                    Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            if (rule.block) Icons.Filled.Block else Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = if (rule.block) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(spacing.md))
-                        Text(rule.domain, style = MonoSmall, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { vm.removeAppRule(rule.domain, packageName) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete))
-                        }
-                    }
-                }
-            }
-
-            item {
-                SectionHeader(
-                    title = stringResource(R.string.app_detail_seen_title),
-                    supporting = stringResource(R.string.app_detail_seen_hint),
-                )
-            }
-
-            if (seen.isEmpty()) {
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            MalachiTopBar(label, onBack)
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(spacing.screen, 0.dp, spacing.screen, spacing.xxl),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
                 item {
-                    Text(
-                        stringResource(R.string.app_detail_seen_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(spacing.lg),
+                    MalachiCard {
+                        Row(Modifier.padding(spacing.lg), verticalAlignment = Alignment.CenterVertically) {
+                            AppIcon(packageName, vm.inventory, size = 48.dp)
+                            Spacer(Modifier.width(spacing.md))
+                            Column {
+                                Text(label, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    packageName,
+                                    style = MonoSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    CardGroup {
+                        SwitchRow(
+                            title = stringResource(R.string.app_detail_filtered),
+                            subtitle = stringResource(R.string.app_detail_filtered_subtitle),
+                            checked = settings.covers(packageName),
+                            onCheckedChange = { vm.setAppCovered(packageName, it) },
+                            position = cardPosition(0, 2),
+                        )
+                        // "Is this app eating my battery" is the question that brings people to
+                        // a screen like this, and it is one Malachi cannot answer — a DNS lookup
+                        // is not a measurement of power, and a number invented from one would be
+                        // a confident lie. What it can do is say how much the app talks, and then
+                        // point at the part of the system that really does keep the figures.
+                        NavRow(
+                            icon = Icons.Filled.Info,
+                            title = stringResource(R.string.app_detail_system_info),
+                            subtitle = stringResource(R.string.app_detail_system_info_hint),
+                            onClick = { vm.openAppInfo(packageName) },
+                            position = cardPosition(1, 2),
+                        )
+                    }
+                }
+
+                item {
+                    SectionHeader(
+                        title = stringResource(R.string.app_detail_rules_title),
+                        supporting = stringResource(R.string.app_detail_rules_hint),
                     )
                 }
-            }
 
-            items(seen, key = { it.domain }) { record ->
-                // What the filter would do with this name *now*, not only what it did when the
-                // lookup happened: a rule written a moment ago must be visible on the line it was
-                // written from, including when it was written against a parent name.
-                val verdict = remember(engine, record) {
-                    effectiveVerdict(record, engine.decide(record.domain, packageName))
+                item {
+                    Column {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { draft = it; error = false },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            isError = error,
+                            label = { Text(stringResource(R.string.rules_domain_label)) },
+                            supportingText = if (error) {
+                                { Text(stringResource(R.string.rules_domain_invalid)) }
+                            } else {
+                                null
+                            },
+                        )
+                        Spacer(Modifier.padding(top = spacing.sm))
+                        Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                            Button(
+                                onClick = {
+                                    val edit = vm.setAppRule(draft, packageName, block = true)
+                                    announcer.announce(edit, blocked = true, appLabel = label)
+                                    if (edit == null) error = true else draft = ""
+                                },
+                                enabled = draft.isNotBlank(),
+                            ) { Text(stringResource(R.string.action_block_here)) }
+                            OutlinedButton(
+                                onClick = {
+                                    val edit = vm.setAppRule(draft, packageName, block = false)
+                                    announcer.announce(edit, blocked = false, appLabel = label)
+                                    if (edit == null) error = true else draft = ""
+                                },
+                                enabled = draft.isNotBlank(),
+                            ) { Text(stringResource(R.string.action_allow_here)) }
+                        }
+                    }
                 }
-                MalachiCard {
-                    Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(record.domain, style = MonoSmall)
-                            Text(
-                                liveVerdictLabel(record, verdict),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (verdict.blocked) {
+
+                items(rules, key = { it.domain + it.block }) { rule ->
+                    MalachiCard {
+                        Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (rule.block) Icons.Filled.Block else Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = if (rule.block) {
                                     MaterialTheme.colorScheme.error
                                 } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                    MaterialTheme.colorScheme.primary
                                 },
+                                modifier = Modifier.size(20.dp),
                             )
+                            Spacer(Modifier.width(spacing.md))
+                            Text(rule.domain, style = MonoSmall, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { vm.removeAppRule(rule.domain, packageName) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete))
+                            }
                         }
-                        IconButton(onClick = { pending = PendingRule(record.domain, block = true) }) {
-                            Icon(
-                                Icons.Filled.Block,
-                                contentDescription = stringResource(R.string.action_block_here),
-                                tint = MaterialTheme.colorScheme.error,
-                            )
+                    }
+                }
+
+                item {
+                    SectionHeader(
+                        title = stringResource(R.string.app_detail_seen_title),
+                        supporting = stringResource(R.string.app_detail_seen_hint),
+                    )
+                }
+
+                // Before the list rather than after it: when the log is off there is nothing below
+                // this to explain, and the screen used to say "nothing seen from this app yet" —
+                // which is a different statement, sends the reader off to go and use the app, and is
+                // not true.
+                if (!settings.queryLogEnabled) {
+                    item { QueryLogOffCard(onEnable = { vm.setQueryLogEnabled(true) }) }
+                } else {
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                            SeenOrder.entries.forEach { option ->
+                                MalachiFilterChip(
+                                    selected = order == option,
+                                    onClick = { order = option },
+                                    label = { Text(stringResource(seenOrderLabel(option))) },
+                                )
+                            }
                         }
-                        IconButton(onClick = { pending = PendingRule(record.domain, block = false) }) {
-                            Icon(
-                                Icons.Filled.CheckCircle,
-                                contentDescription = stringResource(R.string.action_allow_here),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                    }
+                }
+
+                if (seen.isEmpty() && settings.queryLogEnabled) {
+                    item {
+                        Text(
+                            stringResource(
+                                if (order == SeenOrder.BLOCKED) {
+                                    R.string.app_detail_seen_none_blocked
+                                } else {
+                                    R.string.app_detail_seen_empty
+                                },
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(spacing.lg),
+                        )
+                    }
+                }
+
+                items(seen, key = { it.domain }) { record ->
+                    // What the filter would do with this name *now*, not only what it did when the
+                    // lookup happened: a rule written a moment ago must be visible on the line it was
+                    // written from, including when it was written against a parent name.
+                    val verdict = remember(engine, record) {
+                        effectiveVerdict(record, engine.decide(record.domain, packageName))
+                    }
+                    MalachiCard {
+                        Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(record.domain, style = MonoSmall)
+                                Text(
+                                    liveVerdictLabel(record, verdict),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (verdict.blocked) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                                if (record.retrying) {
+                                    Text(
+                                        stringResource(
+                                            R.string.verdict_retrying,
+                                            record.count,
+                                            shortDuration(record.spanMs),
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                } else {
+                                    Text(
+                                        lastSeenLabel(record.lastSeenMs, now),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { pending = PendingRule(record.domain, block = true) }) {
+                                Icon(
+                                    Icons.Filled.Block,
+                                    contentDescription = stringResource(R.string.action_block_here),
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                            IconButton(onClick = { pending = PendingRule(record.domain, block = false) }) {
+                                Icon(
+                                    Icons.Filled.CheckCircle,
+                                    contentDescription = stringResource(R.string.action_allow_here),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+
+        UndoBarHost(undo, Modifier.align(Alignment.BottomCenter).padding(spacing.md))
     }
 
     pending?.let { rule ->
@@ -247,11 +339,24 @@ fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Uni
             block = rule.block,
             onDismiss = { pending = null },
             onConfirm = { domain ->
-                vm.setAppRule(domain, packageName, block = rule.block)
+                announcer.announce(
+                    vm.setAppRule(domain, packageName, block = rule.block),
+                    blocked = rule.block,
+                    appLabel = label,
+                )
                 pending = null
             },
         )
     }
+}
+
+/** How the domains an app has asked for are ordered, and which of them are shown at all. */
+private enum class SeenOrder { RECENT, FREQUENT, BLOCKED }
+
+private fun seenOrderLabel(order: SeenOrder) = when (order) {
+    SeenOrder.RECENT -> R.string.app_detail_order_recent
+    SeenOrder.FREQUENT -> R.string.app_detail_order_frequent
+    SeenOrder.BLOCKED -> R.string.app_detail_order_blocked
 }
 
 /** A rule the user has asked for and not yet chosen the reach of. */

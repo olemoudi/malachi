@@ -25,10 +25,28 @@ private val MalachiTypography = Typography().run {
 /** The big figure on the home card. */
 val NumberDisplay = TextStyle(fontWeight = FontWeight.Bold, fontSize = 44.sp, letterSpacing = (-1).sp)
 
-/** A domain is a technical string; it reads far better when the glyphs line up. */
+/**
+ * The line that says what [NumberDisplay] is a figure *of*.
+ *
+ * Its own style because the default it used — 12sp at regular weight, and translucent on top of
+ * that — was reported as looking "very thin", and it was: under 44sp of bold, a caption has to
+ * hold its own or the number reads as unlabelled. Bigger, heavier, and fully opaque, which is
+ * also the only way the palette's checked contrast survives to the screen.
+ */
+val NumberCaption = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.sp, letterSpacing = 0.1.sp)
+
+/**
+ * A domain is a technical string; it reads far better when the glyphs line up.
+ *
+ * Medium rather than regular: this is the *title* of every row in the query log, sitting above a
+ * secondary line, and a monospace face at regular weight is visibly lighter than the proportional
+ * one beside it at the same size — so the row's most important text read as its least. At 13sp
+ * it was also only one point clear of the supporting line under it, which is not a hierarchy.
+ */
 val MonoSmall = TextStyle(
     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-    fontSize = 13.sp,
+    fontSize = 14.sp,
+    fontWeight = FontWeight.Medium,
 )
 
 /** Whether this preference renders dark right now (SYSTEM follows the device). */

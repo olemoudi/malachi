@@ -253,6 +253,43 @@ data class MalachiSettings(
     fun appRulesFor(packageName: String): List<AppRule> = appRules.filter { it.packageName == packageName }
 
     /**
+     * One global rule written.
+     *
+     * A domain is in one list or the other, never both: adding to one removes it from the other,
+     * so the two can't contradict each other behind the user's back.
+     */
+    fun withUserRule(domain: String, block: Boolean): MalachiSettings = copy(
+        userBlocked = if (block) userBlocked + domain else userBlocked - domain,
+        userAllowed = if (block) userAllowed - domain else userAllowed + domain,
+    )
+
+    /**
+     * That domain's global rule put back exactly as [before] had it — the undo.
+     *
+     * Not "delete what was added": blocking a domain the user had previously allowed is a
+     * *replacement*, and an undo that left it in neither list would be a second silent edit
+     * dressed up as taking one back.
+     */
+    fun withUserRuleFrom(before: MalachiSettings, domain: String): MalachiSettings = copy(
+        userBlocked = if (domain in before.userBlocked) userBlocked + domain else userBlocked - domain,
+        userAllowed = if (domain in before.userAllowed) userAllowed + domain else userAllowed - domain,
+    )
+
+    /** One per-app rule written, replacing any rule this app already had for this domain. */
+    fun withAppRule(domain: String, packageName: String, block: Boolean): MalachiSettings =
+        copy(appRules = withoutAppRule(domain, packageName) + AppRule(domain, packageName, block))
+
+    /** That per-app rule put back as [before] had it, including having had none at all. */
+    fun withAppRuleFrom(before: MalachiSettings, domain: String, packageName: String): MalachiSettings {
+        val restored = before.appRules.firstOrNull { it.domain == domain && it.packageName == packageName }
+        val without = withoutAppRule(domain, packageName)
+        return copy(appRules = if (restored != null) without + restored else without)
+    }
+
+    private fun withoutAppRule(domain: String, packageName: String): List<AppRule> =
+        appRules.filterNot { it.domain == domain && it.packageName == packageName }
+
+    /**
      * Everything a backup is *for*, reduced to one comparable string: the rules the user wrote
      * and the lists they turned on or off.
      *

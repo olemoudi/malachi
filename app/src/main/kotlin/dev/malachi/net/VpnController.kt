@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.net.VpnService
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -123,6 +124,26 @@ object VpnController {
         }
         DebugLog.w(TAG, "no settings screen would open for Private DNS")
         return false
+    }
+
+    /**
+     * Android's own page for one app — where its battery and data use are.
+     *
+     * Malachi is asked "is this app draining my battery" and cannot answer it: a DNS lookup is
+     * not a measurement of power, and a number invented from one would be a confident lie. What
+     * this app can say is how much an app *talks*, and then hand over to the part of the system
+     * that really does keep the other figures.
+     */
+    fun openAppInfo(context: Context, packageName: String): Boolean = runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.fromParts("package", packageName, null))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        true
+    }.getOrElse {
+        DebugLog.w(TAG, "no app info screen for $packageName", it)
+        false
     }
 
     /**

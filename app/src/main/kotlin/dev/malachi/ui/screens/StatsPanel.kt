@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +41,7 @@ import dev.malachi.ui.components.ActionChoices
 import dev.malachi.ui.components.AppIcon
 import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.CardGroup
+import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.cardPosition
@@ -88,7 +88,7 @@ fun StatsPanel(vm: MalachiViewModel, onOpenApp: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(spacing.xs),
         ) {
             StatsWindow.entries.forEach { option ->
-                FilterChip(
+                MalachiFilterChip(
                     selected = window == option,
                     onClick = { window = option },
                     label = { Text(stringResource(windowLabel(option)), maxLines = 1, softWrap = false) },

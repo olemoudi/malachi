@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
@@ -13,26 +11,16 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.data.BackupPolicy
-import dev.malachi.data.BlockAnswerMode
-import dev.malachi.data.BypassGuard
 import dev.malachi.data.ThemeMode
-import dev.malachi.data.UpstreamDns
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.ui.BackupMessage
@@ -53,14 +41,18 @@ import dev.malachi.update.UpdateUiState
 /**
  * The dials, each with the sentence that says what turning it costs.
  *
- * None of these has a right answer for everyone — that is exactly why they are settings and not
- * constants — so every one carries the trade-off in its subtitle rather than making the user
- * discover it by having something break a week later.
+ * Ordered by who comes looking. Always-on, the backup and the query log are what somebody opens
+ * this screen *for*; the four DNS-level dials are what somebody goes hunting for once, usually
+ * because an app is misbehaving, so they live one tap away in [AdvancedSettingsScreen] with
+ * their current values written on the row that leads there. They used to be the first thing
+ * here, which put three radio groups about DNS semantics in front of everybody who wanted to
+ * change the theme.
  */
 @Composable
 fun SettingsScreen(
     vm: MalachiViewModel,
     onBack: () -> Unit,
+    onOpenAdvanced: () -> Unit,
     onOpenDebugLog: () -> Unit,
     onOpenAbout: () -> Unit,
 ) {
@@ -73,8 +65,6 @@ fun SettingsScreen(
     RestoreConfirmation(vm)
     val spacing = Tokens.spacing
 
-    var editingUpstream by remember { mutableStateOf(false) }
-
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.nav_settings), onBack)
         LazyColumn(
@@ -82,86 +72,6 @@ fun SettingsScreen(
             contentPadding = PaddingValues(spacing.screen, 0.dp, spacing.screen, spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
-            item {
-                SectionHeader(
-                    title = stringResource(R.string.settings_block_answer_title),
-                    supporting = stringResource(R.string.settings_block_answer_hint),
-                )
-            }
-            item {
-                CardGroup {
-                    val modes = BlockAnswerMode.entries
-                    modes.forEachIndexed { index, mode ->
-                        ChoiceRow(
-                            title = stringResource(blockAnswerTitle(mode)),
-                            subtitle = stringResource(blockAnswerHint(mode)),
-                            selected = settings.blockAnswer == mode,
-                            onSelect = { vm.setBlockAnswer(mode) },
-                            position = cardPosition(index, modes.size),
-                        )
-                    }
-                }
-            }
-
-            item {
-                SectionHeader(
-                    title = stringResource(R.string.settings_upstream_title),
-                    supporting = stringResource(R.string.settings_upstream_hint),
-                )
-            }
-            item {
-                CardGroup {
-                    val options = UpstreamDns.entries
-                    options.forEachIndexed { index, option ->
-                        ChoiceRow(
-                            title = stringResource(upstreamTitle(option)),
-                            subtitle = when (option) {
-                                UpstreamDns.SYSTEM -> stringResource(R.string.upstream_system_hint)
-                                UpstreamDns.CUSTOM -> settings.customUpstream.ifEmpty {
-                                    stringResource(R.string.upstream_custom_hint)
-                                }
-                                else -> option.addresses.joinToString(", ")
-                            },
-                            selected = settings.upstream == option,
-                            onSelect = {
-                                if (option == UpstreamDns.CUSTOM) editingUpstream = true else vm.setUpstream(option)
-                            },
-                            position = cardPosition(index, options.size),
-                        )
-                    }
-                }
-            }
-
-            item {
-                SectionHeader(
-                    title = stringResource(R.string.settings_bypass_title),
-                    supporting = stringResource(R.string.settings_bypass_hint),
-                )
-            }
-            item {
-                CardGroup {
-                    val guards = BypassGuard.entries
-                    guards.forEachIndexed { index, guard ->
-                        ChoiceRow(
-                            title = stringResource(bypassTitle(guard)),
-                            subtitle = stringResource(bypassHint(guard)),
-                            selected = settings.bypassGuard == guard,
-                            onSelect = { vm.setBypassGuard(guard) },
-                            position = cardPosition(index, guards.size),
-                        )
-                    }
-                }
-            }
-
-            item {
-                SwitchRow(
-                    title = stringResource(R.string.settings_allow_bypass),
-                    subtitle = stringResource(R.string.settings_allow_bypass_hint),
-                    checked = settings.bypassAllowed,
-                    onCheckedChange = vm::setBypassAllowed,
-                )
-            }
-
             item {
                 SectionHeader(
                     title = stringResource(R.string.settings_connection_title),
@@ -293,6 +203,26 @@ fun SettingsScreen(
                 }
             }
 
+            // Its own section rather than a row inside Diagnostics: these dials decide how the
+            // filter behaves, which is the opposite of a diagnostic, and filing them there was
+            // only ever a way of getting them out of the way.
+            item {
+                SectionHeader(
+                    title = stringResource(R.string.settings_advanced),
+                    supporting = stringResource(R.string.settings_advanced_hint),
+                )
+            }
+            item {
+                // With what they are set to on the row itself: "what is my DNS server again" is
+                // then answered without opening anything.
+                NavRow(
+                    icon = Icons.Filled.Tune,
+                    title = stringResource(R.string.settings_advanced_row),
+                    subtitle = advancedSummary(settings),
+                    onClick = onOpenAdvanced,
+                )
+            }
+
             item { SectionHeader(stringResource(R.string.settings_diagnostics_title)) }
             item {
                 CardGroup {
@@ -311,61 +241,26 @@ fun SettingsScreen(
                         },
                         checked = settings.isDiagnosing(),
                         onCheckedChange = vm::setDiagnostics,
-                        position = cardPosition(0, 3),
+                        position = cardPosition(1, 4),
                     )
                     NavRow(
                         icon = Icons.Filled.BugReport,
                         title = stringResource(R.string.settings_debug_log),
                         subtitle = stringResource(R.string.settings_debug_log_hint),
                         onClick = onOpenDebugLog,
-                        position = cardPosition(1, 3),
+                        position = cardPosition(2, 4),
                     )
                     NavRow(
                         icon = Icons.Filled.Info,
                         title = stringResource(R.string.settings_about),
                         subtitle = stringResource(R.string.settings_about_hint, vm.versionName),
                         onClick = onOpenAbout,
-                        position = cardPosition(2, 3),
+                        position = cardPosition(3, 4),
                     )
                 }
             }
         }
     }
-
-    if (editingUpstream) {
-        CustomUpstreamDialog(
-            initial = settings.customUpstream,
-            onDismiss = { editingUpstream = false },
-            onConfirm = { vm.setCustomUpstream(it); editingUpstream = false },
-        )
-    }
-}
-
-@Composable
-private fun CustomUpstreamDialog(initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var value by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.upstream_custom)) },
-        text = {
-            Column {
-                Text(
-                    stringResource(R.string.upstream_custom_dialog_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = Tokens.spacing.sm),
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.upstream_custom_label)) },
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(value) }) { Text(stringResource(R.string.action_ok)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
-    )
 }
 
 @Composable
@@ -378,39 +273,6 @@ private fun updateSummary(state: UpdateUiState): String = when (state) {
     is UpdateUiState.Failed -> stringResource(R.string.update_failed, state.step)
     UpdateUiState.AlreadyChecking -> stringResource(R.string.update_already_checking)
     UpdateUiState.SkippedMetered -> stringResource(R.string.update_skipped_metered)
-}
-
-private fun blockAnswerTitle(mode: BlockAnswerMode) = when (mode) {
-    BlockAnswerMode.NULL_ADDRESS -> R.string.block_answer_null
-    BlockAnswerMode.NXDOMAIN -> R.string.block_answer_nxdomain
-    BlockAnswerMode.REFUSED -> R.string.block_answer_refused
-}
-
-private fun blockAnswerHint(mode: BlockAnswerMode) = when (mode) {
-    BlockAnswerMode.NULL_ADDRESS -> R.string.block_answer_null_hint
-    BlockAnswerMode.NXDOMAIN -> R.string.block_answer_nxdomain_hint
-    BlockAnswerMode.REFUSED -> R.string.block_answer_refused_hint
-}
-
-private fun upstreamTitle(upstream: UpstreamDns) = when (upstream) {
-    UpstreamDns.SYSTEM -> R.string.upstream_system
-    UpstreamDns.CLOUDFLARE -> R.string.upstream_cloudflare
-    UpstreamDns.GOOGLE -> R.string.upstream_google
-    UpstreamDns.QUAD9 -> R.string.upstream_quad9
-    UpstreamDns.ADGUARD -> R.string.upstream_adguard
-    UpstreamDns.CUSTOM -> R.string.upstream_custom
-}
-
-private fun bypassTitle(guard: BypassGuard) = when (guard) {
-    BypassGuard.OFF -> R.string.bypass_off
-    BypassGuard.SYSTEM_RESOLVERS -> R.string.bypass_system
-    BypassGuard.PUBLIC_RESOLVERS -> R.string.bypass_public
-}
-
-private fun bypassHint(guard: BypassGuard) = when (guard) {
-    BypassGuard.OFF -> R.string.bypass_off_hint
-    BypassGuard.SYSTEM_RESOLVERS -> R.string.bypass_system_hint
-    BypassGuard.PUBLIC_RESOLVERS -> R.string.bypass_public_hint
 }
 
 private fun themeTitle(mode: ThemeMode) = when (mode) {

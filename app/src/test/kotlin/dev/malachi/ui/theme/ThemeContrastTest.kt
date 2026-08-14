@@ -1,5 +1,6 @@
 package dev.malachi.ui.theme
 
+import dev.malachi.ui.components.SECONDARY_BORDER_ALPHA
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -37,6 +38,9 @@ class ThemeContrastTest {
         Pair("secondary text on a variant surface", { it.onSurfaceVariant }, { it.surfaceVariant }, 6.0),
         Pair("secondary text on the highest container", { it.onSurfaceVariant }, { it.surfaceContainerHighest }, 6.0),
         Pair("secondary text on a container", { it.onSurfaceVariant }, { it.surfaceContainer }, 6.0),
+        // The "working on it" notice: the one card tinted with a container rather than a role
+        // that carries its own foreground, so nothing else in this list covers the pair.
+        Pair("a working notice's text", { it.onSurfaceVariant }, { it.surfaceContainerHigh }, 6.0),
         // The accent is a text colour here, not just a fill: section headings, the value at the
         // end of a row, the figure on the statistics card.
         Pair("accent text on a card", { it.primary }, { it.surface }, 4.5),
@@ -93,6 +97,36 @@ class ThemeContrastTest {
         }
     }
 
+    /**
+     * The one translucent thing left, checked as what it actually renders as.
+     *
+     * Every rule above reads the palette, which is why a colour diluted at the call site is
+     * invisible to all of them — the hero drew its supporting text at 85% for months under a
+     * suite that had verified the full-strength pair and a comment claiming nothing here was
+     * translucent. Those alphas are gone; this border is the survivor, because a border is
+     * *meant* to be quieter than its text, and so it is checked at the value it is drawn with.
+     */
+    @Test
+    fun `the outlined action's border is visible wherever it is used`() {
+        val surfaces = listOf<Triple<String, (Roles) -> Long, (Roles) -> Long>>(
+            Triple("a card", { it.onSurface }, { it.surface }),
+            Triple("the hero's light end", { it.onHero }, { it.heroStart }),
+            Triple("the hero's dark end", { it.onHero }, { it.heroEnd }),
+            Triple("the error container", { it.onErrorContainer }, { it.errorContainer }),
+            Triple("the accent container", { it.onPrimaryContainer }, { it.primaryContainer }),
+        )
+        for ((roles, name) in listOf(LightRoles to "light", DarkRoles to "dark")) {
+            for ((where, foreground, background) in surfaces) {
+                val drawn = blend(foreground(roles), background(roles), SECONDARY_BORDER_ALPHA)
+                val ratio = contrast(drawn, background(roles))
+                assertTrue(
+                    ratio >= 3.0,
+                    "$name: the outlined action's border on $where is %.2f:1, below 3.0".format(ratio),
+                )
+            }
+        }
+    }
+
     @Test
     fun `the two palettes describe the same design`() {
         // Not a contrast rule, a consistency one: a role that exists in one and not the other is
@@ -125,7 +159,23 @@ class ThemeContrastTest {
     private fun assertNear(expected: Double, actual: Double) =
         assertTrue(kotlin.math.abs(expected - actual) < 0.1, "expected ~$expected, was $actual")
 
-    /** WCAG 2.2 relative luminance, on sRGB with the alpha ignored — nothing here is translucent. */
+    /**
+     * What a translucent colour actually becomes once it is drawn over something.
+     *
+     * WCAG is defined over opaque pairs, so the only honest way to check a colour drawn at an
+     * alpha is to composite it first and check the result — which is also the reason this
+     * exists at all: the palette can be perfect and the screen still unreadable.
+     */
+    private fun blend(foreground: Long, background: Long, alpha: Float): Long {
+        fun mix(shift: Int): Long {
+            val f = (foreground shr shift) and 0xFF
+            val b = (background shr shift) and 0xFF
+            return (f * alpha + b * (1 - alpha)).toLong().coerceIn(0, 255)
+        }
+        return (0xFFL shl 24) or (mix(16) shl 16) or (mix(8) shl 8) or mix(0)
+    }
+
+    /** WCAG 2.2 relative luminance, on sRGB. Translucent colours go through [blend] first. */
     private fun luminance(argb: Long): Double {
         fun channel(value: Long): Double {
             val v = value / 255.0

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,7 +34,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,9 +54,12 @@ import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.RestoreConfirmation
 import dev.malachi.ui.Screen
 import dev.malachi.ui.rememberBackupActions
+import dev.malachi.ui.components.ActionChoices
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.CardPosition
+import dev.malachi.ui.components.shortDuration
 import dev.malachi.stats.Counts
+import dev.malachi.stats.StatsData
 import dev.malachi.stats.StatsWindow
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.PrimaryAction
@@ -61,6 +67,7 @@ import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.cardPosition
+import dev.malachi.ui.theme.NumberCaption
 import dev.malachi.ui.theme.NumberDisplay
 import dev.malachi.ui.theme.Tokens
 import java.text.DateFormat
@@ -110,6 +117,7 @@ fun HomeScreen(
     BackupMessage(vm)
     RestoreConfirmation(vm)
     val spacing = Tokens.spacing
+    var pausing by remember { mutableStateOf(false) }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -132,7 +140,7 @@ fun HomeScreen(
                 blockedPercent = todayCounts.blockedPercent,
                 onToggle = { on -> if (on) onRequestVpnConsent() else vm.setFilterEnabled(false) },
                 onResume = vm::resume,
-                onPause = { vm.pause() },
+                onPause = { pausing = true },
             )
         }
 
@@ -326,7 +334,13 @@ fun HomeScreen(
                 NavRow(
                     icon = Icons.Filled.Timeline,
                     title = stringResource(R.string.nav_activity),
-                    subtitle = stringResource(R.string.nav_activity_subtitle),
+                    // Naming today's worst offender rather than describing the screen: it is the
+                    // app somebody is most likely to be coming to look at, and it costs nothing —
+                    // these statistics are already read on every resume of this screen. The query
+                    // log would answer it better and is deliberately not touched here; subscribing
+                    // to it from the home screen makes every lookup build a snapshot.
+                    subtitle = busiestToday(vm, stats, today)
+                        ?: stringResource(R.string.nav_activity_subtitle),
                     onClick = { onOpen(Screen.Activity) },
                     position = cardPosition(2, rows),
                 )
@@ -351,6 +365,61 @@ fun HomeScreen(
             }
         }
     }
+
+    // Outside the list: inside an item it would exist only while that row happened to be
+    // scrolled into view.
+    if (pausing) {
+        PauseDialog(
+            onDismiss = { pausing = false },
+            onPause = { minutes -> vm.pause(minutes); pausing = false },
+        )
+    }
+}
+
+/**
+ * How long to stand down for.
+ *
+ * The button used to be "Pause for 15 minutes" and mean it, which is the right answer for
+ * exactly one of the two reasons people pause a DNS filter: checking whether it is what broke a
+ * page (a minute) and getting through something that needs it off (an afternoon). The durations
+ * are written by the platform, so this costs no translated strings and reads correctly in
+ * languages neither of us thought about.
+ */
+@Composable
+private fun PauseDialog(onDismiss: () -> Unit, onPause: (Int) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.pause_title)) },
+        text = {
+            ActionChoices {
+                PAUSE_CHOICES.forEach { minutes ->
+                    SecondaryAction(
+                        text = shortDuration(minutes * 60_000L),
+                        onClick = { onPause(minutes) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}
+
+private val PAUSE_CHOICES = listOf(5, 15, 60, 180)
+
+/** "Today: Instagram, 412 blocked", or null before anything has been refused today. */
+@Composable
+private fun busiestToday(vm: MalachiViewModel, stats: StatsData, today: LocalDate): String? {
+    val worst = remember(stats, today) {
+        stats.window(StatsWindow.TODAY, today).topByBlocked(1).firstOrNull()
+    } ?: return null
+    return stringResource(
+        R.string.nav_activity_busiest,
+        vm.labelFor(worst.packageName),
+        NumberFormat.getInstance().format(worst.counts.blocked),
+    )
 }
 
 @Composable
@@ -425,7 +494,10 @@ private fun PowerCard(
                                 else -> stringResource(R.string.state_off_subtitle)
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (active) onHero.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            // Full strength. The palette's contrast is checked against both ends
+                            // of this gradient and then it was drawn at 85%, which is a dilution
+                            // no test can see: 5.8:1 became 4.7:1 at 12sp, and it looked it.
+                            color = if (active) onHero else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
@@ -448,8 +520,8 @@ private fun PowerCard(
                     Text("$blockedPercent%", style = NumberDisplay, color = onHero)
                     Text(
                         stringResource(R.string.state_blocked_share),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = onHero.copy(alpha = 0.85f),
+                        style = NumberCaption,
+                        color = onHero,
                     )
                 }
 
@@ -468,7 +540,7 @@ private fun PowerCard(
                             )
                         } else if (active) {
                             SecondaryAction(
-                                text = stringResource(R.string.action_pause_15),
+                                text = stringResource(R.string.action_pause),
                                 onClick = onPause,
                                 onContainer = onHero,
                             )

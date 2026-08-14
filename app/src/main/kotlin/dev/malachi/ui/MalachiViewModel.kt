@@ -8,7 +8,6 @@ import androidx.lifecycle.viewModelScope
 import dev.malachi.MalachiApplication
 import dev.malachi.R
 import dev.malachi.data.AppInventory
-import dev.malachi.data.AppRule
 import dev.malachi.data.AppScopeMode
 import dev.malachi.data.Backup
 import dev.malachi.data.BackupPolicy
@@ -162,6 +161,11 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         VpnController.openPrivateDnsSettings(app)
     }
 
+    /** Android's own page for an app, which is where its battery and data figures live. */
+    fun openAppInfo(packageName: String) {
+        VpnController.openAppInfo(app, packageName)
+    }
+
     /**
      * Starts the filter if the settings say it should be running and it isn't.
      *
@@ -262,18 +266,23 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     // ---- rules -------------------------------------------------------------------------
 
-    /** Returns the domain that was stored, or null when the text wasn't one. */
-    fun addUserRule(raw: String, block: Boolean): String? {
+    /**
+     * A rule that was just written, and the way back.
+     *
+     * Writing a rule is one tap from a list of domains, which makes it one tap from the wrong
+     * domain — and until this existed nothing said it had happened at all, let alone offered to
+     * take it back. [undo] restores exactly what was there before rather than merely deleting
+     * what was added: blocking a domain the user had previously allowed is a replacement, and an
+     * undo that left it in neither list would be a second silent edit.
+     */
+    data class RuleEdit(val domain: String, val undo: () -> Unit)
+
+    /** Returns what was stored and how to unstore it, or null when the text wasn't a domain. */
+    fun addUserRule(raw: String, block: Boolean): RuleEdit? {
         val domain = DomainInput.parse(raw) ?: return null
-        update { settings ->
-            // A domain is in one list or the other, never both: adding to one removes it from
-            // the other, so the two can't contradict each other behind the user's back.
-            settings.copy(
-                userBlocked = if (block) settings.userBlocked + domain else settings.userBlocked - domain,
-                userAllowed = if (block) settings.userAllowed - domain else settings.userAllowed + domain,
-            )
-        }
-        return domain
+        val before = settings.value
+        update { it.withUserRule(domain, block) }
+        return RuleEdit(domain) { update { it.withUserRuleFrom(before, domain) } }
     }
 
     fun removeUserRule(domain: String) = update {
@@ -281,13 +290,11 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     }
 
     /** Adds or replaces a rule scoped to one app. */
-    fun setAppRule(domain: String, packageName: String, block: Boolean): String? {
+    fun setAppRule(domain: String, packageName: String, block: Boolean): RuleEdit? {
         val parsed = DomainInput.parse(domain) ?: return null
-        update { settings ->
-            val without = settings.appRules.filterNot { it.domain == parsed && it.packageName == packageName }
-            settings.copy(appRules = without + AppRule(parsed, packageName, block))
-        }
-        return parsed
+        val before = settings.value
+        update { it.withAppRule(parsed, packageName, block) }
+        return RuleEdit(parsed) { update { it.withAppRuleFrom(before, parsed, packageName) } }
     }
 
     fun removeAppRule(domain: String, packageName: String) = update { settings ->

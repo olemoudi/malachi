@@ -13,7 +13,7 @@
     <string name="action_check">Check</string>
     <string name="action_enable">Turn on</string>
     <string name="action_pause">Pause</string>
-    <string name="action_pause_15">Pause for 15 minutes</string>
+    <string name="pause_title">Pause the filter for how long?</string>
     <string name="action_resume">Resume</string>
     <string name="action_stop">Stop</string>
     <string name="action_block">Block</string>
@@ -51,6 +51,7 @@
     <string name="nav_lists">Blocklists</string>
     <string name="nav_activity">Activity</string>
     <string name="nav_activity_subtitle">What each app has been looking up</string>
+    <string name="nav_activity_busiest">Today: %1$s, %2$s blocked</string>
     <string name="nav_rules">My rules</string>
     <string name="nav_settings">Settings</string>
     <string name="nav_settings_subtitle">Blocking, DNS server, updates</string>
@@ -100,7 +101,7 @@
     <string name="app_detail_filtered_subtitle">When off, this app is left alone entirely — Malachi never sees what it looks up.</string>
     <string name="app_detail_rules_title">Rules for this app</string>
     <string name="app_detail_rules_hint">These beat your global rules and every blocklist, for this app only.</string>
-    <string name="app_detail_seen_title">Most looked up</string>
+    <string name="app_detail_seen_title">What it looked up</string>
     <string name="app_detail_seen_hint">What this app has actually been resolving. Tap an icon to write a rule for it.</string>
     <string name="app_detail_seen_empty">Nothing seen from this app yet. Open it and come back.</string>
 
@@ -241,6 +242,13 @@
 
     <!-- Settings: what a blocked lookup answers -->
     <string name="settings_block_answer_title">Answer for blocked lookups</string>
+    <string name="settings_advanced">Advanced</string>
+    <string name="settings_advanced_hint">How refusals are answered, and where the lookups that are allowed through are sent.</string>
+    <string name="settings_advanced_row">Blocking and DNS</string>
+    <string name="block_answer_null_short">0.0.0.0</string>
+    <string name="block_answer_nxdomain_short">NXDOMAIN</string>
+    <string name="block_answer_refused_short">REFUSED</string>
+    <string name="upstream_system_short">System DNS</string>
     <string name="settings_block_answer_hint">What an app is told when Malachi refuses a domain. If something behaves oddly, this is the first thing to try.</string>
     <string name="block_answer_null">Empty address</string>
     <string name="block_answer_null_hint">The app believes the name resolved and fails to connect. Most ad code gives up quietly. Recommended.</string>
@@ -404,6 +412,28 @@
     <string name="stats_apps_seen">%1$d apps looked something up</string>
     <string name="activity_live_title">Live log</string>
     <string name="activity_live_hint">The last few hundred lookups. Held in memory only, and gone when the filter stops.</string>
+    <string name="activity_tab_live">Live</string>
+    <string name="activity_tab_stats">Statistics</string>
+    <string name="activity_recent_title">Just now</string>
+    <string name="activity_recent_hint">The apps that looked something up most recently. Tap one to see what it asked for.</string>
+    <string name="action_open_app_detail">Open %1$s</string>
+    <string name="app_detail_order_recent">Recent</string>
+    <string name="app_detail_order_frequent">Most asked</string>
+    <string name="app_detail_order_blocked">Blocked</string>
+    <string name="app_detail_seen_none_blocked">Nothing from this app has been blocked.</string>
+    <string name="time_just_now">a moment ago</string>
+    <string name="time_last_seen">last seen %1$s</string>
+    <string name="verdict_retrying">Retrying — %1$d times in %2$s</string>
+    <string name="domain_excepted_by">Excepted by</string>
+    <string name="stats_top_domains">Most blocked domains</string>
+    <string name="stats_top_domains_hint">Since the filter started, across every app. Tap one to see who has been asking for it.</string>
+    <string name="app_detail_system_info">App info</string>
+    <string name="app_detail_system_info_hint">Android\'s own page for this app — battery, data and permissions.</string>
+    <string name="action_undo">Undo</string>
+    <string name="rule_added_blocked">Blocking %1$s</string>
+    <string name="rule_added_allowed">Allowing %1$s</string>
+    <string name="rule_added_blocked_in">Blocking %1$s in %2$s</string>
+    <string name="rule_added_allowed_in">Allowing %1$s in %2$s</string>
 
     <string name="filter_notification_starting">Starting the filter…</string>
 
@@ -411,6 +441,10 @@
     <string name="update_found_text">Installing it now. Tap to open Malachi.</string>
 
     <!-- Counts -->
+    <plurals name="domain_on_lists">
+        <item quantity="one">On %d list</item>
+        <item quantity="other">On %d lists</item>
+    </plurals>
     <plurals name="apps_summary_excluded">
         <item quantity="one">%d app excluded</item>
         <item quantity="other">%d apps excluded</item>

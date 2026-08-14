@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +46,7 @@ import dev.malachi.data.AppScopeMode
 import dev.malachi.data.InstalledApp
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.AppIcon
+import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.theme.Tokens
@@ -145,7 +145,7 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
                     )
                     // A chip rather than a switch card: one line instead of three, and the
                     // filtered-or-not state is what it has to say.
-                    FilterChip(
+                    MalachiFilterChip(
                         selected = showSystem,
                         onClick = { showSystem = !showSystem },
                         label = { Text(stringResource(R.string.apps_show_system)) },

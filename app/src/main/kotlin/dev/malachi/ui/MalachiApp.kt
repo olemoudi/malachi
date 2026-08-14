@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import dev.malachi.lists.BlocklistCategory
 import dev.malachi.ui.screens.AboutScreen
 import dev.malachi.ui.screens.ActivityScreen
+import dev.malachi.ui.screens.AdvancedSettingsScreen
 import dev.malachi.ui.screens.AppDetailScreen
 import dev.malachi.ui.screens.AppsScreen
 import dev.malachi.ui.screens.DebugLogScreen
@@ -44,6 +45,7 @@ sealed interface Screen {
     data object Activity : Screen
     data object Rules : Screen
     data object Settings : Screen
+    data object AdvancedSettings : Screen
     data object DebugLog : Screen
     data object About : Screen
 }
@@ -136,9 +138,11 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
                     Screen.Settings -> SettingsScreen(
                         vm = vm,
                         onBack = ::back,
+                        onOpenAdvanced = { go(Screen.AdvancedSettings) },
                         onOpenDebugLog = { go(Screen.DebugLog) },
                         onOpenAbout = { go(Screen.About) },
                     )
+                    Screen.AdvancedSettings -> AdvancedSettingsScreen(vm, onBack = ::back)
                     Screen.DebugLog -> DebugLogScreen(onBack = ::back)
                     Screen.About -> AboutScreen(vm, onBack = ::back)
                 }

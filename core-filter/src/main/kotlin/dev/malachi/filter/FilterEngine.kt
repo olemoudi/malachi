@@ -36,6 +36,12 @@ data class AppDomainRule(
     val block: Boolean,
 )
 
+/** Which subscribed lists carry a domain, by title. See [FilterEngine.listsCovering]. */
+data class ListCoverage(
+    val blocking: List<String> = emptyList(),
+    val allowing: List<String> = emptyList(),
+)
+
 /** One subscribed list, compiled. [allow] holds its `@@` exceptions. */
 data class CompiledList(
     val id: String,
@@ -94,6 +100,27 @@ class FilterEngine(
         blockedBy?.let { return Verdict(blocked = true, source = RuleSource.LIST, detail = it.title) }
 
         return Verdict.ALLOWED
+    }
+
+    /**
+     * Every subscribed list with an opinion about [host]: those that block it, and those that
+     * carry an exception for it.
+     *
+     * [decide] deliberately names only one — a verdict has one cause and reporting four would
+     * make the log unreadable — but the question a person has before writing an exception is a
+     * different one. A domain on four lists is one four separate maintainers think is a tracker;
+     * a domain on one is a judgement call, and possibly a mistake. That is the difference
+     * between allowing it confidently and allowing it nervously.
+     *
+     * Off the hot path, and allocating: this is answered when somebody taps a row, never per
+     * lookup.
+     */
+    fun listsCovering(host: String): ListCoverage {
+        val h = DomainIndex.normalizeHost(host) ?: return ListCoverage()
+        return ListCoverage(
+            blocking = lists.filter { it.block.matches(h) }.map { it.title },
+            allowing = lists.filter { it.allow.matches(h) }.map { it.title },
+        )
     }
 
     /**
