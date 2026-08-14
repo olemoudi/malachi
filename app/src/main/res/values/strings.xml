@@ -316,7 +316,7 @@
     <string name="settings_query_log">Record the query log</string>
     <string name="settings_query_log_hint">Kept in memory only, never written to disk, and gone when the filter stops. Counters keep working either way.</string>
     <string name="settings_appearance_title">Appearance</string>
-    <string name="theme_system">Follow the system</string>
+    <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="settings_updates_title">App updates</string>

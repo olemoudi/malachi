@@ -24,9 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +52,7 @@ import dev.malachi.ui.components.PrimaryAction
 import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
+import dev.malachi.ui.components.SegmentedChoice
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.UndoBarHost
@@ -156,32 +154,17 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String)
                 }
             }
 
-            SingleChoiceSegmentedButtonRow(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = spacing.screen, vertical = spacing.xs),
-            ) {
-                ActivityTab.entries.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = tab == option,
-                        onClick = { tab = option },
-                        shape = SegmentedButtonDefaults.itemShape(index, ActivityTab.entries.size),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                        icon = {},
-                    ) {
-                        Text(
-                            stringResource(
-                                if (option == ActivityTab.LIVE) R.string.activity_tab_live else R.string.activity_tab_stats,
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
+            SegmentedChoice(
+                options = ActivityTab.entries,
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.padding(horizontal = spacing.screen, vertical = spacing.xs),
+                label = {
+                    stringResource(
+                        if (it == ActivityTab.LIVE) R.string.activity_tab_live else R.string.activity_tab_stats,
+                    )
+                },
+            )
 
             LazyColumn(
                 Modifier.fillMaxSize(),

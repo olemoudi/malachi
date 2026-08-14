@@ -28,8 +28,8 @@ import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.RestoreConfirmation
 import dev.malachi.ui.rememberBackupActions
 import dev.malachi.ui.components.CardGroup
-import dev.malachi.ui.components.ChoiceRow
 import dev.malachi.ui.components.NavRow
+import dev.malachi.ui.components.SegmentedChoice
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.SwitchRow
 import dev.malachi.ui.components.MalachiTopBar
@@ -165,17 +165,15 @@ fun SettingsScreen(
 
             item { SectionHeader(stringResource(R.string.settings_appearance_title)) }
             item {
-                CardGroup {
-                    val modes = ThemeMode.entries
-                    modes.forEachIndexed { index, mode ->
-                        ChoiceRow(
-                            title = stringResource(themeTitle(mode)),
-                            selected = theme == mode,
-                            onSelect = { vm.setThemeMode(mode) },
-                            position = cardPosition(index, modes.size),
-                        )
-                    }
-                }
+                // One row rather than three cards. Every other setting on this screen carries a
+                // sentence about what it costs, and this one costs nothing — three full-width
+                // cards with a radio button apiece was most of a screenful spent on a word.
+                SegmentedChoice(
+                    options = ThemeMode.entries,
+                    selected = theme,
+                    onSelect = vm::setThemeMode,
+                    label = { stringResource(themeTitle(it)) },
+                )
             }
 
             item {

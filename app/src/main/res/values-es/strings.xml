@@ -315,7 +315,7 @@
     <string name="settings_query_log">Registrar las consultas</string>
     <string name="settings_query_log_hint">Se guarda solo en memoria, nunca en disco, y desaparece al detener el filtro. Los contadores siguen funcionando igualmente.</string>
     <string name="settings_appearance_title">Apariencia</string>
-    <string name="theme_system">Seguir al sistema</string>
+    <string name="theme_system">Sistema</string>
     <string name="theme_light">Claro</string>
     <string name="theme_dark">Oscuro</string>
     <string name="settings_updates_title">Actualizaciones de la app</string>

@@ -22,9 +22,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +45,7 @@ import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.AppIcon
 import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
+import dev.malachi.ui.components.SegmentedChoice
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.theme.Tokens
 import kotlinx.coroutines.launch
@@ -95,31 +93,12 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
         ) {
             item {
                 Column {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        AppScopeMode.entries.forEachIndexed { index, mode ->
-                            SegmentedButton(
-                                selected = settings.scopeMode == mode,
-                                onClick = { vm.setScopeMode(mode) },
-                                shape = SegmentedButtonDefaults.itemShape(index, AppScopeMode.entries.size),
-                                // Teal, not the default amber container: this palette keeps
-                                // amber for counts and warnings, and the selected mode is
-                                // neither — it is the same accent every other choice uses.
-                                colors = SegmentedButtonDefaults.colors(
-                                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ),
-                                // No check glyph: it costs a quarter of the label's width, and
-                                // the segment is already filled when it is the selected one.
-                                icon = {},
-                            ) {
-                                Text(
-                                    stringResource(modeLabel(mode)),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
+                    SegmentedChoice(
+                        options = AppScopeMode.entries,
+                        selected = settings.scopeMode,
+                        onSelect = vm::setScopeMode,
+                        label = { stringResource(modeLabel(it)) },
+                    )
                     Text(
                         stringResource(modeHint(settings.scopeMode)),
                         style = MaterialTheme.typography.bodySmall,
