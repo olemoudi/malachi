@@ -1,5 +1,6 @@
 package dev.malachi.filter
 
+import dev.malachi.filter.dns.DnsMessage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -34,6 +35,111 @@ class QueryLogTest {
         assertEquals(1, records.size)
         assertEquals(3, records.single().count)
         assertEquals(2L, records.single().lastSeenMs)
+    }
+
+    @Test
+    fun `one resolution is one sighting, however many queries it took`() {
+        // Reported from a phone: nearly every row said "seen 2 times" the moment it appeared.
+        // One name resolved once is an A and an AAAA, and both used to be counted.
+        QueryLog.record("ads.example.com", "com.example.game", blocked(), DnsMessage.TYPE_A, nowMs = 0)
+        QueryLog.record("ads.example.com", "com.example.game", blocked(), DnsMessage.TYPE_AAAA, nowMs = 4)
+        val record = snapshot().records.single()
+        assertEquals(1, record.count)
+        assertEquals(4L, record.lastSeenMs, "the companion still says when the name was last seen")
+    }
+
+    @Test
+    fun `a retry is counted even inside the burst window`() {
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 0)
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_AAAA, nowMs = 1)
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 300)
+        assertEquals(2, snapshot().records.single().count)
+    }
+
+    @Test
+    fun `the statistics are told once per lookup, not once per query`() {
+        // The return value is what the tunnel gates StatsStore.record on, so the persisted
+        // counters and the live log cannot disagree about the same traffic by a factor of two.
+        assertTrue(QueryLog.record("a.example.com", "com.a", allowed, DnsMessage.TYPE_A, nowMs = 0))
+        assertFalse(QueryLog.record("a.example.com", "com.a", allowed, DnsMessage.TYPE_AAAA, nowMs = 1))
+        assertEquals(1, snapshot().total)
+    }
+
+    @Test
+    fun `counters collapse the burst with recording switched off too`() {
+        // With no records to compare against, the burst window is the only thing that knows.
+        QueryLog.recording = false
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 0)
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_AAAA, nowMs = 2)
+        assertEquals(1, snapshot().total)
+        assertEquals(1, snapshot().blocked)
+    }
+
+    @Test
+    fun `a first sighting is one lookup even mid-burst`() {
+        // Switching the log on between the two halves of a burst leaves a record with no history
+        // and a burst that says "already counted". The row must still say it was seen once.
+        QueryLog.recording = false
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 0)
+        QueryLog.recording = true
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_AAAA, nowMs = 1)
+        assertEquals(1, snapshot().records.single().count)
+    }
+
+    // ---- how hard a domain is being asked for ------------------------------------------
+
+    @Test
+    fun `a record remembers when it was first seen`() {
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 1_000)
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 5_000)
+        val record = snapshot().records.single()
+        assertEquals(1_000L, record.firstSeenMs)
+        assertEquals(4_000L, record.spanMs)
+    }
+
+    @Test
+    fun `a burst of lookups in a short span reads as retrying`() {
+        repeat(QueryRecord.RETRY_COUNT) { i ->
+            QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = i * 1_000L)
+        }
+        assertTrue(snapshot().records.single().retrying)
+    }
+
+    @Test
+    fun `the same count spread over hours does not`() {
+        // The whole point of keeping the span: twelve lookups over an afternoon is an app doing
+        // its job, and the screen used to draw it identically to twelve in half a minute.
+        repeat(QueryRecord.RETRY_COUNT) { i ->
+            QueryLog.record("cdn.example.com", "com.a", allowed, DnsMessage.TYPE_A, nowMs = i * 600_000L)
+        }
+        assertFalse(snapshot().records.single().retrying)
+    }
+
+    @Test
+    fun `one sighting is never a retry`() {
+        QueryLog.record("ads.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = 1_000)
+        val record = snapshot().records.single()
+        assertEquals(0L, record.spanMs)
+        assertFalse(record.retrying)
+    }
+
+    @Test
+    fun `the blocked ranking sums a domain across the apps asking for it`() {
+        // The one ranking the persisted statistics can never produce: they hold counts per app
+        // and no domain at all, on purpose.
+        repeat(3) { i -> QueryLog.record("tracker.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = i * 1_000L) }
+        repeat(2) { i -> QueryLog.record("tracker.example.com", "com.b", blocked(), DnsMessage.TYPE_A, nowMs = i * 1_000L) }
+        repeat(4) { i -> QueryLog.record("other.example.com", "com.a", blocked(), DnsMessage.TYPE_A, nowMs = i * 1_000L) }
+        QueryLog.record("fine.example.com", "com.a", allowed, DnsMessage.TYPE_A, nowMs = 0)
+
+        val top = snapshot().topBlockedDomains(5)
+        assertEquals(listOf("tracker.example.com" to 5, "other.example.com" to 4), top)
+    }
+
+    @Test
+    fun `the blocked ranking ignores what was allowed`() {
+        repeat(9) { i -> QueryLog.record("fine.example.com", "com.a", allowed, DnsMessage.TYPE_A, nowMs = i * 1_000L) }
+        assertTrue(snapshot().topBlockedDomains(5).isEmpty())
     }
 
     @Test

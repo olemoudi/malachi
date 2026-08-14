@@ -756,9 +756,13 @@ class MalachiVpnService : VpnService() {
 
         val packageName = if (attributionNeeded) ownerPackage(udp) else null
         val verdict = app.filterRepository.decide(question.name, packageName)
-        QueryLog.record(question.name, packageName, verdict)
+        // One resolution is two or three queries — A, AAAA, and HTTPS from a browser — and
+        // counting each of them made a domain somebody looked up once report itself as seen
+        // twice. The log decides which of them began the lookup; the statistics follow it, or
+        // the two would disagree about the same traffic by a factor of two.
+        val newLookup = QueryLog.record(question.name, packageName, verdict, question.type)
         // Counts only, never a domain: this is the half that survives a restart.
-        app.statsStore.record(packageName, verdict.blocked)
+        if (newLookup) app.statsStore.record(packageName, verdict.blocked)
 
         if (verdict.blocked) {
             if (tracing()) DebugLog.trace(TAG, "${question.name}: blocked (${verdict.detail})")

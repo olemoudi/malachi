@@ -1,10 +1,17 @@
 package dev.malachi.filter
 
+import dev.malachi.filter.dns.DnsMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** One (app, domain) pair the tunnel has seen, with the verdict it got most recently. */
+/**
+ * One (app, domain) pair the tunnel has seen, with the verdict it got most recently.
+ *
+ * [count] is **lookups**, not DNS queries: one resolution is an `A` and an `AAAA` and sometimes
+ * an `HTTPS`, and counting those separately made every row claim to have been seen twice the
+ * first time anybody looked at it. See [LookupBursts].
+ */
 data class QueryRecord(
     val domain: String,
     val packageName: String?,
@@ -13,7 +20,32 @@ data class QueryRecord(
     val detail: String,
     val count: Int,
     val lastSeenMs: Long,
-)
+    /** When this pair was first seen, which is what turns [count] into a rate. */
+    val firstSeenMs: Long = lastSeenMs,
+) {
+    /** How long the sightings span. Zero when there has only been one. */
+    val spanMs: Long get() = (lastSeenMs - firstSeenMs).coerceAtLeast(0)
+
+    /**
+     * True when this reads as a client retrying rather than an app going about its business.
+     *
+     * A count on its own cannot tell the two apart — twelve lookups over six hours and twelve
+     * over thirty seconds were displayed identically, and only one of them is worth waking up
+     * for. This is the second number the screen never had, and it is the whole answer to "is
+     * this app hammering something".
+     *
+     * Deliberately a plain threshold rather than a rate: a rate computed over a span of
+     * milliseconds is a very large number that means nothing, and the question being asked is
+     * only ever "is this normal or is it a loop".
+     */
+    val retrying: Boolean get() = count >= RETRY_COUNT && spanMs in 1..RETRY_WINDOW_MS
+
+    companion object {
+        /** Sightings within [RETRY_WINDOW_MS] that make a domain worth marking. */
+        const val RETRY_COUNT = 10
+        const val RETRY_WINDOW_MS = 60_000L
+    }
+}
 
 /**
  * What the tunnel has seen, as an immutable value handed to the UI. Building one costs a copy of
@@ -38,6 +70,24 @@ data class QueryLogState(
         records.groupBy { it.packageName }.entries
             .sortedByDescending { entry -> entry.value.maxOf { it.lastSeenMs } }
             .map { it.key to it.value.sortedByDescending { r -> r.lastSeenMs } }
+
+    /**
+     * The domains refused most often, summed across every app that asked for one.
+     *
+     * The statistics on disk can never answer this — they hold counts per app and no domain at
+     * all, by design — so the only place the question "*what* is being blocked, not who by" can
+     * be asked is here, in memory, for as long as the filter has been running. Which is also why
+     * it is worth asking: it is the one ranking that names the tracker rather than its host.
+     */
+    fun topBlockedDomains(limit: Int): List<Pair<String, Int>> =
+        records.asSequence()
+            .filter { it.blocked }
+            .groupingBy { it.domain }
+            .fold(0) { total, record -> total + record.count }
+            .entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { it.key to it.value }
 }
 
 /**
@@ -83,6 +133,12 @@ object QueryLog {
     @Volatile private var lastPublishedNanos = 0L
 
     private val lock = Any()
+
+    /**
+     * What turns two or three DNS queries back into the one lookup a person made. Lives outside
+     * [recording] because the counters and the statistics need it just as much as the rows do.
+     */
+    private val bursts = LookupBursts()
 
     /**
      * Access-ordered, so a repeat sighting moves to the front and the eldest entry is evicted
@@ -137,18 +193,27 @@ object QueryLog {
     @Volatile var recording: Boolean = true
 
     /**
-     * Notes one decided lookup. Called from the tunnel's read loop, so it stays cheap and never
+     * Notes one decided query. Called from the tunnel's read loop, so it stays cheap and never
      * throws: a failure to log must not become a failure to resolve.
+     *
+     * Returns **true when this query began a new lookup** rather than continuing the one already
+     * counted — the `AAAA` that follows an `A` is the same lookup and must not be counted twice,
+     * here or in the statistics the caller keeps. See [LookupBursts].
      */
     fun record(
         domain: String,
         packageName: String?,
         verdict: Verdict,
+        type: Int = DnsMessage.TYPE_A,
         nowMs: Long = System.currentTimeMillis(),
-    ) {
+    ): Boolean {
+        var fresh: Boolean
         synchronized(lock) {
-            total++
-            if (verdict.blocked) blocked++
+            fresh = bursts.beginsLookup(burstKey(packageName, domain), type, nowMs)
+            if (fresh) {
+                total++
+                if (verdict.blocked) blocked++
+            }
             if (recording) {
                 val key = key(packageName, domain)
                 val existing = records[key]
@@ -165,8 +230,12 @@ object QueryLog {
                     blocked = verdict.blocked,
                     source = verdict.source,
                     detail = verdict.detail,
-                    count = (existing?.count ?: 0) + 1,
+                    // A first sighting is one lookup whatever the burst says: the record can be
+                    // absent while a burst is in flight, because the log was switched on between
+                    // the two halves of it.
+                    count = if (existing == null) 1 else existing.count + if (fresh) 1 else 0,
                     lastSeenMs = nowMs,
+                    firstSeenMs = existing?.firstSeenMs ?: nowMs,
                 )
             }
         }
@@ -178,13 +247,14 @@ object QueryLog {
         // which is exactly what happens when an app launches — turns that into hundreds of
         // recompositions a second on the main thread. The screen does not need to be more
         // current than the eye.
-        if (_state.subscriptionCount.value == 0) return
+        if (_state.subscriptionCount.value == 0) return fresh
         // A monotonic clock, not the wall clock: an NTP correction that steps the wall clock
         // backwards would otherwise stop the screen updating until real time caught up.
         val now = System.nanoTime()
-        if (now - lastPublishedNanos < MIN_PUBLISH_INTERVAL_NANOS) return
+        if (now - lastPublishedNanos < MIN_PUBLISH_INTERVAL_NANOS) return fresh
         lastPublishedNanos = now
         publish()
+        return fresh
     }
 
     /** Rebuilds the immutable snapshot the UI reads. Call on subscribe; otherwise it is skipped. */
@@ -216,6 +286,7 @@ object QueryLog {
         synchronized(lock) {
             records.clear()
             heldPerApp.clear()
+            bursts.clear()
             blocked = 0
             total = 0
             sinceMs = nowMs
@@ -224,4 +295,14 @@ object QueryLog {
     }
 
     private fun key(packageName: String?, domain: String) = "${packageName.orEmpty()}|$domain"
+
+    /**
+     * The same identity as [key], as an int and without building a string.
+     *
+     * [record] is reached once per query whether or not anything is being written down, and the
+     * burst window needs the identity in both cases — so the path with the query log switched
+     * off must not be made to allocate a key it has no other use for.
+     */
+    private fun burstKey(packageName: String?, domain: String): Int =
+        31 * (packageName?.hashCode() ?: 0) + domain.hashCode()
 }
