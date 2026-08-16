@@ -475,6 +475,37 @@
     <string name="trace_rule_blocked">You blocked it here</string>
     <string name="trace_rule_removed">You removed the rule</string>
 
+    <!-- The guided search -->
+    <string name="guide_start_title">Find it step by step</string>
+    <string name="guide_start_body">Malachi allows everything it was refusing, then puts the addresses back one at a time and asks you after each. The moment the app breaks again, the one address that is refused is the one to blame. You never have to read a domain until the end.</string>
+    <string name="guide_start_action">Walk me through it</string>
+    <string name="guide_capture_title">Step 1 — make it fail</string>
+    <string name="guide_capture_body">Open %1$s and do the thing that does not work. Malachi is writing down every address it refuses. Then come back here.</string>
+    <string name="guide_action_open">Open %1$s</string>
+    <string name="guide_action_captured">I have done that</string>
+    <string name="guide_nothing_title">Nothing was refused</string>
+    <string name="guide_nothing_body">Malachi refused nothing at all for %1$s while you were in it. Either it never got as far as the part that fails, or a blocked address is not the cause — the lookups with no answer, below, are the other thing that hangs an app.</string>
+    <string name="guide_baseline_title">Step 2 — is Malachi the cause?</string>
+    <string name="guide_baseline_body">Nothing is being refused for %1$s any more. Force-stop it, open it again and do the same thing. Did it work this time?</string>
+    <string name="guide_testing_title">Step %1$d of %2$d</string>
+    <string name="guide_testing_body">Only %1$s is refused now — everything else is allowed. Force-stop %2$s, open it and repeat. Did it work this time?</string>
+    <string name="guide_action_force_stop">Force-stop it</string>
+    <string name="guide_answer_worked">It worked</string>
+    <string name="guide_answer_failed">It failed</string>
+    <string name="guide_cache_note">Force-stopping it matters: Android can hold on to an address for a minute or two after a change, so if an answer surprises you, start the search again.</string>
+    <string name="guide_action_restart">Start the search again</string>
+    <string name="guide_action_leave">Leave and undo</string>
+    <string name="guide_action_finish">Finish</string>
+    <string name="guide_culprit_title">Found it</string>
+    <string name="guide_culprit_body">%1$s is the address that breaks %2$s: with only that one refused, it failed. Allowing it in this app leaves it blocked everywhere else on the phone.</string>
+    <string name="guide_culprit_action">Allow it in %1$s</string>
+    <string name="guide_ruled_out_title">Not the blocking</string>
+    <string name="guide_ruled_out_body">%1$s failed with nothing refused at all, so whatever is wrong with it, Malachi is not what is doing it. Everything is being put back as it was.</string>
+    <string name="guide_exhausted_title">No single address explains it</string>
+    <string name="guide_exhausted_body">Each of the %1$d addresses was refused on its own and %2$s went on working. It may need more than one of them at once, or the failure may not happen every time. Allowing all of them is still far narrower than taking %2$s out of the filter.</string>
+    <string name="guide_exhausted_keep">Allow all of them</string>
+    <string name="guide_truncated">%1$d addresses were refused; the search tests the %2$d it was asked for most.</string>
+
     <string name="filter_notification_starting">Starting the filter…</string>
 
     <string name="update_found_title">Malachi %1$s is available</string>
@@ -512,6 +543,10 @@
     <plurals name="diagnose_queries">
         <item quantity="one">asked once</item>
         <item quantity="other">asked %d times</item>
+    </plurals>
+    <plurals name="guide_refused_so_far">
+        <item quantity="one">%d address refused so far</item>
+        <item quantity="other">%d addresses refused so far</item>
     </plurals>
     <plurals name="diagnose_allowed_count">
         <item quantity="one">%1$d domain allowed in %2$s</item>

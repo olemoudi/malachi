@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,6 +48,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
+import dev.malachi.data.GuideStep
+import dev.malachi.data.GuidedSearch
 import dev.malachi.data.InstalledApp
 import dev.malachi.filter.AppTrace
 import dev.malachi.filter.AppTraceState
@@ -348,6 +352,34 @@ private fun TraceSession(
 
                 item { SummaryRow(trace = if (mine) trace else AppTraceState()) }
 
+                // While a guided search is running it owns the app's exceptions, flipping up to
+                // ten of them per round. The manual switches below would be the user and the
+                // search editing the same rules from two places at once, so only one of the two
+                // is on screen at a time.
+                val guide = settings.guide?.takeIf { it.packageName == packageName }
+                if (guide != null) {
+                    item {
+                        GuideCard(
+                            guide = guide,
+                            appLabel = label,
+                            refusedSoFar = trace.suspects(Int.MAX_VALUE).count { it.source == RuleSource.LIST },
+                            onOpenApp = { vm.openApp(packageName) },
+                            onAppInfo = { vm.openAppInfo(packageName) },
+                            onCaptured = vm::guideCaptured,
+                            onAnswered = vm::guideAnswered,
+                            onRestart = vm::guideRestart,
+                            onAcceptFix = vm::guideAcceptFix,
+                            onKeepAll = vm::guideKeepAll,
+                            onLeave = vm::guideCancel,
+                        )
+                    }
+                } else {
+
+                // Offered whether or not anything has been captured yet: the search's own first
+                // step is "go and make it fail", so requiring a failure before it could be
+                // started would make its most useful instruction unreachable.
+                item { GuideOffer(onStart = { vm.startGuide(packageName) }) }
+
                 item {
                     SectionHeader(
                         title = stringResource(R.string.diagnose_suspects_title),
@@ -416,6 +448,8 @@ private fun TraceSession(
                         }
                     }
                 }
+
+                } // end of the manual controls; the timeline below belongs to both
 
                 item {
                     SectionHeader(
@@ -535,6 +569,213 @@ private fun SessionCard(
             }
         }
     }
+}
+
+/** The offer to stop reading a list of domains and be walked through it instead. */
+@Composable
+private fun GuideOffer(onStart: () -> Unit) {
+    val spacing = Tokens.spacing
+    MalachiCard(color = MaterialTheme.colorScheme.primaryContainer) {
+        Column(Modifier.padding(spacing.lg), verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+            Text(
+                stringResource(R.string.guide_start_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                stringResource(R.string.guide_start_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            PrimaryAction(
+                text = stringResource(R.string.guide_start_action),
+                onClick = onStart,
+                onContainer = MaterialTheme.colorScheme.onPrimaryContainer,
+                container = MaterialTheme.colorScheme.primaryContainer,
+            )
+        }
+    }
+}
+
+/**
+ * The one thing to do next, and the two answers to it.
+ *
+ * Every step of the search is the same shape on purpose — a sentence, a way to force-stop the app,
+ * and *did it work?* — because the person using it is not debugging DNS, they are trying to make
+ * an app work. Nothing here asks them to read a domain until the last card, which names one.
+ */
+@Composable
+private fun GuideCard(
+    guide: GuidedSearch,
+    appLabel: String,
+    refusedSoFar: Int,
+    onOpenApp: () -> Unit,
+    onAppInfo: () -> Unit,
+    onCaptured: () -> Unit,
+    onAnswered: (Boolean) -> Unit,
+    onRestart: () -> Unit,
+    onAcceptFix: () -> Unit,
+    onKeepAll: () -> Unit,
+    onLeave: () -> Unit,
+) {
+    val spacing = Tokens.spacing
+    val done = guide.step == GuideStep.CULPRIT ||
+        guide.step == GuideStep.RULED_OUT ||
+        guide.step == GuideStep.EXHAUSTED ||
+        guide.step == GuideStep.NOTHING_REFUSED
+    val container = if (done) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        MaterialTheme.colorScheme.primaryContainer
+    }
+    val onContainer = if (done) {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    } else {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    }
+
+    MalachiCard(color = container) {
+        Column(Modifier.padding(spacing.lg), verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+            Text(
+                when (guide.step) {
+                    GuideStep.CAPTURE -> stringResource(R.string.guide_capture_title)
+                    GuideStep.NOTHING_REFUSED -> stringResource(R.string.guide_nothing_title)
+                    GuideStep.BASELINE -> stringResource(R.string.guide_baseline_title)
+                    GuideStep.TESTING -> stringResource(R.string.guide_testing_title, guide.round, guide.candidates.size)
+                    GuideStep.CULPRIT -> stringResource(R.string.guide_culprit_title)
+                    GuideStep.RULED_OUT -> stringResource(R.string.guide_ruled_out_title)
+                    GuideStep.EXHAUSTED -> stringResource(R.string.guide_exhausted_title)
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = onContainer,
+            )
+            Text(
+                when (guide.step) {
+                    GuideStep.CAPTURE -> stringResource(R.string.guide_capture_body, appLabel)
+                    GuideStep.NOTHING_REFUSED -> stringResource(R.string.guide_nothing_body, appLabel)
+                    GuideStep.BASELINE -> stringResource(R.string.guide_baseline_body, appLabel)
+                    GuideStep.TESTING -> stringResource(R.string.guide_testing_body, guide.testing, appLabel)
+                    GuideStep.CULPRIT -> stringResource(R.string.guide_culprit_body, guide.culprit, appLabel)
+                    GuideStep.RULED_OUT -> stringResource(R.string.guide_ruled_out_body, appLabel)
+                    GuideStep.EXHAUSTED -> stringResource(R.string.guide_exhausted_body, guide.candidates.size, appLabel)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = onContainer,
+            )
+
+            // The one number that says the capture is working, so nobody has to guess whether
+            // leaving the app open for another minute would help.
+            if (guide.step == GuideStep.CAPTURE) {
+                Text(
+                    pluralStringResource(R.plurals.guide_refused_so_far, refusedSoFar, refusedSoFar),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = onContainer,
+                )
+            }
+            // Never silent about the cap: a search that quietly tested ten of forty and then said
+            // "none of them" would be reporting on names it never looked at.
+            if (guide.truncated) {
+                Text(
+                    stringResource(R.string.guide_truncated, guide.found, guide.candidates.size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onContainer,
+                )
+            }
+            // The method's one real weakness, said where it can be acted on rather than buried.
+            if (guide.step == GuideStep.BASELINE || guide.step == GuideStep.TESTING) {
+                Text(
+                    stringResource(R.string.guide_cache_note),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onContainer,
+                )
+            }
+
+            when (guide.step) {
+                GuideStep.CAPTURE -> {
+                    GuideActions {
+                        PrimaryAction(
+                            text = stringResource(R.string.guide_action_open, appLabel),
+                            onClick = onOpenApp,
+                            onContainer = onContainer,
+                            container = container,
+                        )
+                        SecondaryAction(
+                            text = stringResource(R.string.guide_action_captured),
+                            onClick = onCaptured,
+                            onContainer = onContainer,
+                        )
+                    }
+                }
+                GuideStep.BASELINE, GuideStep.TESTING -> {
+                    GuideActions {
+                        SecondaryAction(
+                            text = stringResource(R.string.guide_action_force_stop),
+                            onClick = onAppInfo,
+                            onContainer = onContainer,
+                        )
+                    }
+                    GuideActions {
+                        PrimaryAction(
+                            text = stringResource(R.string.guide_answer_worked),
+                            onClick = { onAnswered(true) },
+                            onContainer = onContainer,
+                            container = container,
+                        )
+                        SecondaryAction(
+                            text = stringResource(R.string.guide_answer_failed),
+                            onClick = { onAnswered(false) },
+                            onContainer = onContainer,
+                        )
+                    }
+                }
+                GuideStep.CULPRIT -> {
+                    GuideActions {
+                        PrimaryAction(
+                            text = stringResource(R.string.guide_culprit_action, appLabel),
+                            onClick = onAcceptFix,
+                            onContainer = onContainer,
+                            container = container,
+                        )
+                    }
+                }
+                GuideStep.EXHAUSTED -> {
+                    GuideActions {
+                        PrimaryAction(
+                            text = stringResource(R.string.guide_exhausted_keep),
+                            onClick = onKeepAll,
+                            onContainer = onContainer,
+                            container = container,
+                        )
+                    }
+                }
+                GuideStep.NOTHING_REFUSED, GuideStep.RULED_OUT -> Unit
+            }
+
+            GuideActions {
+                if (guide.step != GuideStep.CAPTURE && guide.step != GuideStep.NOTHING_REFUSED) {
+                    SecondaryAction(
+                        text = stringResource(R.string.guide_action_restart),
+                        onClick = onRestart,
+                        onContainer = onContainer,
+                    )
+                }
+                SecondaryAction(
+                    text = stringResource(
+                        if (done) R.string.guide_action_finish else R.string.guide_action_leave,
+                    ),
+                    onClick = onLeave,
+                    onContainer = onContainer,
+                )
+            }
+        }
+    }
+}
+
+/** A row of the guide's buttons, wrapping rather than clipping on a narrow screen. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GuideActions(content: @Composable () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.spacing.sm)) { content() }
 }
 
 /** Something that makes the timeline meaningless, and — where there is one — the way out. */

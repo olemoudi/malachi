@@ -617,6 +617,38 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **The user's own edits are written into the timeline**, from whichever screen they were made,
   which is what turns a wall of events into an experiment log.
 
+### The guided search (`GuidedSearch`)
+
+- **The method: allow everything, then put the refusals back one at a time.** The moment the app
+  breaks again, the one name refused right now is the only thing that changed, so it is the answer.
+  Nobody has to read a domain until the last card.
+- **One at a time and not by halves, on purpose.** A bisection is log₂(n) rounds instead of n, and
+  each round costs the user a force-stop and a repeat, so that is not nothing. It is still the
+  wrong trade: with exactly one name refused a failure names it outright, while with half the list
+  refused the result depends on there being exactly one culprit — and an app that needs two makes a
+  bisection converge confidently on a wrong answer. The cost is paid down by *ordering* instead:
+  candidates arrive ranked by how insistently the app asked.
+- **The baseline round is not optional and is not in the original sketch.** Allow everything and
+  ask once: if it still fails, the blocking was never the cause and the user is saved N restarts
+  chasing something that was never here. It is the cheapest round and the one that discards most.
+- **Every transition is a pure function of stored state, and the state is persisted.** The search
+  asks the user to leave Malachi and force-stop another app; on a phone short of memory this
+  process is not guaranteed to be the one that comes back, and a search that forgot its place at
+  step four of nine is worse than no search. Nothing about the step is stored as an enum —
+  `GuideStep` is derived — because an unknown enum value in the settings blob fails the decode of
+  the *whole* blob on an older install.
+- **A candidate is always a name a list refused, which is what makes the cleanup exact.** If a
+  per-app rule had matched, the verdict would have said `APP_RULE` and the name would never have
+  been a candidate — so removing every candidate's rule on the way out can never be deleting a
+  decision somebody made. Verified on a device: a hand-written exception survived a whole search
+  untouched.
+- **What the method cannot control is Android's DNS cache.** A name allowed during the baseline is
+  resolved and remembered, so re-refusing it in a later round may not take effect for a minute or
+  two and the round reads "it worked" about a name that is not innocent. Force-stopping the app
+  kills the app's own cache and connection pool, which is the dominant one; the platform's is not
+  reachable from here. The screen says so and offers *start the search again* — do not quietly
+  drop this caveat, and do not reach for a tunnel rebuild per round to flush it.
+
 ### Backup (the one thing that cannot be rebuilt)
 
 - **What a backup carries is decisions, never observations.** The rules somebody wrote, the lists

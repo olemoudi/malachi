@@ -147,6 +147,22 @@ object VpnController {
     }
 
     /**
+     * Launches another app, for the guided search's "go and make it fail" step.
+     *
+     * Best-effort by nature: plenty of the apps this filter covers have no launcher entry at all —
+     * a sync agent, a preinstalled service — and there is nothing to open. The caller is expected
+     * to leave a way forward that does not depend on it.
+     */
+    fun openApp(context: Context, packageName: String): Boolean = runCatching {
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrElse {
+        DebugLog.w(TAG, "could not launch $packageName", it)
+        false
+    }
+
+    /**
      * Starts the filter, preferring the way that costs the user nothing.
      *
      * A plain service start first, because `startForegroundService` is a promise to post a

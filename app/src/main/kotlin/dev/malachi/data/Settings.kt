@@ -223,6 +223,16 @@ data class MalachiSettings(
 
     /** Wall clock until which [diagnoseApp] is recorded; 0 when it isn't. See [diagnosing]. */
     val diagnoseUntilMs: Long = 0,
+
+    /**
+     * The guided search for the blocked name that breaks an app, or null when none is running.
+     *
+     * Persisted because it has to survive the very thing it asks for: the user leaves Malachi,
+     * force-stops another app, uses it, and comes back — and on a phone short of memory this
+     * process may not be the one that comes back. A search that forgot its own place at step four
+     * of nine would be worse than no search.
+     */
+    val guide: GuidedSearch? = null,
 ) {
     /** True while the diagnostics window is open. Checked per lookup, so it stays a comparison. */
     fun isDiagnosing(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < diagnosticsUntilMs

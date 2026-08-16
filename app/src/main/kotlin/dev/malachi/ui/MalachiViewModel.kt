@@ -17,6 +17,7 @@ import dev.malachi.data.BackupStore
 import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
 import dev.malachi.data.DomainInput
+import dev.malachi.data.GuidedSearch
 import dev.malachi.data.InstalledApp
 import dev.malachi.data.MalachiSettings
 import dev.malachi.data.ThemeMode
@@ -26,6 +27,7 @@ import dev.malachi.filter.AppTrace
 import dev.malachi.filter.AppTraceState
 import dev.malachi.filter.QueryLog
 import dev.malachi.filter.QueryLogState
+import dev.malachi.filter.RuleSource
 import dev.malachi.filter.TraceOutcome
 import dev.malachi.lists.ListUpdateWorker
 import dev.malachi.net.FilterWatchdogWorker
@@ -178,6 +180,11 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         VpnController.openAppInfo(app, packageName)
     }
 
+    /** Launches another app — the guided search's "go and make it fail" step. */
+    fun openApp(packageName: String) {
+        VpnController.openApp(app, packageName)
+    }
+
     /**
      * Starts the filter if the settings say it should be running and it isn't.
      *
@@ -229,6 +236,108 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     fun stopDiagnosing() = update { it.copy(diagnoseApp = "", diagnoseUntilMs = 0) }
 
     fun clearAppTrace() = AppTrace.clear()
+
+    // ---- the guided search ----------------------------------------------------------------
+
+    /**
+     * Starts the step-by-step search for the blocked name that breaks an app.
+     *
+     * The trace is cleared and its window re-armed: the first step is a capture, and a capture
+     * that began with the last half hour's lookups already in it would offer names the app asked
+     * for long before anybody was watching.
+     *
+     * None of the search's own rule edits are written into the timeline, deliberately. A round
+     * exempts up to ten names at once, so noting each would put a hundred rows of Malachi's own
+     * bookkeeping in front of the lookups the timeline exists to show — and the card above it
+     * already says exactly which step is running and what is refused.
+     */
+    fun startGuide(packageName: String) {
+        AppTrace.clear()
+        update { settings ->
+            settings.copy(
+                appRules = settings.guide?.cleared(settings.appRules) ?: settings.appRules,
+                guide = GuidedSearch(packageName = packageName),
+                diagnoseApp = packageName,
+                diagnoseUntilMs = watchUntil(),
+            )
+        }
+    }
+
+    /** The user says they have reproduced the failure; whatever was refused becomes the shortlist. */
+    fun guideCaptured() {
+        // Asked for rather than read: nothing is published while the screen is away, and the
+        // capture step is precisely the one the user spends outside this app.
+        AppTrace.publish()
+        val refused = AppTrace.state.value.suspects(Int.MAX_VALUE)
+            .filter { it.source == RuleSource.LIST }
+            .map { it.domain }
+        update { settings ->
+            val guide = settings.guide?.captured(refused, GuidedSearch.MAX_CANDIDATES) ?: return@update settings
+            settings.copy(appRules = guide.applied(settings.appRules), guide = guide, diagnoseUntilMs = watchUntil())
+        }
+    }
+
+    /** The answer to the only question the search ever asks: did it work this time? */
+    fun guideAnswered(worked: Boolean) = update { settings ->
+        val guide = settings.guide?.answered(worked) ?: return@update settings
+        settings.copy(appRules = guide.applied(settings.appRules), guide = guide, diagnoseUntilMs = watchUntil())
+    }
+
+    /** Back to the baseline, keeping the shortlist. For a round whose answer is not to be trusted. */
+    fun guideRestart() = update { settings ->
+        val guide = settings.guide?.restarted() ?: return@update settings
+        settings.copy(appRules = guide.applied(settings.appRules), guide = guide, diagnoseUntilMs = watchUntil())
+    }
+
+    /**
+     * Takes the fix: the name that was found stays allowed in this app, and every other name the
+     * search exempted goes back to being refused, because each of them was shown not to matter.
+     */
+    fun guideAcceptFix() {
+        val guide = settings.value.guide ?: return
+        val culprit = guide.culprit
+        if (culprit.isEmpty()) return
+        update {
+            it.copy(
+                appRules = guide.cleared(it.appRules) + AppRule(culprit, guide.packageName, block = false),
+                guide = null,
+            )
+        }
+        noteInTrace(culprit, guide.packageName, TraceOutcome.RULE_ALLOWED)
+    }
+
+    /**
+     * No single name explained it, so all of them are kept allowed in this app.
+     *
+     * The honest outcome when an app needs two of them at once: it is not the answer the search
+     * was looking for, but it is a working app, and it is still narrower than putting the whole
+     * app outside the filter — which is what somebody does next if this offers them nothing.
+     */
+    fun guideKeepAll() {
+        val guide = settings.value.guide ?: return
+        update {
+            it.copy(
+                appRules = guide.cleared(it.appRules) +
+                    guide.candidates.map { domain -> AppRule(domain, guide.packageName, block = false) },
+                guide = null,
+            )
+        }
+    }
+
+    /** Leaves the search, putting every rule it wrote back the way it found it. */
+    fun guideCancel() = update { settings ->
+        val guide = settings.guide ?: return@update settings
+        settings.copy(appRules = guide.cleared(settings.appRules), guide = null)
+    }
+
+    /**
+     * Pushes the watching window back to its full length.
+     *
+     * Answering a step is the strongest evidence there is that somebody is still working, and a
+     * window that lapsed at step four of nine would take the recording away in the middle of the
+     * one errand it exists for. It still expires the moment they stop.
+     */
+    private fun watchUntil(): Long = System.currentTimeMillis() + MalachiVpnService.DIAGNOSE_APP_MILLIS
 
     /**
      * The whole session as text, for the one thing this app cannot do for somebody: read their

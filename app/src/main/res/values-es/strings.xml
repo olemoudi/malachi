@@ -474,6 +474,37 @@
     <string name="trace_rule_blocked">La has bloqueado aquí</string>
     <string name="trace_rule_removed">Has quitado la regla</string>
 
+    <!-- Búsqueda guiada -->
+    <string name="guide_start_title">Encontrarlo paso a paso</string>
+    <string name="guide_start_body">Malachi permite todo lo que estaba rechazando y luego va devolviendo las direcciones de una en una, preguntándote después de cada una. En cuanto la app vuelve a fallar, la única dirección rechazada es la culpable. No tienes que leer ningún dominio hasta el final.</string>
+    <string name="guide_start_action">Guíame</string>
+    <string name="guide_capture_title">Paso 1: haz que falle</string>
+    <string name="guide_capture_body">Abre %1$s y haz lo que no funciona. Malachi está anotando todas las direcciones que rechaza. Después vuelve aquí.</string>
+    <string name="guide_action_open">Abrir %1$s</string>
+    <string name="guide_action_captured">Ya está</string>
+    <string name="guide_nothing_title">No se rechazó nada</string>
+    <string name="guide_nothing_body">Malachi no rechazó nada de %1$s mientras estabas dentro. O no llegaste a la parte que falla, o la causa no es una dirección bloqueada: las consultas sin respuesta, más abajo, son la otra cosa que deja colgada a una app.</string>
+    <string name="guide_baseline_title">Paso 2: ¿es Malachi la causa?</string>
+    <string name="guide_baseline_body">Ya no se rechaza nada de %1$s. Fuerza su detención, ábrela otra vez y haz lo mismo. ¿Funcionó esta vez?</string>
+    <string name="guide_testing_title">Paso %1$d de %2$d</string>
+    <string name="guide_testing_body">Ahora solo se rechaza %1$s; todo lo demás está permitido. Fuerza la detención de %2$s, ábrela y repite. ¿Funcionó esta vez?</string>
+    <string name="guide_action_force_stop">Forzar detención</string>
+    <string name="guide_answer_worked">Funcionó</string>
+    <string name="guide_answer_failed">Falló</string>
+    <string name="guide_cache_note">Forzar la detención importa: Android puede recordar una dirección un minuto o dos después de un cambio, así que si una respuesta te sorprende, vuelve a empezar la búsqueda.</string>
+    <string name="guide_action_restart">Empezar la búsqueda otra vez</string>
+    <string name="guide_action_leave">Salir y deshacer</string>
+    <string name="guide_action_finish">Terminar</string>
+    <string name="guide_culprit_title">Encontrada</string>
+    <string name="guide_culprit_body">%1$s es la dirección que rompe %2$s: con solo esa rechazada, falló. Permitirla en esta app la deja bloqueada en todo lo demás del móvil.</string>
+    <string name="guide_culprit_action">Permitirla en %1$s</string>
+    <string name="guide_ruled_out_title">No es el bloqueo</string>
+    <string name="guide_ruled_out_body">%1$s falló sin que se rechazara absolutamente nada, así que sea lo que sea lo que le pasa, no lo está haciendo Malachi. Se está dejando todo como estaba.</string>
+    <string name="guide_exhausted_title">Ninguna dirección sola lo explica</string>
+    <string name="guide_exhausted_body">Cada una de las %1$d direcciones se rechazó por separado y %2$s siguió funcionando. Puede que necesite varias a la vez, o que el fallo no ocurra siempre. Permitirlas todas sigue siendo mucho más estrecho que sacar %2$s del filtro.</string>
+    <string name="guide_exhausted_keep">Permitirlas todas</string>
+    <string name="guide_truncated">Se rechazaron %1$d direcciones; la búsqueda prueba las %2$d más pedidas.</string>
+
     <string name="filter_notification_starting">Iniciando el filtro…</string>
 
     <string name="update_found_title">Malachi %1$s ya está disponible</string>
@@ -511,6 +542,10 @@
     <plurals name="diagnose_queries">
         <item quantity="one">pedida una vez</item>
         <item quantity="other">pedida %d veces</item>
+    </plurals>
+    <plurals name="guide_refused_so_far">
+        <item quantity="one">%d dirección rechazada hasta ahora</item>
+        <item quantity="other">%d direcciones rechazadas hasta ahora</item>
     </plurals>
     <plurals name="diagnose_allowed_count">
         <item quantity="one">%1$d dominio permitido en %2$s</item>
