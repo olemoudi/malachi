@@ -217,6 +217,15 @@ class MalachiVpnService : VpnService() {
     private var retryAttempt = 0
 
     /**
+     * Set once [onDestroy] has run, so nothing can build a tunnel for a service that is gone.
+     *
+     * Written and read under [tunnelLock], which is what makes it a decision rather than a hope:
+     * either a start gets the lock first and establishes — and the teardown behind it joins that
+     * read loop — or the teardown gets there first and the start declines.
+     */
+    @Volatile private var destroyed = false
+
+    /**
      * The most recent start request, so a stop can decline to swallow one that arrived after it.
      * See the stand-down in [applySettings].
      */
@@ -462,6 +471,19 @@ class MalachiVpnService : VpnService() {
 
     /** Always under [tunnelLock]; every caller either holds it or goes through [applySettings]. */
     private fun startTunnel(settings: MalachiSettings): Unit = synchronized(tunnelLock) {
+        // The one check that has to come before everything else. `onDestroy` tears the tunnel
+        // down and cancels the scope, but a coroutine already inside this method is not
+        // interruptible — it is synchronous from end to end, so cancellation is only noticed at a
+        // suspension point that never arrives. Without this, a start that lost the race for the
+        // lock goes on to establish a tunnel and start a read loop belonging to a service that no
+        // longer exists, and nothing will ever stop it: the only thing that would have was the
+        // `onDestroy` that has already been and gone.
+        //
+        // Diagnosed from an emulator's logcat, not guessed: two service instances created 27ms
+        // apart, three tunnels up in 116ms, one read loop still alive a minute later, and — the
+        // tell — no "the read loop did not stop in time" anywhere, because no stop was ever run
+        // for it at all.
+        if (destroyed) return
         cancelRetry()
         stopTunnel()
 
@@ -1541,7 +1563,13 @@ class MalachiVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        stopTunnel()
+        // Both under the one lock, so a start cannot slip between them. Marking first is what
+        // makes a start that is already waiting on the lock decline instead of building a tunnel
+        // nobody is left to take down; see [startTunnel].
+        synchronized(tunnelLock) {
+            destroyed = true
+            stopTunnel()
+        }
         cancelRetry()
         diagnoseJob?.cancel()
         // The buffer lives in this process either way, but nothing is left claiming to record.

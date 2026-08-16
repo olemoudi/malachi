@@ -186,6 +186,42 @@ class VpnServiceLifecycleTest {
         assertTrue("the read loop outlived the tunnel", awaitReaders(0, timeoutMs = 1_000).isEmpty())
     }
 
+    /**
+     * The one sequence that orphaned a read loop, and the only place it can be provoked.
+     *
+     * Toggling as fast as the settings flow will carry it produces what a real phone produces
+     * when somebody taps the switch twice: a stand-down destroys the service while a start is
+     * already inside `startTunnel`. That method is synchronous from end to end, so cancelling
+     * the scope does not interrupt it — it goes on to establish a tunnel and start a read loop
+     * belonging to a service that no longer exists, and the only thing that would ever have
+     * joined that thread was the `onDestroy` which has already run. Found on CI, where two
+     * service instances were created 27ms apart and one read loop was still alive a minute
+     * later with no "did not stop in time" anywhere, because no stop was run for it at all.
+     *
+     * What is asserted is deliberately *not* that every cycle came up. Thrashing a VPN is the
+     * platform's business and not a promise this app makes. The promise is that nothing is left
+     * reading a descriptor nobody owns: the reader is joined by its stop, or never started.
+     */
+    @Test
+    fun thrashingTheSwitchNeverOrphansAReadLoop() = runBlocking {
+        requireConsent()
+
+        repeat(8) {
+            app.settingsStore.update { s -> s.copy(filteringEnabled = true) }
+            startService()
+            Thread.sleep(120)
+            app.settingsStore.update { s -> s.copy(filteringEnabled = false) }
+            Thread.sleep(120)
+        }
+
+        app.settingsStore.update { s -> s.copy(filteringEnabled = false) }
+        assertTrue("the filter would not settle", awaitTunnel(up = false, timeoutMs = 30_000))
+        assertTrue(
+            "a read loop outlived the service that started it",
+            awaitReaders(0, timeoutMs = 30_000).isEmpty(),
+        )
+    }
+
     @Test
     fun repeatedCyclesDoNotLeakDescriptors() = runBlocking {
         requireConsent()

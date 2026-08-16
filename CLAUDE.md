@@ -487,6 +487,19 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **A `FileOutputStream` built on a `ParcelFileDescriptor`'s descriptor does not own it** — closing
   the stream leaves the descriptor open, and `pfd.close()` is what closes it. Verified on device
   in `TunnelDescriptorTest`, not remembered.
+- **`onDestroy` is not a barrier: a `startTunnel` already waiting on the lock will run after it,
+  and its read loop is then orphaned for the life of the process.** `startTunnel` is synchronous
+  end to end, so `scope.cancel()` does not interrupt it — cancellation is only noticed at a
+  suspension point that never arrives. The service is destroyed, `stopTunnel` finds no tunnel and
+  returns, and *then* the start establishes one and hands a thread to a service object that no
+  longer exists; the only thing that would ever have joined it has already run. The signature in a
+  logcat is unmistakable once you know it: several `tunnel up` lines inside a few hundred
+  milliseconds, two `onCreate`s close together, a read loop still alive a minute later — and **no
+  "the read loop did not stop in time" anywhere**, because no stop was run for it at all. A
+  `destroyed` flag set under `tunnelLock` in `onDestroy` and checked at the top of `startTunnel` is
+  what makes it a decision instead of a race. Provoked by toggling the filter faster than the
+  settings flow settles, which is what a person tapping the switch twice does;
+  `thrashingTheSwitchNeverOrphansAReadLoop` is that, and it reproduced the CI failure locally.
 - **Anything a shutdown needs must exist before the thread that uses it.** The read loop's
   self-pipe used to be created inside the loop, so a tunnel stopped in the moment between
   `start()` and the loop's first instruction found no pipe to write to: the wake was lost, the
