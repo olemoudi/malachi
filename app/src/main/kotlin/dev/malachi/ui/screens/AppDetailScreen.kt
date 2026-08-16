@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Troubleshoot
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -74,7 +75,12 @@ import dev.malachi.ui.theme.Tokens
  * exempting the one hostname that was breaking it.
  */
 @Composable
-fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Unit) {
+fun AppDetailScreen(
+    vm: MalachiViewModel,
+    packageName: String,
+    onBack: () -> Unit,
+    onDiagnose: () -> Unit,
+) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val log by vm.queryLog.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
@@ -144,7 +150,18 @@ fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Uni
                             subtitle = stringResource(R.string.app_detail_filtered_subtitle),
                             checked = settings.covers(packageName),
                             onCheckedChange = { vm.setAppCovered(packageName, it) },
-                            position = cardPosition(0, 2),
+                            position = cardPosition(0, 3),
+                        )
+                        // The list below says what this app has resolved; this says what happened
+                        // to each lookup, in order. It is the answer to the one thing this screen
+                        // cannot show — an app that hangs, where the domain that breaks it was
+                        // asked for once and is buried under forty the app repeats all day.
+                        NavRow(
+                            icon = Icons.Filled.Troubleshoot,
+                            title = stringResource(R.string.app_detail_diagnose),
+                            subtitle = stringResource(R.string.app_detail_diagnose_hint),
+                            onClick = onDiagnose,
+                            position = cardPosition(1, 3),
                         )
                         // "Is this app eating my battery" is the question that brings people to
                         // a screen like this, and it is one Malachi cannot answer — a DNS lookup
@@ -156,7 +173,7 @@ fun AppDetailScreen(vm: MalachiViewModel, packageName: String, onBack: () -> Uni
                             title = stringResource(R.string.app_detail_system_info),
                             subtitle = stringResource(R.string.app_detail_system_info_hint),
                             onClick = { vm.openAppInfo(packageName) },
-                            position = cardPosition(1, 2),
+                            position = cardPosition(2, 3),
                         )
                     }
                 }
@@ -406,7 +423,7 @@ private fun liveVerdictLabel(record: QueryRecord, verdict: Verdict): String {
  * underneath is for anything the parents don't cover, and is validated like any other rule.
  */
 @Composable
-private fun DomainScopeDialog(
+internal fun DomainScopeDialog(
     domain: String,
     appLabel: String,
     block: Boolean,

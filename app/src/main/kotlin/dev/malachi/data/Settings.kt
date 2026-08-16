@@ -207,9 +207,33 @@ data class MalachiSettings(
      * expiring by itself means the worst case is a quarter of an hour of extra work.
      */
     val diagnosticsUntilMs: Long = 0,
+
+    /**
+     * The one app whose every lookup is written into an in-memory timeline; empty when none.
+     *
+     * Deliberately one app rather than a set. The question this answers is always about a single
+     * misbehaving app — "which name is it stuck on" — and a timeline carrying two apps' lookups
+     * is a timeline of nothing. It is also what keeps the cost honest: the read loop compares one
+     * reference per lookup instead of searching a collection.
+     *
+     * Not part of [tunnelShape], so switching it on never rebuilds the tun; and not part of a
+     * backup, because it is an observation somebody is making right now, not a decision.
+     */
+    val diagnoseApp: String = "",
+
+    /** Wall clock until which [diagnoseApp] is recorded; 0 when it isn't. See [diagnosing]. */
+    val diagnoseUntilMs: Long = 0,
 ) {
     /** True while the diagnostics window is open. Checked per lookup, so it stays a comparison. */
     fun isDiagnosing(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < diagnosticsUntilMs
+
+    /**
+     * The app being traced right now, or null — which is both "nobody chose one" and "the window
+     * has closed". A deadline rather than a switch, for the same reason as [diagnosticsUntilMs]:
+     * a switch left on is left on for months, and this one names domains while it runs.
+     */
+    fun diagnosing(nowMs: Long = System.currentTimeMillis()): String? =
+        diagnoseApp.takeIf { it.isNotEmpty() && nowMs < diagnoseUntilMs }
 
     /**
      * Brings the stored settings up to date, once per correction.

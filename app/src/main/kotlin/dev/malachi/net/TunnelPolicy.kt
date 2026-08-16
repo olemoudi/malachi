@@ -74,9 +74,14 @@ object TunnelPolicy {
     /**
      * Whether anything still needs to know *which* app asked. Attribution is a binder round trip
      * on every lookup and buys nothing when the query log is off and no per-app rule exists.
+     *
+     * A per-app diagnosis needs it too, and needs it even with the log switched off — which is
+     * precisely the configuration somebody debugging one app on a phone they keep private would
+     * be in. It costs what it costs for as long as that window is open, and the window shuts
+     * itself.
      */
     fun attributionNeeded(settings: MalachiSettings): Boolean =
-        settings.queryLogEnabled || settings.appRules.isNotEmpty()
+        settings.queryLogEnabled || settings.appRules.isNotEmpty() || settings.diagnoseApp.isNotEmpty()
 
     /** True on the edge where the user switches the query log off, which has to forget it too. */
     fun forgetsQueryLog(previous: MalachiSettings, next: MalachiSettings): Boolean =

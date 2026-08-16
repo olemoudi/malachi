@@ -360,6 +360,11 @@ class TunnelPolicyTest {
                 on.copy(queryLogEnabled = false, appRules = listOf(AppRule("a.com", "com.example", true))),
             ),
         )
+        // Diagnosing one app is the case that needs it even with the log off — which is exactly
+        // the configuration somebody who keeps no record of their browsing would be in.
+        assertTrue(
+            TunnelPolicy.attributionNeeded(on.copy(queryLogEnabled = false, diagnoseApp = "com.example.game")),
+        )
     }
 
     @Test

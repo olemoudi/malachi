@@ -435,6 +435,46 @@
     <string name="rule_added_blocked_in">Blocking %1$s in %2$s</string>
     <string name="rule_added_allowed_in">Allowing %1$s in %2$s</string>
 
+    <!-- Diagnosing one app -->
+    <string name="nav_diagnose">Diagnose an app</string>
+    <string name="diagnose_row_hint">When an app hangs or half-loads, watch it and find the domain that has to be excepted.</string>
+    <string name="diagnose_watching_app">Watching %1$s</string>
+    <string name="diagnose_pick_hint">Pick the app that misbehaves. Malachi will write down every address it asks for, in order, for %1$d minutes — what was refused, what was answered and how long it took. Nothing is saved to the phone.</string>
+    <string name="app_detail_diagnose">Diagnose this app</string>
+    <string name="app_detail_diagnose_hint">Watch its lookups one by one and try exceptions until it works.</string>
+    <string name="diagnose_watching">Watching · %1$d min left</string>
+    <string name="diagnose_window_closed">The window has closed. What it recorded is still here.</string>
+    <string name="diagnose_stop">Stop</string>
+    <string name="diagnose_watch_again">Watch again</string>
+    <string name="diagnose_change_app">Another app</string>
+    <string name="diagnose_change_app_hint">Choose a different one to watch. This one\'s timeline is replaced.</string>
+    <string name="diagnose_filter_off">Malachi is not filtering right now, so it can\'t see anything this app asks for.</string>
+    <string name="diagnose_out_of_scope">%1$s is outside the filter, so its lookups never reach Malachi and nothing will appear here.</string>
+    <string name="diagnose_bring_into_scope">Filter it</string>
+    <string name="diagnose_count_blocked">blocked</string>
+    <string name="diagnose_count_answered">answered</string>
+    <string name="diagnose_count_stalled">no answer</string>
+    <string name="diagnose_suspects_title">What to try excepting</string>
+    <string name="diagnose_suspects_hint">Everything refused for this app, most asked for first. The switch allows one here and nowhere else, and takes effect on the very next lookup — no restart. Tap the row instead to cover a parent domain.</string>
+    <string name="diagnose_suspects_empty">Nothing has been refused for this app since you started watching. If it is still failing, a blocked domain is not the cause — look for lookups with no answer below.</string>
+    <string name="diagnose_allow_all">Allow all of them</string>
+    <string name="diagnose_allow_none">Undo them all</string>
+    <string name="diagnose_timeline_title">Timeline</string>
+    <string name="diagnose_timeline_hint">Newest first, one line per question the app asked. Your own changes appear here too, so you can see what you have already tried.</string>
+    <string name="diagnose_timeline_empty">Nothing yet. Open %1$s and use the part that fails, then come back.</string>
+    <string name="diagnose_timeline_no_matches">Nothing of that kind here.</string>
+    <string name="diagnose_filter_all">Everything</string>
+    <string name="diagnose_filter_blocked">Refused</string>
+    <string name="diagnose_filter_failed">No answer</string>
+    <string name="trace_answered">Answered by %1$s in %2$d ms</string>
+    <string name="trace_unanswered">No DNS server answered — the app waited %1$d ms</string>
+    <string name="trace_dropped_network">Dropped: the network changed mid-lookup</string>
+    <string name="trace_dropped_busy">Dropped: too many lookups at once</string>
+    <string name="trace_dropped">Dropped</string>
+    <string name="trace_rule_allowed">You allowed it here</string>
+    <string name="trace_rule_blocked">You blocked it here</string>
+    <string name="trace_rule_removed">You removed the rule</string>
+
     <string name="filter_notification_starting">Starting the filter…</string>
 
     <string name="update_found_title">Malachi %1$s is available</string>
@@ -468,6 +508,18 @@
     <plurals name="verdict_seen">
         <item quantity="one">seen once</item>
         <item quantity="other">seen %d times</item>
+    </plurals>
+    <plurals name="diagnose_queries">
+        <item quantity="one">asked once</item>
+        <item quantity="other">asked %d times</item>
+    </plurals>
+    <plurals name="diagnose_allowed_count">
+        <item quantity="one">%1$d domain allowed in %2$s</item>
+        <item quantity="other">%1$d domains allowed in %2$s</item>
+    </plurals>
+    <plurals name="diagnose_removed_count">
+        <item quantity="one">%1$d exception removed in %2$s</item>
+        <item quantity="other">%1$d exceptions removed in %2$s</item>
     </plurals>
 
     <!-- First run -->

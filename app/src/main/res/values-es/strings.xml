@@ -434,6 +434,46 @@
     <string name="rule_added_blocked_in">Bloqueando %1$s en %2$s</string>
     <string name="rule_added_allowed_in">Permitiendo %1$s en %2$s</string>
 
+    <!-- Diagnóstico de una app -->
+    <string name="nav_diagnose">Diagnosticar una app</string>
+    <string name="diagnose_row_hint">Cuando una app se queda colgada o carga a medias, vigílala y encuentra el dominio al que hay que hacerle una excepción.</string>
+    <string name="diagnose_watching_app">Vigilando %1$s</string>
+    <string name="diagnose_pick_hint">Elige la app que va mal. Malachi anotará todas las direcciones que pida, en orden, durante %1$d minutos: cuáles rechazó, cuáles se resolvieron y cuánto tardaron. No se guarda nada en el móvil.</string>
+    <string name="app_detail_diagnose">Diagnosticar esta app</string>
+    <string name="app_detail_diagnose_hint">Vigila sus consultas una a una y prueba excepciones hasta que funcione.</string>
+    <string name="diagnose_watching">Vigilando · quedan %1$d min</string>
+    <string name="diagnose_window_closed">La ventana se ha cerrado. Lo que registró sigue aquí.</string>
+    <string name="diagnose_stop">Parar</string>
+    <string name="diagnose_watch_again">Vigilar otra vez</string>
+    <string name="diagnose_change_app">Otra app</string>
+    <string name="diagnose_change_app_hint">Elige otra para vigilar. Se sustituye la cronología de esta.</string>
+    <string name="diagnose_filter_off">Malachi no está filtrando ahora mismo, así que no puede ver nada de lo que pida esta app.</string>
+    <string name="diagnose_out_of_scope">%1$s está fuera del filtro, así que sus consultas no llegan a Malachi y aquí no aparecerá nada.</string>
+    <string name="diagnose_bring_into_scope">Filtrarla</string>
+    <string name="diagnose_count_blocked">bloqueadas</string>
+    <string name="diagnose_count_answered">resueltas</string>
+    <string name="diagnose_count_stalled">sin respuesta</string>
+    <string name="diagnose_suspects_title">Qué probar a exceptuar</string>
+    <string name="diagnose_suspects_hint">Todo lo rechazado a esta app, lo más pedido primero. El interruptor lo permite aquí y en ningún otro sitio, y surte efecto en la consulta siguiente, sin reiniciar nada. Toca la fila para abarcar un dominio padre.</string>
+    <string name="diagnose_suspects_empty">No se ha rechazado nada a esta app desde que empezaste a vigilarla. Si sigue fallando, la causa no es un dominio bloqueado: mira abajo las consultas sin respuesta.</string>
+    <string name="diagnose_allow_all">Permitirlos todos</string>
+    <string name="diagnose_allow_none">Deshacerlos todos</string>
+    <string name="diagnose_timeline_title">Cronología</string>
+    <string name="diagnose_timeline_hint">Lo más reciente arriba, una línea por cada pregunta de la app. Tus propios cambios también salen aquí, para que veas qué has probado ya.</string>
+    <string name="diagnose_timeline_empty">Todavía nada. Abre %1$s y usa la parte que falla; luego vuelve.</string>
+    <string name="diagnose_timeline_no_matches">Aquí no hay nada de ese tipo.</string>
+    <string name="diagnose_filter_all">Todo</string>
+    <string name="diagnose_filter_blocked">Rechazadas</string>
+    <string name="diagnose_filter_failed">Sin respuesta</string>
+    <string name="trace_answered">Resuelta por %1$s en %2$d ms</string>
+    <string name="trace_unanswered">Ningún servidor DNS respondió: la app esperó %1$d ms</string>
+    <string name="trace_dropped_network">Descartada: la red cambió a mitad de la consulta</string>
+    <string name="trace_dropped_busy">Descartada: demasiadas consultas a la vez</string>
+    <string name="trace_dropped">Descartada</string>
+    <string name="trace_rule_allowed">La has permitido aquí</string>
+    <string name="trace_rule_blocked">La has bloqueado aquí</string>
+    <string name="trace_rule_removed">Has quitado la regla</string>
+
     <string name="filter_notification_starting">Iniciando el filtro…</string>
 
     <string name="update_found_title">Malachi %1$s ya está disponible</string>
@@ -467,6 +507,18 @@
     <plurals name="verdict_seen">
         <item quantity="one">vista una vez</item>
         <item quantity="other">vista %d veces</item>
+    </plurals>
+    <plurals name="diagnose_queries">
+        <item quantity="one">pedida una vez</item>
+        <item quantity="other">pedida %d veces</item>
+    </plurals>
+    <plurals name="diagnose_allowed_count">
+        <item quantity="one">%1$d dominio permitido en %2$s</item>
+        <item quantity="other">%1$d dominios permitidos en %2$s</item>
+    </plurals>
+    <plurals name="diagnose_removed_count">
+        <item quantity="one">%1$d excepción quitada en %2$s</item>
+        <item quantity="other">%1$d excepciones quitadas en %2$s</item>
     </plurals>
 
     <!-- Primera ejecución -->

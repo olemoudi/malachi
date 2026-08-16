@@ -95,6 +95,24 @@ class BackupTest {
     }
 
     @Test
+    fun `a backup never carries an app somebody was watching`() {
+        // Which app is under a microscope right now is an observation being made on one phone,
+        // not a decision — and the name of an app somebody was debugging is exactly the kind of
+        // thing that has no business in a file handed to a cloud drive.
+        val diagnosing = MalachiSettings(
+            userBlocked = setOf("ads.example.com"),
+            diagnoseApp = "com.example.underinvestigation",
+            diagnoseUntilMs = 9_999_999,
+        )
+        val encoded = Backup.encode(Backup.of(diagnosing, appVersion = "x", nowMs = 0))
+        assertFalse(encoded.contains("com.example.underinvestigation"))
+
+        val restored = Backup.of(diagnosing, appVersion = "x", nowMs = 0).restoredInto(MalachiSettings())
+        assertEquals("", restored.diagnoseApp)
+        assertEquals(0, restored.diagnoseUntilMs)
+    }
+
+    @Test
     fun `a file from an older version is missing fields, and that is not an error`() {
         // Written by hand as an old version would have: only the fields that existed then. Every
         // field has a default, so what is absent comes back as the default rather than as a

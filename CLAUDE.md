@@ -586,6 +586,37 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **While the window is open, drops are not rate-limited.** One line a minute hides the pattern
   being hunted — a client retrying over TCP, which this tunnel routes and cannot answer.
 
+### Diagnosing one app that hangs (`AppTrace`)
+
+- **The query log is a set; this is a sequence, and the difference is the whole feature.**
+  `QueryLog` holds one row per (app, domain) with the latest verdict and a count, which is right
+  for "what has this app been resolving" and useless for "which name is it hanging on": order is
+  lost, and the domain that broke something was asked for once and sits under forty the app
+  repeats all day. `AppTrace` is one row per *query*, in order, for one app.
+- **It counts queries and says so.** The opposite of `LookupBursts`, deliberately: an `A` and an
+  `AAAA` are two exchanges with two fates, and "the `A` answered in 40 ms and the `AAAA` never
+  came back" is a real and common way to hang an app. The row names the record type so the
+  number cannot be misread as lookups — do not "fix" this by collapsing bursts.
+- **A block never hangs anything; an unanswered lookup does.** Failing open means an allowed
+  lookup can leave a client waiting out its own timeout, and from outside that is
+  indistinguishable from a refusal while the remedy is the opposite. Nothing recorded that until
+  `TraceOutcome.UNANSWERED`, and the screen's three counters exist to tell the two investigations
+  apart before a single row is read.
+- **The elapsed time is measured from the start of the lookup, not of the attempt that won.** A
+  name that took four seconds because the first DNS server was silent is a name the app waited
+  four seconds for; reporting the 80 ms the second one took hides the delay being hunted.
+- **The window is a deadline, and the evidence outlives it.** Thirty minutes rather than fifteen,
+  because the errand is iterative — use the app, come back, except a name, use it again — and
+  it is re-armed with one tap. What it caught is *not* cleared when it lapses; the setting is,
+  which is what puts attribution back the way it was. Expiry is enforced per lookup off the wall
+  clock, so a phone that slept through the tidy-up job has still stopped recording.
+- **Exempting is trial and error, so the control is a switch, not a dialog.** A dialog per attempt
+  turns a two-minute experiment into a chore people abandon — and what they do instead is put the
+  whole app outside the filter, permanently. "Allow all of them" answers the first question ("is
+  it Malachi at all?") in one tap; the switches then bisect it.
+- **The user's own edits are written into the timeline**, from whichever screen they were made,
+  which is what turns a wall of events into an experiment log.
+
 ### Backup (the one thing that cannot be rebuilt)
 
 - **What a backup carries is decisions, never observations.** The rules somebody wrote, the lists

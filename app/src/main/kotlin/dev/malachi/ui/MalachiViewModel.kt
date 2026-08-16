@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import dev.malachi.MalachiApplication
 import dev.malachi.R
 import dev.malachi.data.AppInventory
+import dev.malachi.data.AppRule
 import dev.malachi.data.AppScopeMode
 import dev.malachi.data.Backup
 import dev.malachi.data.BackupPolicy
@@ -21,8 +22,11 @@ import dev.malachi.data.MalachiSettings
 import dev.malachi.data.ThemeMode
 import dev.malachi.debug.DebugLog
 import dev.malachi.data.UpstreamDns
+import dev.malachi.filter.AppTrace
+import dev.malachi.filter.AppTraceState
 import dev.malachi.filter.QueryLog
 import dev.malachi.filter.QueryLogState
+import dev.malachi.filter.TraceOutcome
 import dev.malachi.lists.ListUpdateWorker
 import dev.malachi.net.FilterWatchdogWorker
 import dev.malachi.net.MalachiVpnService
@@ -72,6 +76,14 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     val queryLog: StateFlow<QueryLogState> = QueryLog.state
         .onStart { QueryLog.publish() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QueryLogState())
+
+    /**
+     * One app's lookups, one by one. Same bargain as [queryLog]: nothing is published while the
+     * screen is closed, so opening it has to ask for a snapshot.
+     */
+    val appTrace: StateFlow<AppTraceState> = AppTrace.state
+        .onStart { AppTrace.publish() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppTraceState())
 
     /**
      * The persisted counters. Loaded when a screen asks rather than published per lookup: this
@@ -198,6 +210,55 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         )
     }
 
+    // ---- diagnosing one app --------------------------------------------------------------
+
+    /**
+     * Starts (or re-arms) the per-app timeline.
+     *
+     * Re-arming the same app deliberately keeps what has already been recorded: somebody who let
+     * the window lapse halfway through reproducing a bug is in the middle of an experiment, and
+     * throwing the first half away because a clock ran out would be the app taking their work.
+     */
+    fun startDiagnosing(packageName: String) = update {
+        it.copy(
+            diagnoseApp = packageName,
+            diagnoseUntilMs = System.currentTimeMillis() + MalachiVpnService.DIAGNOSE_APP_MILLIS,
+        )
+    }
+
+    fun stopDiagnosing() = update { it.copy(diagnoseApp = "", diagnoseUntilMs = 0) }
+
+    fun clearAppTrace() = AppTrace.clear()
+
+    /**
+     * The whole session as text, for the one thing this app cannot do for somebody: read their
+     * phone. Deliberately hand-built rather than a dump of the data class — a paste into a
+     * message has to be legible on its own, with the app it is about at the top of it.
+     */
+    fun appTraceReport(): String {
+        val trace = AppTrace.state.value
+        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+        return buildString {
+            appendLine("Malachi $versionName — ${labelFor(trace.packageName)} (${trace.packageName.orEmpty()})")
+            appendLine("${trace.blocked} blocked, ${trace.answered} answered, ${trace.stalled} with no answer")
+            // Oldest first here, unlike the screen: read as a report this is a sequence of
+            // events, and a sequence is read forwards.
+            trace.events.asReversed().forEach { event ->
+                append(time.format(java.util.Date(event.atMs)))
+                append(' ')
+                append(event.outcome.name.lowercase())
+                append(' ')
+                append(event.domain)
+                if (event.type != 0) append(" ${AppTrace.typeLabel(event.type)}")
+                if (event.attempt > 1) append(" #${event.attempt}")
+                if (event.elapsedMs >= 0) append(" ${event.elapsedMs}ms")
+                if (event.detail.isNotEmpty()) append(" [${event.detail}]")
+                if (event.reason != dev.malachi.filter.TraceReason.NONE) append(" (${event.reason.name.lowercase()})")
+                appendLine()
+            }
+        }
+    }
+
     /** A display label for the app named in [VpnController.AlwaysOn.Other]. */
     fun alwaysOnOtherLabel(): String? =
         (_alwaysOn.value as? VpnController.AlwaysOn.Other)?.let { labelFor(it.packageName) }
@@ -294,11 +355,78 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         val parsed = DomainInput.parse(domain) ?: return null
         val before = settings.value
         update { it.withAppRule(parsed, packageName, block) }
-        return RuleEdit(parsed) { update { it.withAppRuleFrom(before, parsed, packageName) } }
+        noteInTrace(parsed, packageName, if (block) TraceOutcome.RULE_BLOCKED else TraceOutcome.RULE_ALLOWED)
+        return RuleEdit(parsed) {
+            update { it.withAppRuleFrom(before, parsed, packageName) }
+            noteInTrace(parsed, packageName, TraceOutcome.RULE_REMOVED)
+        }
     }
 
-    fun removeAppRule(domain: String, packageName: String) = update { settings ->
-        settings.copy(appRules = settings.appRules.filterNot { it.domain == domain && it.packageName == packageName })
+    fun removeAppRule(domain: String, packageName: String) {
+        update { settings ->
+            settings.copy(appRules = settings.appRules.filterNot { it.domain == domain && it.packageName == packageName })
+        }
+        noteInTrace(domain, packageName, TraceOutcome.RULE_REMOVED)
+    }
+
+    /**
+     * Exempts every domain in [domains] for one app, or takes all those exemptions back.
+     *
+     * The first question of any such investigation is not "which domain" but "is it this app at
+     * all", and answering it one switch at a time across a dozen names is enough work that people
+     * give up and exclude the whole app instead — which turns filtering off for it permanently.
+     * One tap answers it; from there the switches narrow it down.
+     *
+     * Written as a single settings update rather than a loop of them: a dozen writes is a dozen
+     * filter rebuilds and a dozen emissions to every screen.
+     */
+    fun setAppExceptions(domains: List<String>, packageName: String, allowed: Boolean): RuleEdit? {
+        val parsed = domains.mapNotNull { DomainInput.parse(it) }.distinct()
+        if (parsed.isEmpty()) return null
+        val before = settings.value
+        update { settings ->
+            val others = settings.appRules.filterNot { it.packageName == packageName && it.domain in parsed }
+            settings.copy(
+                appRules = if (allowed) {
+                    others + parsed.map { AppRule(it, packageName, block = false) }
+                } else {
+                    others
+                },
+            )
+        }
+        parsed.forEach {
+            noteInTrace(it, packageName, if (allowed) TraceOutcome.RULE_ALLOWED else TraceOutcome.RULE_REMOVED)
+        }
+        return RuleEdit(parsed.first()) {
+            update { it.copy(appRules = before.appRules) }
+            // Each domain put back as it was, and said as it was: a bulk undo that announced
+            // "removed" for a domain the user had deliberately blocked would be describing an
+            // edit that did not happen.
+            parsed.forEach { domain ->
+                val restored = before.appRules.firstOrNull { it.packageName == packageName && it.domain == domain }
+                noteInTrace(
+                    domain,
+                    packageName,
+                    when {
+                        restored == null -> TraceOutcome.RULE_REMOVED
+                        restored.block -> TraceOutcome.RULE_BLOCKED
+                        else -> TraceOutcome.RULE_ALLOWED
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Writes an edit into the timeline of the app being diagnosed, if it is that app's.
+     *
+     * Here rather than in the screen, so a rule written from the app's own detail screen — or
+     * undone from the bar at the bottom of any of them — still shows up in the experiment the
+     * user is running. A timeline that only recorded edits made from one screen would quietly
+     * lie about what had been tried.
+     */
+    private fun noteInTrace(domain: String, packageName: String, outcome: TraceOutcome) {
+        if (AppTrace.owns(packageName)) AppTrace.rule(domain, outcome)
     }
 
     // ---- lists -------------------------------------------------------------------------

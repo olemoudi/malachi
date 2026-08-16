@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Troubleshoot
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +55,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAdvanced: () -> Unit,
     onOpenDebugLog: () -> Unit,
+    onOpenDiagnose: () -> Unit,
     onOpenAbout: () -> Unit,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -224,6 +226,18 @@ fun SettingsScreen(
             item { SectionHeader(stringResource(R.string.settings_diagnostics_title)) }
             item {
                 CardGroup {
+                    // First, because it is the one thing on this screen somebody arrives with a
+                    // concrete problem for: an app that hangs, and no way to tell which name it
+                    // is hanging on. Everything below it is for reading after the fact.
+                    NavRow(
+                        icon = Icons.Filled.Troubleshoot,
+                        title = stringResource(R.string.nav_diagnose),
+                        subtitle = settings.diagnosing()?.let {
+                            stringResource(R.string.diagnose_watching_app, vm.labelFor(it))
+                        } ?: stringResource(R.string.diagnose_row_hint),
+                        onClick = onOpenDiagnose,
+                        position = cardPosition(0, 4),
+                    )
                     // Its own row above the log, because it is what makes the log worth reading
                     // when an app misbehaves: without it the tunnel says almost nothing per
                     // lookup, on purpose.

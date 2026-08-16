@@ -34,7 +34,9 @@ import dev.malachi.data.BypassGuard
 import dev.malachi.data.MalachiSettings
 import dev.malachi.data.UpstreamDns
 import dev.malachi.debug.DebugLog
+import dev.malachi.filter.AppTrace
 import dev.malachi.filter.QueryLog
+import dev.malachi.filter.TraceReason
 import dev.malachi.filter.dns.DnsMessage
 import dev.malachi.filter.dns.IpPacket
 import dev.malachi.filter.dns.UdpDatagram
@@ -143,6 +145,13 @@ class MalachiVpnService : VpnService() {
      */
     @Volatile private var traceUntilMs = 0L
 
+    /**
+     * The app whose every query is written into [AppTrace], and when that stops. Null costs one
+     * volatile read per lookup, which is what the whole feature costs while nobody is diagnosing.
+     */
+    @Volatile private var traceApp: String? = null
+    @Volatile private var traceAppUntilMs = 0L
+
     /** DNS servers of the underlying (non-VPN) network, refreshed by the network callback. */
     @Volatile private var networkDnsServers: List<InetAddress> = emptyList()
 
@@ -204,6 +213,7 @@ class MalachiVpnService : VpnService() {
 
     private var resumeJob: Job? = null
     private var retryJob: Job? = null
+    private var diagnoseJob: Job? = null
     private var retryAttempt = 0
 
     /**
@@ -408,6 +418,7 @@ class MalachiVpnService : VpnService() {
         val wasTracing = traceUntilMs != 0L
         traceUntilMs = next.diagnosticsUntilMs
         if (!wasTracing && next.isDiagnosing()) traceEnvironment(next)
+        applyAppTrace(next)
 
         resumeJob?.cancel()
         cancelPauseAlarm()
@@ -752,7 +763,8 @@ class MalachiVpnService : VpnService() {
         val payload = udp.payload(packet)
         // Not a question we understand: a response, an update, a malformed name. Forward it and
         // let a real resolver be the one to have an opinion.
-        val question = DnsMessage.parseQuestion(payload) ?: return dispatchForward(udp, payload, "(unparsed)")
+        val question = DnsMessage.parseQuestion(payload)
+            ?: return dispatchForward(udp, payload, "(unparsed)", type = 0, traced = false)
 
         val packageName = if (attributionNeeded) ownerPackage(udp) else null
         val verdict = app.filterRepository.decide(question.name, packageName)
@@ -764,26 +776,42 @@ class MalachiVpnService : VpnService() {
         // Counts only, never a domain: this is the half that survives a restart.
         if (newLookup) app.statsStore.record(packageName, verdict.blocked)
 
+        // Decided once and carried down the forward path: the outcome of a forwarded lookup is
+        // settled on another thread, and asking again there would be asking about a different
+        // moment. One volatile read when nobody is diagnosing anything.
+        val traced = tracingApp(packageName)
+
         if (verdict.blocked) {
             if (tracing()) DebugLog.trace(TAG, "${question.name}: blocked (${verdict.detail})")
+            if (traced) AppTrace.blocked(question.name, question.type, verdict.detail, verdict.source)
             // Answered inline: no network, no thread, no wait.
             writeToTun(IpPacket.buildUdpResponse(udp, DnsMessage.blockedResponse(payload, question, settings.blockAnswer.toBlockAnswer())))
         } else {
-            dispatchForward(udp, payload, question.name)
+            dispatchForward(udp, payload, question.name, question.type, traced)
         }
     }
 
-    private fun dispatchForward(request: UdpDatagram, query: ByteArray, name: String) {
+    private fun dispatchForward(
+        request: UdpDatagram,
+        query: ByteArray,
+        name: String,
+        type: Int,
+        traced: Boolean,
+    ) {
         // Too short to be a DNS message at all, so there is nothing to relay and no transaction
         // id to match a reply against. Dropped here rather than in the forwarder: every one of
         // these used to cost a socket and a protect() round trip before failing, which is a
         // cheap way for any app on the phone to make the filter churn.
-        if (DnsMessage.transactionId(query) == null) return dropUnroutable("a ${query.size}-byte query")
-        runCatching { forwarders.execute { forward(request, query, name) } }
+        if (DnsMessage.transactionId(query) == null) {
+            if (traced) AppTrace.dropped(name, type, TraceReason.MALFORMED)
+            return dropUnroutable("a ${query.size}-byte query")
+        }
+        runCatching { forwarders.execute { forward(request, query, name, type, traced) } }
             .onFailure {
                 // The queue is full: the network is not keeping up. Dropping is right — the
                 // client's own resolver retries, and queueing further would only add latency
                 // to a lookup that has already given up.
+                if (traced) AppTrace.dropped(name, type, TraceReason.BUSY)
                 dropUnroutable("forward queue full")
             }
     }
@@ -798,11 +826,12 @@ class MalachiVpnService : VpnService() {
      * [UPSTREAM_TIMEOUT_MS] — it is divided between the candidates rather than spent on the first
      * of them, so a dud cannot starve the one underneath it.
      */
-    private fun forward(request: UdpDatagram, query: ByteArray, name: String) {
+    private fun forward(request: UdpDatagram, query: ByteArray, name: String, type: Int, traced: Boolean) {
         val wantsIpv6 = request.destinationAddress.size == 16
         val candidates = TunnelPolicy.orderUpstreams(upstreams, wantsIpv6, lastGoodUpstream)
         if (candidates.isEmpty()) return
-        val deadline = SystemClock.elapsedRealtime() + UPSTREAM_TIMEOUT_MS
+        val began = SystemClock.elapsedRealtime()
+        val deadline = began + UPSTREAM_TIMEOUT_MS
         val generation = networkGeneration
 
         candidates.forEachIndexed { index, target ->
@@ -812,6 +841,7 @@ class MalachiVpnService : VpnService() {
             // up for exactly that long.
             if (networkGeneration != generation) {
                 if (tracing()) DebugLog.trace(TAG, "$name: the network changed mid-lookup; dropping")
+                if (traced) AppTrace.dropped(name, type, TraceReason.NETWORK_CHANGED)
                 return dropUnroutable("the network changed mid-lookup")
             }
             val remaining = deadline - SystemClock.elapsedRealtime()
@@ -850,6 +880,18 @@ class MalachiVpnService : VpnService() {
             // Remembered so the next lookup starts with the one that works rather than paying
             // the dud's timeout again.
             lastGoodUpstream = target
+            // The elapsed time is measured from the start of the *lookup*, not of this attempt:
+            // a name that took four seconds because the first DNS server was silent is a name the
+            // app waited four seconds for, and reporting the 80ms the second one took would hide
+            // the very delay somebody opened this screen to find.
+            if (traced) {
+                AppTrace.answered(
+                    name,
+                    type,
+                    target.hostAddress.orEmpty(),
+                    SystemClock.elapsedRealtime() - began,
+                )
+            }
             if (tracing()) {
                 DebugLog.trace(
                     TAG,
@@ -861,6 +903,17 @@ class MalachiVpnService : VpnService() {
             return
         }
         if (tracing()) DebugLog.trace(TAG, "$name: NOTHING ANSWERED — ${candidates.size} resolver(s) tried")
+        // The other way an app hangs, and the one no blocklist can explain: the lookup was
+        // allowed, it left, and nothing came back. Without this line on the timeline the reader
+        // would go on hunting for a domain to exempt that does not exist.
+        if (traced) {
+            AppTrace.unanswered(
+                name,
+                type,
+                candidates.joinToString { it.hostAddress.orEmpty() },
+                SystemClock.elapsedRealtime() - began,
+            )
+        }
         dropUnroutable("no resolver answered (${candidates.size} tried)")
         // Every resolver we hold is silent. Either the network is down — in which case this
         // costs two binder calls every five seconds and finds nothing — or we are holding the
@@ -1490,6 +1543,9 @@ class MalachiVpnService : VpnService() {
     override fun onDestroy() {
         stopTunnel()
         cancelRetry()
+        diagnoseJob?.cancel()
+        // The buffer lives in this process either way, but nothing is left claiming to record.
+        AppTrace.stop()
         runCatching { cm.unregisterNetworkCallback(networkCallback) }
         runCatching { cm.unregisterNetworkCallback(underlyingCallback) }
         runCatching { unregisterReceiver(packageChanges) }
@@ -1528,6 +1584,60 @@ class MalachiVpnService : VpnService() {
 
     /** True while the diagnostics window is open; the zero check keeps the hot path free. */
     private fun tracing(): Boolean = traceUntilMs != 0L && System.currentTimeMillis() < traceUntilMs
+
+    /**
+     * Arms or disarms the per-app timeline, and schedules the end of its window.
+     *
+     * The scheduled end is not what stops the recording — [tracingApp] reads the wall clock and
+     * would stop on its own. What it is for is making the expiry an *event*: it clears the
+     * setting, so attribution goes back to whatever the rest of the app needs and the screen
+     * stops claiming to be watching something. Without it a window that lapsed while nobody was
+     * looking would leave a binder round trip per lookup until the next time a setting moved.
+     */
+    private fun applyAppTrace(next: MalachiSettings) {
+        diagnoseJob?.cancel()
+        val target = next.diagnosing()
+        traceApp = target
+        traceAppUntilMs = if (target != null) next.diagnoseUntilMs else 0
+        if (target == null) {
+            AppTrace.stop()
+            // Only a window that has run out is tidied away; one the user turned off is already
+            // clean, and writing to the settings from here on every emission would be a loop.
+            if (next.diagnoseApp.isNotEmpty()) {
+                scope.launch { app.settingsStore.update { it.copy(diagnoseApp = "", diagnoseUntilMs = 0) } }
+            }
+            return
+        }
+        AppTrace.watch(target)
+        diagnoseJob = scope.launch {
+            // A monotonic delay, so a phone that sleeps through it tidies up late. That is the
+            // right trade here and not in the pause: the deadline is already enforced per lookup,
+            // and this is only housekeeping — an alarm to wake a sleeping phone for it would be
+            // spending battery to switch something off that has already stopped.
+            delay((next.diagnoseUntilMs - System.currentTimeMillis()).coerceAtLeast(0))
+            app.settingsStore.update {
+                if (it.diagnosing() == null) it.copy(diagnoseApp = "", diagnoseUntilMs = 0) else it
+            }
+        }
+    }
+
+    /**
+     * True when this lookup belongs to the app being diagnosed.
+     *
+     * Ordered so the common case — every other app on the phone, or none being watched — is one
+     * volatile read and at most one string comparison. The clock is only read for the app that is
+     * actually being traced, and reading it there is what ends the window even if the job that
+     * tidies up is still asleep.
+     */
+    private fun tracingApp(packageName: String?): Boolean {
+        val target = traceApp ?: return false
+        if (packageName == null || packageName != target) return false
+        if (System.currentTimeMillis() < traceAppUntilMs) return true
+        traceApp = null
+        traceAppUntilMs = 0
+        AppTrace.stop()
+        return false
+    }
 
     /**
      * Everything about this phone's DNS that a report needs, written once when the window opens.
@@ -1619,6 +1729,17 @@ class MalachiVpnService : VpnService() {
         /** How long the diagnostics window stays open before closing itself. */
         const val DIAGNOSTICS_MINUTES = 15
         const val DIAGNOSTICS_MILLIS = DIAGNOSTICS_MINUTES * 60 * 1000L
+
+        /**
+         * How long one app is watched before the window shuts itself.
+         *
+         * Longer than the log-wide window above, because the errand is different: that one is
+         * "reproduce the thing and read the log", this one is a sequence of attempts — use the
+         * app, come back, exempt a name, use it again — and half an hour is about two of those
+         * with room to think. Re-armed with one tap, and what it caught survives the expiry.
+         */
+        const val DIAGNOSE_APP_MINUTES = 30
+        const val DIAGNOSE_APP_MILLIS = DIAGNOSE_APP_MINUTES * 60 * 1000L
 
         private const val TAG = "MalachiVpn"
 

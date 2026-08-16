@@ -25,6 +25,7 @@ import dev.malachi.ui.screens.AdvancedSettingsScreen
 import dev.malachi.ui.screens.AppDetailScreen
 import dev.malachi.ui.screens.AppsScreen
 import dev.malachi.ui.screens.DebugLogScreen
+import dev.malachi.ui.screens.DiagnoseScreen
 import dev.malachi.ui.screens.HomeScreen
 import dev.malachi.ui.screens.ListCategoryScreen
 import dev.malachi.ui.screens.ListsScreen
@@ -43,6 +44,7 @@ sealed interface Screen {
     data object Lists : Screen
     data class ListCategory(val category: BlocklistCategory) : Screen
     data object Activity : Screen
+    data object Diagnose : Screen
     data object Rules : Screen
     data object Settings : Screen
     data object AdvancedSettings : Screen
@@ -122,7 +124,15 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
                         onOpen = ::go,
                     )
                     Screen.Apps -> AppsScreen(vm, onBack = ::back, onOpenApp = { go(Screen.AppDetail(it)) })
-                    is Screen.AppDetail -> AppDetailScreen(vm, screen.packageName, onBack = ::back)
+                    is Screen.AppDetail -> AppDetailScreen(
+                        vm = vm,
+                        packageName = screen.packageName,
+                        onBack = ::back,
+                        // Started here rather than on arrival, so the screen never has to guess
+                        // whether it was opened to watch this app or merely reached from the
+                        // settings row — and so choosing an app is always a deliberate act.
+                        onDiagnose = { vm.startDiagnosing(screen.packageName); go(Screen.Diagnose) },
+                    )
                     Screen.Lists -> ListsScreen(
                         vm = vm,
                         onBack = ::back,
@@ -134,12 +144,14 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
                         onBack = ::back,
                         onOpenApp = { go(Screen.AppDetail(it)) },
                     )
+                    Screen.Diagnose -> DiagnoseScreen(vm, onBack = ::back)
                     Screen.Rules -> RulesScreen(vm, onBack = ::back)
                     Screen.Settings -> SettingsScreen(
                         vm = vm,
                         onBack = ::back,
                         onOpenAdvanced = { go(Screen.AdvancedSettings) },
                         onOpenDebugLog = { go(Screen.DebugLog) },
+                        onOpenDiagnose = { go(Screen.Diagnose) },
                         onOpenAbout = { go(Screen.About) },
                     )
                     Screen.AdvancedSettings -> AdvancedSettingsScreen(vm, onBack = ::back)

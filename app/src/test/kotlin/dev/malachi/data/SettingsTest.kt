@@ -65,10 +65,30 @@ class SettingsTest {
         assertEquals(base.tunnelShape(), base.copy(listChoices = mapOf("oisd-big" to true)).tunnelShape())
         assertEquals(base.tunnelShape(), base.copy(blockAnswer = BlockAnswerMode.NXDOMAIN).tunnelShape())
 
+        // Watching one app is read per lookup like any other rule, so it must not either — a
+        // rebuild is a blink of unfiltered DNS, and this is a diagnostic.
+        assertEquals(
+            base.tunnelShape(),
+            base.copy(diagnoseApp = "com.example.game", diagnoseUntilMs = 1_000).tunnelShape(),
+        )
+
         // The app scope and the bypass routes are fixed at establish() time, so they must.
         assertNotEquals(base.tunnelShape(), base.copy(excludedApps = setOf("com.bank")).tunnelShape())
         assertNotEquals(base.tunnelShape(), base.copy(scopeMode = AppScopeMode.ONLY_SELECTED).tunnelShape())
         assertNotEquals(base.tunnelShape(), base.copy(bypassGuard = BypassGuard.OFF).tunnelShape())
+    }
+
+    @Test
+    fun `watching one app is a deadline, not a switch`() {
+        // A switch left on is left on for months, and this one names domains while it runs. The
+        // deadline is what makes the worst case half an hour rather than the life of the install.
+        val watching = MalachiSettings(diagnoseApp = "com.example.game", diagnoseUntilMs = 1_000)
+        assertEquals("com.example.game", watching.diagnosing(nowMs = 500))
+        assertNull(watching.diagnosing(nowMs = 1_000), "the deadline is exclusive, like every other one here")
+        assertNull(watching.diagnosing(nowMs = 5_000))
+        // And a deadline with nobody named is nobody being watched, not everybody.
+        assertNull(MalachiSettings(diagnoseUntilMs = 9_999).diagnosing(nowMs = 0))
+        assertNull(MalachiSettings().diagnosing(nowMs = 0))
     }
 
     @Test
