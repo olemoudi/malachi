@@ -990,6 +990,12 @@ the one path every revival has in common.
   themselves rather than fail, so a run that looks green may have exercised nothing. CI passes
   `-Pandroid.testInstrumentationRunnerArguments.requireVpnConsent=true`, which turns that skip
   into a failure — a grant that silently stops working must not read as a pass.
+- **The grant needs the package to exist, so locally it is install *then* grant *then* run.**
+  `appops set` on a package that is not there fails with `No UID for dev.malachi in user 0`, and
+  Gradle uninstalls after a run — so granting before the first run and granting after it both
+  leave nine tunnel cases failing with a message telling you to run the command you just ran.
+  `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`,
+  then the grant, then `connectedDebugAndroidTest`; the reinstall AGP does keeps the appop.
 - **They run in their own workflow (`instrumented.yml`), on an emulator, and `release.yml`
   calls it before publishing.** They did not gate the release once, and a build whose tunnel
   tests were red installed itself onto a phone that updates automatically. A few minutes on
