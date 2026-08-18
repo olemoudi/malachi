@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,9 +110,13 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String)
         onPauseOrDispose { }
     }
 
-    var tab by remember { mutableStateOf(ActivityTab.LIVE) }
-    var filter by remember { mutableStateOf(ActivityFilter.ALL) }
-    var query by remember { mutableStateOf("") }
+    // Which tab, which filter and what was searched for are all saveable: opening an app from
+    // this screen and coming back has to land where it was left, not on the first tab with the
+    // filter reset. `selected` deliberately is not — it is a sheet, and a screen that reopens its
+    // own dialog on return is a screen arguing with the back button.
+    var tab by rememberSaveable { mutableStateOf(ActivityTab.LIVE) }
+    var filter by rememberSaveable { mutableStateOf(ActivityFilter.ALL) }
+    var query by rememberSaveable { mutableStateOf("") }
     var selected by remember { mutableStateOf<QueryRecord?>(null) }
 
     // The clock the whole list is read against, taken once per snapshot rather than per row: two

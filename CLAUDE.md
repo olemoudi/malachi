@@ -818,6 +818,31 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   picking the wrong file from a list of filenames is an ordinary mistake and "0 rules" is the only
   moment anybody would catch it.
 
+- **A screen that is navigated away from is disposed, so "where I was" has to be held for it.**
+  Everything a screen remembers — its scroll position, its search box, which tab was open, how it
+  was sorted — dies when it leaves the composition, and it leaves the composition as soon as
+  something is pushed on top of it. So scrolling two hundred apps, opening one and pressing back
+  put you at the top again with an empty search box, which is what makes a stack of screens read
+  as a set of unrelated pages rather than as one place you are moving around in.
+  `rememberSaveableStateHolder` in `MalachiApp` keeps each entry's `rememberSaveable` state while
+  it is off screen; scroll comes free with it, because `rememberLazyListState` and
+  `rememberScrollState` are saveable already. What is *not* free is everything a screen holds in a
+  plain `remember`, so a search box or a tab that ought to survive has to be spelled
+  `rememberSaveable` — and a dialog or a pending confirmation deliberately must not, because a
+  screen that reopens its own sheet on return is arguing with the back button.
+- **The state belongs to the entry, not to the destination, and the entry needs an id of its own.**
+  Two things need it. Popping has to forget that entry's position, so opening the destination
+  again later starts at the top rather than resurrecting a visit that ended; and the entry that is
+  animating away still holds its position for the length of that animation, so pushing the same
+  destination again in that moment would collide with it — `SaveableStateHolder` answers a
+  duplicate key with a hard `require`, which is to say a crash, and a rage-tap after a back gesture
+  is enough to produce one.
+- **Which way the animation slides was guessed, and the guess was wrong for most journeys.** It
+  read "deeper unless we are landing on Home", which is right for the two journeys anybody tries
+  first and wrong for every other: coming back from an app's detail to the list of apps is not
+  landing on Home, so the screen you were *returning* to slid in from the right as though it were
+  somewhere new. The animation is the only thing telling a person which way they just went. Entry
+  ids only go up, so `isForward` is now a fact rather than a heuristic.
 - **The navigation stack is `rememberSaveable`, and that is not tidiness.** The activity is
   destroyed and rebuilt for every configuration change the device can produce — a rotation, a
   font-size change, a theme switch, unfolding a foldable, resizing a window in a desktop mode — and

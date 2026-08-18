@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,7 +91,10 @@ fun AppDetailScreen(
     val label = remember(packageName) { vm.labelFor(packageName) }
     val rules = settings.appRulesFor(packageName)
 
-    var order by remember { mutableStateOf(SeenOrder.RECENT) }
+    // Saveable: this screen is where a per-app diagnosis is run from, and the errand is
+    // iterative — sort by most-asked-for, go and look at something, come back. Coming back to
+    // "most recent" every time is the app forgetting the question.
+    var order by rememberSaveable { mutableStateOf(SeenOrder.RECENT) }
     val seen = remember(log, packageName, order) {
         log.records
             .asSequence()

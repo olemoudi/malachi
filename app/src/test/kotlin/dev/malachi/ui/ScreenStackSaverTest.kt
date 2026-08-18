@@ -2,7 +2,10 @@ package dev.malachi.ui
 
 import dev.malachi.lists.BlocklistCategory
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -47,6 +50,48 @@ class ScreenStackSaverTest {
         // depend on believing that of a string that came out of a Bundle.
         val awkward = Screen.AppDetail("com.example.app${ARGUMENT_SEPARATOR}odd")
         assertEquals(awkward, decodeScreen(encodeScreen(awkward)))
+    }
+
+    @Test
+    fun `an entry keeps its identity across the round trip`() {
+        val entry = Entry(Screen.AppDetail("com.example.app"), id = 7)
+        assertEquals(entry, decodeEntry(encodeEntry(entry)))
+        // The identity is the half that matters here: two visits to one destination are two
+        // entries, and confusing them is how a screen comes back showing where it was left the
+        // *last* time it was open.
+        assertNotEquals(decodeEntry(encodeEntry(entry)), decodeEntry(encodeEntry(entry.copy(id = 8))))
+    }
+
+    @Test
+    fun `an entry that is not one is dropped rather than thrown`() {
+        assertNull(decodeEntry("notanumber|Home"))
+        assertNull(decodeEntry("7|SomeScreenFromTheFuture"))
+        assertNull(decodeEntry("7"))
+        assertNull(decodeEntry(""))
+    }
+
+    @Test
+    fun `going deeper slides forward and coming back slides back`() {
+        // The bug this replaces guessed the direction from the stack's depth and the
+        // destination's name — "deeper unless we are landing on Home" — which is right for the
+        // two journeys anybody tries first and wrong for every other one. Returning from an app's
+        // detail to the list of apps is not landing on Home, so the screen you were coming *back*
+        // to slid in from the right as though it were somewhere new.
+        val home = Entry(Screen.Home, 0)
+        val apps = Entry(Screen.Apps, 1)
+        val detail = Entry(Screen.AppDetail("com.example.app"), 2)
+
+        assertTrue(isForward(home, apps))
+        assertTrue(isForward(apps, detail))
+        // The case that was wrong, and the one a person meets most: back, but not to Home.
+        assertFalse(isForward(detail, apps))
+        assertFalse(isForward(apps, home))
+
+        // And a second visit to a destination is forward again, though its screen is one already
+        // seen — which a comparison of destinations could not tell.
+        val appsAgain = Entry(Screen.Apps, 3)
+        assertTrue(isForward(home, appsAgain))
+        assertFalse(isForward(appsAgain, home))
     }
 
     @Test

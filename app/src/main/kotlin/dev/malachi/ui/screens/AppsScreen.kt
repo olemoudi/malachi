@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,8 +71,12 @@ fun AppsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> 
     val apps by vm.apps.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
-    var query by remember { mutableStateOf("") }
-    var showSystem by remember { mutableStateOf(false) }
+    // Saveable, so that finding an app, opening it and pressing back returns to the search that
+    // found it rather than to an empty box at the top of two hundred rows. The list's own scroll
+    // position comes back with it: `rememberLazyListState` is saveable already, and the holder in
+    // MalachiApp is what keeps both while the screen is off the stack.
+    var query by rememberSaveable { mutableStateOf("") }
+    var showSystem by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 

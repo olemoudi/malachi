@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -150,8 +151,8 @@ private fun AppPicker(vm: MalachiViewModel, onBack: () -> Unit, onPick: (String)
     val apps by vm.apps.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
-    var query by remember { mutableStateOf("") }
-    var showSystem by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var showSystem by rememberSaveable { mutableStateOf(false) }
 
     val visible = remember(apps, query, showSystem) {
         apps.asSequence()
@@ -280,7 +281,10 @@ private fun TraceSession(
     val mine = trace.packageName == packageName
     val events = if (mine) trace.events else emptyList()
 
-    var filter by remember { mutableStateOf(TraceFilter.ALL) }
+    // Saveable, unlike `scoping`: the filter is how the timeline is being read and has to
+    // survive leaving the app to reproduce the fault, which is the whole method here. `scoping`
+    // is a sheet and should not reopen itself.
+    var filter by rememberSaveable { mutableStateOf(TraceFilter.ALL) }
     var scoping by remember { mutableStateOf<String?>(null) }
 
     val suspects = remember(trace, mine) {
