@@ -362,6 +362,22 @@ data class MalachiSettings(
     }
 
     /**
+     * The apps this mode names one by one, as opposed to the hundred and eighty it says nothing
+     * about.
+     *
+     * Each mode has exactly one explicit set and it is the small one: the exceptions in
+     * "all except", the whole scope in "only these". That is also the only set anybody ever needs
+     * to *find* — a decision made months ago about one app, in a list of two hundred, with nothing
+     * to distinguish it but the position of a switch at the far right of its row. Naming it here
+     * rather than in the screen is what keeps "which apps did I choose" from being asked in two
+     * places and answered differently in each.
+     */
+    fun chosenApps(): Set<String> = when (scopeMode) {
+        AppScopeMode.ALL_EXCEPT -> excludedApps
+        AppScopeMode.ONLY_SELECTED -> includedApps
+    }
+
+    /**
      * The shape of the tunnel these settings ask for. The tun is immutable once established, so
      * a change to any of this means tearing it down and building a new one — while a change to,
      * say, the blocklist does not. Comparing this string is what tells the two apart.

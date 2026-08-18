@@ -818,6 +818,17 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   picking the wrong file from a list of filenames is an ordinary mistake and "0 rules" is the only
   moment anybody would catch it.
 
+- **A decision made once has to be findable afterwards, and a switch in a list of two hundred is
+  not findable.** Excluding an app is one tap; remembering *which* app you excluded, months later,
+  is impossible — the only trace is a switch in the off position, at the far right of one row,
+  in a list sorted by a name you have forgotten, with no way to filter to it. So the Apps screen
+  offers the shortlist directly: `MalachiSettings.chosenApps()` is whichever set the current mode
+  names one by one, and a chip filters to it. Three details are the feature rather than decoration
+  — it is **hidden when the set is empty**, because a chip that filters to nothing is a dead
+  control; it **ignores the system-apps filter**, because half of what anybody excludes is a
+  preinstalled component and a shortlist that quietly hid those would answer the question with the
+  wrong number of apps; and **emptying it turns it off** rather than suspending it, or the next
+  exclusion silently collapses two hundred rows to one, a minute later, looking like a bug.
 - **A screen that is navigated away from is disposed, so "where I was" has to be held for it.**
   Everything a screen remembers — its scroll position, its search box, which tab was open, how it
   was sorted — dies when it leaves the composition, and it leaves the composition as soon as

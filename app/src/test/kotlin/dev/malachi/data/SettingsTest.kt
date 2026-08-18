@@ -57,6 +57,54 @@ class SettingsTest {
     }
 
     @Test
+    fun `the chosen apps are whichever set the mode names one by one`() {
+        // The shortlist the Apps screen offers, and it points at opposite things in the two
+        // modes: the exceptions in "all except", the whole scope in "only these". Getting it
+        // backwards would offer somebody a chip labelled "2 excluded" that listed the hundred and
+        // eighty apps they had never touched.
+        val settings = MalachiSettings(
+            excludedApps = setOf("com.bank.app", "com.car.app"),
+            includedApps = setOf("com.game.app"),
+        )
+
+        assertEquals(
+            setOf("com.bank.app", "com.car.app"),
+            settings.copy(scopeMode = AppScopeMode.ALL_EXCEPT).chosenApps(),
+        )
+        assertEquals(
+            setOf("com.game.app"),
+            settings.copy(scopeMode = AppScopeMode.ONLY_SELECTED).chosenApps(),
+        )
+    }
+
+    @Test
+    fun `the chosen apps are exactly the ones that differ from what the mode does by default`() {
+        // The property the chip leans on: everything in the shortlist is a decision somebody
+        // made, and everything outside it is the mode's own default. If these ever came apart,
+        // the shortlist would either hide a decision or invent one.
+        val all = listOf("com.bank.app", "com.game.app", "com.untouched.app")
+
+        val allExcept = MalachiSettings(
+            scopeMode = AppScopeMode.ALL_EXCEPT,
+            excludedApps = setOf("com.bank.app"),
+        )
+        assertEquals(all.filterNot(allExcept::covers).toSet(), allExcept.chosenApps())
+
+        val onlySelected = MalachiSettings(
+            scopeMode = AppScopeMode.ONLY_SELECTED,
+            includedApps = setOf("com.game.app"),
+        )
+        assertEquals(all.filter(onlySelected::covers).toSet(), onlySelected.chosenApps())
+    }
+
+    @Test
+    fun `nothing chosen is nothing to shortlist`() {
+        // What makes the chip disappear rather than filter to an empty list.
+        assertTrue(MalachiSettings(scopeMode = AppScopeMode.ALL_EXCEPT).chosenApps().isEmpty())
+        assertTrue(MalachiSettings(scopeMode = AppScopeMode.ONLY_SELECTED).chosenApps().isEmpty())
+    }
+
+    @Test
     fun `only what is baked into the tunnel changes its shape`() {
         val base = MalachiSettings(filteringEnabled = true)
 

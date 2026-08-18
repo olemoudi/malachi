@@ -524,6 +524,14 @@
         <item quantity="one">Only %d app filtered</item>
         <item quantity="other">Only %d apps filtered</item>
     </plurals>
+    <plurals name="apps_filter_excluded">
+        <item quantity="one">%d excluded</item>
+        <item quantity="other">%d excluded</item>
+    </plurals>
+    <plurals name="apps_filter_included">
+        <item quantity="one">%d filtered</item>
+        <item quantity="other">%d filtered</item>
+    </plurals>
     <plurals name="apps_rule_count">
         <item quantity="one">%d rule</item>
         <item quantity="other">%d rules</item>
