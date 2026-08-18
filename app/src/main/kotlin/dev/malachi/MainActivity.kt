@@ -82,7 +82,16 @@ class MainActivity : ComponentActivity() {
             vm.filterBlockedByAlwaysOn()
             return
         }
-        val intent = VpnController.consentIntent(this)
+        // `VpnService.prepare` is documented to answer with an intent or null, and on a device
+        // that will not hand this app a VPN at all — a restricted profile, a managed device whose
+        // policy forbids it, a build with the feature stripped — it can refuse instead. Left
+        // unguarded that is a crash on the one button the whole app is about.
+        val consent = runCatching { VpnController.consentIntent(this) }
+        if (consent.isFailure) {
+            vm.filterConsentRefused()
+            return
+        }
+        val intent = consent.getOrNull()
         if (intent == null) {
             vm.confirmFilterEnabled()
             return

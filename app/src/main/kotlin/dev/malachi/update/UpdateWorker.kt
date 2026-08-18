@@ -9,8 +9,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import dev.malachi.withWorkQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
@@ -59,8 +59,9 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .setConstraints(connected)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
+            withWorkQueue(context, "schedule the update check") {
+                it.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
+            }
         }
 
         /** One-off immediate check (launch, boot, the manual button). Bypasses the guard. */
@@ -70,7 +71,7 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .setConstraints(connected)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(context).enqueue(request)
+            withWorkQueue(context, "run an update check") { it.enqueue(request) }
         }
 
         /** Focus-triggered check: runs at most once per guard window. */

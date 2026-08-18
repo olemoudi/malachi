@@ -184,7 +184,8 @@ class DnsUpstreamTest {
         pool.give(first)
         val second = pool.borrow(loopback)!!
 
-        assertSame(first, second)
+        // The loan is a fresh wrapper each time; the socket inside it is what must be reused.
+        assertSame(first.socket, second.socket)
     }
 
     @Test
@@ -197,9 +198,9 @@ class DnsUpstreamTest {
 
         val forLoopback = pool.borrow(loopback)!!
         pool.give(forLoopback)
-        val forElsewhere = pool.borrow(InetAddress.getByName("192.0.2.1"))
+        val forElsewhere = pool.borrow(InetAddress.getByName("192.0.2.1"))!!
 
-        assertNotSame(forLoopback, forElsewhere)
+        assertNotSame(forLoopback.socket, forElsewhere.socket)
         assertEquals(2, opened)
     }
 
@@ -208,11 +209,11 @@ class DnsUpstreamTest {
         val resolver = socket()
         val pool = UpstreamSockets(capacity = 2) { clientTo(resolver) }
 
-        val sockets = List(5) { pool.borrow(loopback)!! }
-        sockets.forEach { pool.give(it) }
+        val loans = List(5) { pool.borrow(loopback)!! }
+        loans.forEach { pool.give(it) }
 
         assertEquals(2, pool.size)
-        assertEquals(3, sockets.count { it.isClosed })
+        assertEquals(3, loans.count { it.socket.isClosed })
     }
 
     @Test
@@ -222,11 +223,11 @@ class DnsUpstreamTest {
 
         val stale = pool.borrow(loopback)!!
         pool.give(stale)
-        stale.close()
+        stale.socket.close()
 
         val fresh = pool.borrow(loopback)!!
-        assertNotSame(stale, fresh)
-        assertTrue(!fresh.isClosed)
+        assertNotSame(stale.socket, fresh.socket)
+        assertTrue(!fresh.socket.isClosed)
         assertEquals(0, pool.size)
     }
 
@@ -242,7 +243,7 @@ class DnsUpstreamTest {
         pool.closeAll()
 
         assertEquals(0, pool.size)
-        assertTrue(held.all { it.isClosed })
+        assertTrue(held.all { it.socket.isClosed })
     }
 
     @Test
@@ -256,7 +257,7 @@ class DnsUpstreamTest {
         repeat(8) {
             Thread {
                 start.await()
-                pool.borrow(loopback)?.let { handed += it }
+                pool.borrow(loopback)?.let { handed += it.socket }
                 done.countDown()
             }.apply { isDaemon = true }.start()
         }
@@ -265,5 +266,38 @@ class DnsUpstreamTest {
 
         assertEquals(8, handed.size)
         assertEquals(8, handed.distinct().size, "the same socket was handed to two threads at once")
+    }
+
+    @Test
+    fun `a socket borrowed before the network changed is closed rather than pooled`() {
+        // The case closeAll() cannot reach on its own: a lookup is in flight when the phone hands
+        // over, so its socket is not in the pool to be closed — it comes home afterwards, bound to
+        // a network that no longer exists. Pooled, the next lookup borrows it and spends its whole
+        // five-second budget on a resolver it can no longer reach, once per socket that happened
+        // to be out at the time.
+        val resolver = socket()
+        val pool = UpstreamSockets(capacity = 4) { clientTo(resolver) }
+
+        val inFlight = pool.borrow(loopback)!!
+        pool.closeAll()
+        pool.give(inFlight)
+
+        assertEquals(0, pool.size, "a socket from the previous network was put back in the pool")
+        assertTrue(inFlight.socket.isClosed, "it was not even closed")
+    }
+
+    @Test
+    fun `a socket borrowed after the network changed is pooled as usual`() {
+        // The other half: the epoch must not disown everything forever, or the pool stops being
+        // one after the first handover and every lookup pays for a fresh protect().
+        val resolver = socket()
+        val pool = UpstreamSockets(capacity = 4) { clientTo(resolver) }
+
+        pool.closeAll()
+        val fresh = pool.borrow(loopback)!!
+        pool.give(fresh)
+
+        assertEquals(1, pool.size)
+        assertTrue(!fresh.socket.isClosed)
     }
 }

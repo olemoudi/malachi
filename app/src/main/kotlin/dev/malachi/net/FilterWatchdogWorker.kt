@@ -4,9 +4,9 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.malachi.MalachiApplication
+import dev.malachi.withWorkQueue
 import dev.malachi.debug.DebugLog
 import java.util.concurrent.TimeUnit
 
@@ -75,12 +75,13 @@ class FilterWatchdogWorker(context: Context, params: WorkerParameters) : Corouti
          */
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<FilterWatchdogWorker>(30, TimeUnit.MINUTES).build()
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
+            withWorkQueue(context, "schedule the filter watchdog") {
+                it.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
+            }
         }
 
         fun cancel(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
+            withWorkQueue(context, "stop the filter watchdog") { it.cancelUniqueWork(PERIODIC) }
         }
     }
 }

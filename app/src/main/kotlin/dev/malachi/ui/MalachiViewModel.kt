@@ -96,7 +96,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     val stats: StateFlow<StatsData> = _stats.asStateFlow()
 
     fun refreshStats() {
-        viewModelScope.launch {
+        launchSafely("reading the statistics") {
             _stats.value = withContext(Dispatchers.IO) { app.statsStore.snapshot() }
         }
     }
@@ -143,7 +143,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     }.getOrDefault(0)
 
     init {
-        viewModelScope.launch {
+        launchSafely("listing the installed apps") {
             _apps.value = withContext(Dispatchers.IO) { app.appInventory.networkApps() }
         }
     }
@@ -198,7 +198,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
      * when the filter is running, paused, off, or waiting on consent.
      */
     fun ensureFilterRunning() {
-        viewModelScope.launch { FilterWatchdogWorker.restoreIfNeeded(app) }
+        launchSafely("starting the filter") { FilterWatchdogWorker.restoreIfNeeded(app) }
     }
 
     fun dismissAlwaysOnTip() = update { it.copy(alwaysOnTipDismissed = true) }
@@ -586,7 +586,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     fun clearBackupMessage() { _backupMessage.value = null }
 
     fun exportBackup(uri: Uri) {
-        viewModelScope.launch {
+        launchSafely("writing the backup") {
             val settings = app.settingsStore.current()
             val backup = Backup.of(settings, versionName, System.currentTimeMillis())
             val written = withContext(Dispatchers.IO) {
@@ -616,12 +616,12 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     val pendingRestore: StateFlow<Backup?> = _pendingRestore.asStateFlow()
 
     fun importBackup(uri: Uri) {
-        viewModelScope.launch {
+        launchSafely("reading the backup") {
             val text = withContext(Dispatchers.IO) { BackupStore(app.contentResolver).read(uri) }
             val backup = text?.let { Backup.decode(it).getOrNull() }
             if (backup == null) {
                 _backupMessage.value = app.getString(R.string.backup_import_failed)
-                return@launch
+                return@launchSafely
             }
             _pendingRestore.value = backup
         }
@@ -642,7 +642,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
      * reporting back, not here — see [dev.malachi.data.BackupSharedReceiver].
      */
     fun shareBackup() {
-        viewModelScope.launch {
+        launchSafely("sharing the backup") {
             val backup = Backup.of(app.settingsStore.current(), versionName, System.currentTimeMillis())
             val opened = withContext(Dispatchers.IO) { BackupSharing.share(app, backup) }
             if (!opened) _backupMessage.value = app.getString(R.string.backup_export_failed)
@@ -658,12 +658,12 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     }
 
     fun setThemeMode(mode: ThemeMode) {
-        viewModelScope.launch { app.themeStore.setMode(mode) }
+        launchSafely("storing the theme") { app.themeStore.setMode(mode) }
     }
 
     /** The manual "check for updates" button: forced, so Wi-Fi-only doesn't silently skip it. */
     fun checkForUpdate() {
-        viewModelScope.launch { runCatching { Updater(app).checkAndUpdate(force = true) } }
+        launchSafely("checking for an update") { Updater(app).checkAndUpdate(force = true) }
     }
 
     fun scheduleUpdateCheck() = UpdateWorker.runNow(app)
@@ -691,7 +691,36 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     }
 
     private fun update(transform: (MalachiSettings) -> MalachiSettings) {
-        viewModelScope.launch { app.settingsStore.update(transform) }
+        launchSafely("saving a setting") { app.settingsStore.update(transform) }
+    }
+
+    /**
+     * Every errand this view model runs in the background, with a floor under it.
+     *
+     * `viewModelScope` carries no exception handler, so an uncaught throw in any of these reaches
+     * the thread's default handler and takes the process down. That would be a fair price for a
+     * bug; the trouble is that the likeliest throw here is not a bug at all. DataStore reports a
+     * write it could not make — a full disk, a filesystem an OEM "cleaner" has been through, an
+     * app-data directory that was removed underneath us — as an ordinary `IOException` from
+     * `edit`, and **every tap that changes a setting comes through here**. So the one class of
+     * device least able to recover from it was the one that crashed on the next tap, whichever
+     * tap it was.
+     *
+     * Logged rather than surfaced: there is no screen on which "your phone could not write a
+     * boolean" is actionable, and the setting simply stays as it was, which is what the switch
+     * will show on the next emission. Cancellation is rethrown — swallowing it leaves a coroutine
+     * ignoring the scope that is being torn down around it.
+     */
+    private fun launchSafely(what: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (t: Throwable) {
+                DebugLog.e(TAG, "$what failed", t)
+            }
+        }
     }
 
     class Factory(private val app: MalachiApplication) : ViewModelProvider.Factory {

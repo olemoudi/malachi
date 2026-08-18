@@ -201,6 +201,9 @@ class MalachiVpnService : VpnService() {
     @Volatile private var lastUnvalidatedLogMs = 0L
     @Volatile private var lastLockdownCheckMs = 0L
 
+    /** When a network we are *not* using last made us go and decide again; see the callback. */
+    @Volatile private var lastUnderlyingRecheckMs = 0L
+
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
 
@@ -210,6 +213,21 @@ class MalachiVpnService : VpnService() {
      * see [UpstreamSockets] for why they are also connected.
      */
     private val sockets = UpstreamSockets(capacity = FORWARD_THREADS) { target -> openUpstream(target) }
+
+    /**
+     * Whether an alarm to end a pause is out there. True to begin with, because one set by a
+     * previous process outlives it; see [cancelPauseAlarm].
+     */
+    @Volatile private var pauseAlarmArmed = true
+
+    /**
+     * The network last declared to the platform with `setUnderlyingNetworks`, so it is only
+     * declared again when it really moved. The call is a binder round trip and the callbacks that
+     * reach it fire several times a minute on a phone being carried around.
+     *
+     * Cleared with the tunnel: the declaration belongs to a tun, so a rebuilt one has none.
+     */
+    @Volatile private var declaredUnderlying: Network? = null
 
     private var resumeJob: Job? = null
     private var retryJob: Job? = null
@@ -321,10 +339,22 @@ class MalachiVpnService : VpnService() {
          * per tick is not.
          */
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            if (network != activeNetwork) return adoptUnderlying(network.takeIf { platformPicksBest })
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastLockdownCheckMs < LOCKDOWN_CHECK_INTERVAL_MS) return
-            lastLockdownCheckMs = now
+            if (network != activeNetwork) {
+                // On Android 12+ the platform reports only its best match, so this really is a
+                // prompt to move and is acted on at once. Below that *every* matching network
+                // reports itself — and a capability is a signal strength and a bandwidth
+                // estimate, which move constantly on a phone in a pocket. Re-deciding on each of
+                // those means `allNetworks`, a capability read per network, a link-properties
+                // read and two more binder calls in the adoption, several times a minute, to
+                // arrive at the answer we already had. The events that genuinely need to be
+                // prompt arrive as onAvailable, onLost and onLinkPropertiesChanged, none of which
+                // is throttled, and a failing lookup re-asks within five seconds regardless.
+                if (platformPicksBest) return adoptUnderlying(network)
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastUnderlyingRecheckMs < UNDERLYING_RECHECK_INTERVAL_MS) return
+                lastUnderlyingRecheckMs = now
+                return adoptUnderlying(null)
+            }
             publishLockdown()
         }
 
@@ -357,8 +387,18 @@ class MalachiVpnService : VpnService() {
         // binds to this service as the active VPN and that is what keeps the process alive. The
         // status bar already carries the system's VPN key, so a notification of our own would be
         // a second permanent indicator saying the same thing.
-        // The flow keeps itself alive across a storage failure; see SettingsStore.settings.
-        scope.launch { app.settingsStore.settings.collect { applySettings(it) } }
+        // The flow keeps itself alive across a storage failure; see SettingsStore.settings. The
+        // *body* needs the same promise for a different reason: an exception thrown out of a
+        // collector ends that collection for good, and this is the only thing in the process that
+        // reacts to a settings change. A single throw — a notification an OEM would not let us
+        // build, a resource that would not resolve — and the switch in the app writes `false`
+        // forever while the tunnel goes on filtering, with nothing anywhere saying why.
+        scope.launch {
+            app.settingsStore.settings.collect { next ->
+                runCatching { applySettings(next) }
+                    .onFailure { DebugLog.e(TAG, "could not apply a settings change", it) }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -465,7 +505,7 @@ class MalachiVpnService : VpnService() {
                 }
             }
             TunnelAction.Rebuild -> startTunnel(next)
-            TunnelAction.LeaveRunning -> Unit
+            TunnelAction.LeaveRunning -> if (TunnelPolicy.upstreamMoved(previous, next)) adoptUpstreams()
         }
     }
 
@@ -494,6 +534,7 @@ class MalachiVpnService : VpnService() {
             settings,
             alwaysOnHeldElsewhere = VpnController.alwaysOn(this) is VpnController.AlwaysOn.Other,
             hasConsent = VpnController.hasConsent(this),
+            selectedAppsPresent = selectedAppsPresent(settings),
         )
         if (refusal != null) {
             reportProblem(refusal.problem(), getString(refusal.message()))
@@ -520,8 +561,14 @@ class MalachiVpnService : VpnService() {
 
         tunnel = pfd
         tunnelShape = settings.tunnelShape()
-        publishLockdown()
+        publishLockdown(force = true)
         output = FileOutputStream(pfd.fileDescriptor)
+        // The declaration belongs to a tun, so a freshly built one has none — and until it is
+        // made the platform cannot see what this tunnel is carried by. Declared here rather than
+        // waiting for the next network callback, because "up to the next callback" is how long
+        // the phone spends unsure whether its connection is metered, and the things that read
+        // that are Play Store updates, cloud backups and Data Saver.
+        activeNetwork?.let { declareUnderlying(it) }
         upstreams = resolveUpstreams()
         retryAttempt = 0
         demote()
@@ -626,7 +673,14 @@ class MalachiVpnService : VpnService() {
         // binds to, whatever we route, and Android Auto fails before it starts.
         if (settings.bypassAllowed) builder.allowBypass()
 
-        applyScope(builder, settings)
+        // Not `applyScope(builder, settings)` and on with it: in ONLY_SELECTED a builder that
+        // took none of the chosen apps carries no restriction, and Android reads that as "filter
+        // everything". Refusing here is refusing to do the opposite of what the screen says.
+        val applied = applyScope(builder, settings)
+        if (!TunnelPolicy.scopeIsSelective(settings.scopeMode, applied)) {
+            DebugLog.e(TAG, "none of the selected apps could be covered; refusing to filter every app instead")
+            return null
+        }
         applyBypassGuard(builder, settings)
 
         return builder.establish()
@@ -637,22 +691,40 @@ class MalachiVpnService : VpnService() {
      * scope never reaches this process at all, which is a stronger promise than a check we
      * perform on its packets, and costs nothing at runtime.
      */
-    private fun applyScope(builder: Builder, settings: MalachiSettings) {
+    private fun applyScope(builder: Builder, settings: MalachiSettings): Int {
+        var applied = 0
         when (settings.scopeMode) {
             AppScopeMode.ALL_EXCEPT -> {
                 // Always outside its own tunnel: Malachi downloads lists and updates, and
                 // routing that through the filter it is updating invites a loop.
                 (settings.excludedApps + packageName).forEach { pkg ->
-                    runCatching { builder.addDisallowedApplication(pkg) }
+                    runCatching { builder.addDisallowedApplication(pkg); applied++ }
                         .onFailure { DebugLog.w(TAG, "cannot exclude $pkg (not installed?)") }
                 }
             }
             AppScopeMode.ONLY_SELECTED -> {
                 settings.includedApps.filter { it != packageName }.forEach { pkg ->
-                    runCatching { builder.addAllowedApplication(pkg) }
+                    runCatching { builder.addAllowedApplication(pkg); applied++ }
                         .onFailure { DebugLog.w(TAG, "cannot include $pkg (not installed?)") }
                 }
             }
+        }
+        return applied
+    }
+
+    /**
+     * How many of the apps the user picked are still on the phone.
+     *
+     * Asked before the tunnel is built rather than after, because "you chose only these apps and
+     * none of them are here any more" is a sentence with a screen behind it, while an
+     * `establish()` that quietly did the wrong thing is not. Meaningless in ALL_EXCEPT — every
+     * app is in scope there whether or not the exclusions resolve — so that mode answers with a
+     * number no check can fail.
+     */
+    private fun selectedAppsPresent(settings: MalachiSettings): Int {
+        if (settings.scopeMode != AppScopeMode.ONLY_SELECTED) return Int.MAX_VALUE
+        return settings.includedApps.count { pkg ->
+            pkg != packageName && runCatching { packageManager.getApplicationInfo(pkg, 0) }.isSuccess
         }
     }
 
@@ -868,13 +940,13 @@ class MalachiVpnService : VpnService() {
             }
             val remaining = deadline - SystemClock.elapsedRealtime()
             if (remaining <= 0) return@forEachIndexed
-            val socket = sockets.borrow(target) ?: run {
+            val loan = sockets.borrow(target) ?: run {
                 if (tracing()) DebugLog.trace(TAG, "$name: no socket for ${target.hostAddress}")
                 return@forEachIndexed
             }
             val startedAt = SystemClock.elapsedRealtime()
             val answer = DnsRelay.exchange(
-                socket = socket,
+                socket = loan.socket,
                 query = query,
                 target = target,
                 port = DNS_PORT,
@@ -886,7 +958,7 @@ class MalachiVpnService : VpnService() {
             if (answer == null) {
                 // Nothing came back, so this socket may still deliver that answer to whoever
                 // borrows it next. It is not put back.
-                runCatching { socket.close() }
+                runCatching { loan.socket.close() }
                 if (tracing()) {
                     DebugLog.trace(
                         TAG,
@@ -898,7 +970,7 @@ class MalachiVpnService : VpnService() {
                 noteSilentUpstream(target)
                 return@forEachIndexed
             }
-            sockets.give(socket)
+            sockets.give(loan)
             // Remembered so the next lookup starts with the one that works rather than paying
             // the dud's timeout again.
             lastGoodUpstream = target
@@ -1053,11 +1125,20 @@ class MalachiVpnService : VpnService() {
      */
     private fun resolveTruncated(answer: ByteArray, query: ByteArray, target: InetAddress): ByteArray {
         if (answer.size < DNS_HEADER_BYTES || (answer[2].toInt() and 0x02) == 0) return answer
+        // One budget for the whole exchange, not one per syscall. A resolver that sets TC and
+        // then dawdles used to be able to hold a forwarder for the connect timeout plus a fresh
+        // five seconds per read, and there are only [FORWARD_THREADS] of them: four such answers
+        // and every other lookup on the phone is dropped with "forward queue full" for as long as
+        // it lasts. The client stopped waiting long before any of that, so spending it buys
+        // nothing at all.
+        val deadline = SystemClock.elapsedRealtime() + TCP_FALLBACK_BUDGET_MS
+        fun left(): Int = (deadline - SystemClock.elapsedRealtime()).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val full = runCatching {
             Socket().use { socket ->
                 protect(socket)
-                socket.soTimeout = UPSTREAM_TIMEOUT_MS
-                socket.connect(InetSocketAddress(target, DNS_PORT), UPSTREAM_TIMEOUT_MS)
+                if (left() <= 0) return@runCatching null
+                socket.connect(InetSocketAddress(target, DNS_PORT), left())
+                socket.soTimeout = left().coerceAtLeast(1)
                 val out = socket.getOutputStream()
                 out.write(byteArrayOf((query.size ushr 8).toByte(), query.size.toByte()))
                 out.write(query)
@@ -1070,6 +1151,8 @@ class MalachiVpnService : VpnService() {
                 val body = ByteArray(size)
                 var read = 0
                 while (read < size) {
+                    if (left() <= 0) return@runCatching null
+                    socket.soTimeout = left()
                     val n = input.read(body, read, size - read)
                     if (n < 0) return@runCatching null
                     read += n
@@ -1267,16 +1350,23 @@ class MalachiVpnService : VpnService() {
             networkGeneration++
         }
 
+        // Everything below this line used to run on *every* callback, and two of the calls are
+        // binder round trips. `onAvailable` and `onLinkPropertiesChanged` both arrive for the same
+        // network, and below Android 12 a network we are not even using reports itself as well —
+        // so an idle phone with Wi-Fi and mobile both up paid for all of this several times a
+        // minute, forever, to re-state facts that had not moved.
+        val privateDnsMoved = privateDnsActive != linkProperties.isPrivateDnsActive ||
+            privateDnsHost != linkProperties.privateDnsServerName
         privateDnsActive = linkProperties.isPrivateDnsActive
         privateDnsHost = linkProperties.privateDnsServerName
-        VpnStatus.privateDns(privateDnsActive, privateDnsHost)
-        publishLockdown()
-        // Tells the system which network our forwarded queries really travel over, so they are
-        // billed and routed correctly instead of appearing to come from the tunnel.
-        runCatching { setUnderlyingNetworks(arrayOf(network)) }
+        // Deliberately not folded into `changed`: Private DNS is a switch in the system settings
+        // and moves without the network or its resolvers moving at all.
+        if (privateDnsMoved) VpnStatus.privateDns(privateDnsActive, privateDnsHost)
+        publishLockdown(force = changed)
+        declareUnderlying(network)
 
         if (tunnel != null) {
-            VpnStatus.up(upstreamLabel(), privateDnsActive, privateDnsHost)
+            if (changed || privateDnsMoved) VpnStatus.up(upstreamLabel(), privateDnsActive, privateDnsHost)
         } else if (settings.isFiltering() && VpnStatus.status.value.problem == TunnelProblem.DISPLACED) {
             // A network came back and we are still displaced: the other VPN may well have been
             // what changed. Worth one attempt now rather than waiting out a backoff that may
@@ -1397,6 +1487,38 @@ class MalachiVpnService : VpnService() {
             DebugLog.w(TAG, "no resolver answered and this network offers others; adopting them")
             adoptNetwork(network, linkProperties)
         }
+    }
+
+    /**
+     * Names the network our forwarded queries really travel over, so they are billed and routed
+     * correctly instead of appearing to come from the tunnel — and so the platform derives this
+     * tun's meteredness from what is actually underneath it.
+     *
+     * Only when it is a different network from the one already declared: re-declaring the same
+     * one changes nothing and costs a binder round trip, and the callbacks that reach here fire
+     * several times a minute on a phone being carried around.
+     */
+    private fun declareUnderlying(network: Network) {
+        if (network == declaredUnderlying) return
+        declaredUnderlying = network
+        runCatching { setUnderlyingNetworks(arrayOf(network)) }
+    }
+
+    /**
+     * Re-reads where lookups go, for a tunnel that is staying up.
+     *
+     * Everything the old resolvers left behind goes with them: the pooled sockets are *connected*
+     * to them and cannot carry a query anywhere else, the resolver remembered as the one that
+     * answers is one we are no longer asking, and a lookup already in flight is spending its
+     * budget on a list the user has just replaced.
+     */
+    private fun adoptUpstreams() {
+        upstreams = resolveUpstreams()
+        lastGoodUpstream = null
+        sockets.closeAll()
+        networkGeneration++
+        DebugLog.i(TAG, "lookups now go to ${upstreamLabel()}")
+        if (tunnel != null) VpnStatus.up(upstreamLabel(), privateDnsActive, privateDnsHost)
     }
 
     /**
@@ -1524,6 +1646,9 @@ class MalachiVpnService : VpnService() {
         }
 
         runCatching { pfd.close() }
+        // The declaration belongs to the tun that has just gone, so the next one has to make it
+        // again rather than being skipped as already-current.
+        declaredUnderlying = null
         sockets.closeAll()
         // The flush cadence is a lookup count, so a tunnel that stops has to push what is left.
         runCatching { app.statsStore.flush() }
@@ -1595,10 +1720,25 @@ class MalachiVpnService : VpnService() {
     private fun schedulePauseAlarm(untilMs: Long) {
         val alarms = getSystemService(AlarmManager::class.java) ?: return
         runCatching { alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, untilMs, pauseAlarm()) }
+            .onSuccess { pauseAlarmArmed = true }
             .onFailure { DebugLog.w(TAG, "could not schedule the end of the pause", it) }
     }
 
+    /**
+     * Withdraws the pause alarm, and does nothing at all when there is none to withdraw.
+     *
+     * Reached from [applySettings], which runs on *every* settings emission — every rule written,
+     * every switch, every step of a guided search. Unconditional it was building a `PendingIntent`
+     * and calling `AlarmManager.cancel` each time, which is two round trips into the system server
+     * for an alarm that almost never exists, in a process that is alive for weeks.
+     *
+     * Starts armed on purpose: an alarm outlives the process that set it (that is the whole point
+     * of using one), so the first settings change after a start still clears whatever the last
+     * process left behind. After that this knows.
+     */
     private fun cancelPauseAlarm() {
+        if (!pauseAlarmArmed) return
+        pauseAlarmArmed = false
         val alarms = getSystemService(AlarmManager::class.java) ?: return
         runCatching { alarms.cancel(pauseAlarm()) }
     }
@@ -1715,7 +1855,15 @@ class MalachiVpnService : VpnService() {
      * time, in a screen this app sends them to; the network callbacks are the only regular
      * heartbeat available, and a lockdown change is itself a connectivity change.
      */
-    private fun publishLockdown() {
+    private fun publishLockdown(force: Boolean = false) {
+        // The read is a binder round trip and the callers are network callbacks, which on a
+        // moving phone arrive several times a minute and almost never because of this. Lockdown
+        // is a switch a person throws by hand in a settings screen, so a minute of lag costs
+        // nothing and a call per callback is a battery bug. [force] is for the moments that are
+        // genuinely about it: a tunnel coming up, a network actually being adopted.
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastLockdownCheckMs < LOCKDOWN_CHECK_INTERVAL_MS) return
+        lastLockdownCheckMs = now
         val locked = runCatching { isLockdownEnabled }.getOrDefault(false)
         if (locked != lastLockdown) {
             lastLockdown = locked
@@ -1791,6 +1939,16 @@ class MalachiVpnService : VpnService() {
         private const val IP_UDP_OVERHEAD = 48
         private const val UPSTREAM_TIMEOUT_MS = 5_000
 
+        /**
+         * The whole of what the TCP retry of a truncated answer may cost, connect included.
+         *
+         * Shorter than a UDP lookup's budget on purpose: by the time we are here the client has
+         * already had its answer relayed to it *if* this fails, so the only thing being bought is
+         * a better answer, and there are four forwarder threads between every app on the phone
+         * and its DNS.
+         */
+        private const val TCP_FALLBACK_BUDGET_MS = 3_000L
+
         /** The least a resolver is given before the next one is tried. */
         private const val MIN_UPSTREAM_ATTEMPT_MS = 1_200L
         private const val SILENT_UPSTREAM_LOG_INTERVAL_MS = 60_000L
@@ -1819,6 +1977,15 @@ class MalachiVpnService : VpnService() {
          * throws by hand, so a minute of lag is nothing and a call per tick is a battery bug.
          */
         private const val LOCKDOWN_CHECK_INTERVAL_MS = 60_000L
+
+        /**
+         * How often a capability change on a network we are not using may cost a re-decision.
+         *
+         * Only reached below Android 12, where every matching network reports itself rather than
+         * the platform naming its best. Everything that genuinely changes which network is
+         * underneath us arrives through another callback that is not throttled at all.
+         */
+        private const val UNDERLYING_RECHECK_INTERVAL_MS = 30_000L
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L

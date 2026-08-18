@@ -160,10 +160,12 @@ class BlocklistStore(private val dir: File) {
     private fun pruneLocked(keep: List<BlocklistSource>) {
         val wanted = keep.map { it.id }.toSet()
         val states = states().toMutableMap()
+        var swept = false
         states.keys.filterNot { it in wanted }.forEach { id ->
             blockFile(id).delete()
             allowFile(id).delete()
             states.remove(id)
+            swept = true
         }
         // The directory itself is the authority, not the state file. Driving this from the
         // states alone left a two-megabyte index on the phone forever whenever state.json was
@@ -173,12 +175,19 @@ class BlocklistStore(private val dir: File) {
             dir.listFiles()?.forEach { file ->
                 when {
                     file.name == STATE_FILE -> Unit
-                    file.name.endsWith(".tmp") -> file.delete()
-                    file.name.substringBeforeLast('.') !in wanted -> file.delete()
+                    file.name.endsWith(".tmp") -> if (file.delete()) swept = true
+                    file.name.substringBeforeLast('.') !in wanted -> if (file.delete()) swept = true
                 }
             }
         }
-        writeStates(states.values.toList())
+        // Only when there was really something to forget. A sweep that found nothing is the
+        // overwhelmingly common case — this runs on every process start, by way of
+        // `downloadMissingLists` — and rewriting the state file each time is a disk write for a
+        // document that has not changed, on an app that is revived by every worker, broadcast and
+        // Doze cycle. It is also the safer half: with the state file unreadable for a moment,
+        // `states()` answers empty, and writing that answer back used to replace a recoverable
+        // file with an empty one.
+        if (swept) writeStates(states.values.toList())
     }
 
     private fun refreshOne(source: BlocklistSource, previous: ListState, force: Boolean): ListState {

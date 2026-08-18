@@ -1,6 +1,7 @@
 package dev.malachi.lists
 
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -59,15 +60,57 @@ class BlocklistStoreTest {
     }
 
     @Test
-    fun `pruning does not delete the state file it is about to write`() = runBlocking {
+    fun `pruning never deletes the state file`() = runBlocking {
         val store = BlocklistStore(directory)
+        // A sweep with something to forget, which is what writes the file in the first place.
+        write("oisd-big.block")
         write("adguard-dns.block")
         store.prune(listOf(source("adguard-dns")))
-
         assertTrue(File(directory, "state.json").exists())
-        // And it is still readable afterwards, rather than having been deleted and rewritten
-        // as something the next read discards.
+
+        // And a second sweep with nothing to forget leaves it exactly where it was, rather than
+        // deleting it as an unrecognised file or rewriting it as something the next read
+        // discards.
+        store.prune(listOf(source("adguard-dns")))
+        assertTrue(File(directory, "state.json").exists())
         assertTrue(store.states().isEmpty() || store.states().containsKey("adguard-dns"))
+    }
+
+    @Test
+    fun `a sweep that finds nothing writes nothing`() = runBlocking {
+        // Reached on every process start by way of `downloadMissingLists`, and this app is
+        // revived by every worker, broadcast and Doze cycle. A sweep that found nothing used to
+        // rewrite the state file anyway — a disk write, dozens of times a day, for a document
+        // that had not changed.
+        write("adguard-dns.block")
+        val store = BlocklistStore(directory)
+        store.prune(listOf(source("adguard-dns")))
+        val stateFile = File(directory, "state.json")
+        val firstWrite = stateFile.exists()
+
+        store.prune(listOf(source("adguard-dns")))
+
+        assertFalse(
+            firstWrite,
+            "a sweep with nothing to forget created the state file",
+        )
+        assertFalse(stateFile.exists(), "a sweep with nothing to forget wrote the state file")
+        // And the list it was told to keep is still there, which is the part that matters.
+        assertTrue(File(directory, "adguard-dns.block").exists())
+    }
+
+    @Test
+    fun `a damaged state file is left alone when there is nothing to sweep`() = runBlocking {
+        // The other half of not writing: `states()` answers empty for a file it cannot read, and
+        // writing that answer back replaced a recoverable file with an authoritative empty one.
+        directory.mkdirs()
+        val stateFile = File(directory, "state.json")
+        stateFile.writeText("{{{ not json")
+        write("adguard-dns.block")
+
+        BlocklistStore(directory).prune(listOf(source("adguard-dns")))
+
+        assertEquals("{{{ not json", stateFile.readText())
     }
 
     @Test

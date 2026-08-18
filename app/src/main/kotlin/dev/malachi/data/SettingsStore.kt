@@ -86,16 +86,36 @@ class SettingsStore internal constructor(private val store: DataStore<Preference
     }
 
     /**
+     * The last blob and what it decoded to, so six collectors do not parse it six times.
+     *
+     * [settings] is a cold flow and half the process collects it — the tunnel, the filter's rule
+     * assembly, the list scheduler, the work scheduler, the view model — each of which gets its
+     * own `map { decode(...) }`. So every write of a single boolean used to parse the whole
+     * settings document once per collector, and the document grows with the user: a few hundred
+     * per-app exceptions accumulated one broken app at a time is a real amount of JSON to walk
+     * six times for a pause.
+     *
+     * The comparison is safe and nearly free. DataStore hands the same `Preferences` instance to
+     * every collector of one emission, so the strings are the same object and `==` settles on
+     * identity; a genuinely new blob is a different string and is parsed once, for the first
+     * collector to reach it.
+     */
+    @Volatile private var lastDecoded: Pair<String, MalachiSettings>? = null
+
+    /**
      * Unreadable settings fall back to the defaults rather than to nothing. The defaults leave
      * filtering *off*, which is the safe direction: a user whose settings were lost gets an app
      * that plainly isn't running, not one that silently blocks their bank.
      */
     private fun decode(raw: String?): MalachiSettings {
         if (raw == null) return MalachiSettings()
-        return runCatching { json.decodeFromString(serializer, raw) }.getOrElse {
+        lastDecoded?.let { (text, decoded) -> if (text == raw) return decoded }
+        val decoded = runCatching { json.decodeFromString(serializer, raw) }.getOrElse {
             DebugLog.e(TAG, "stored settings are unreadable; falling back to defaults", it)
             MalachiSettings()
         }
+        lastDecoded = raw to decoded
+        return decoded
     }
 
     private companion object {

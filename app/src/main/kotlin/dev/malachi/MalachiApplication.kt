@@ -155,13 +155,18 @@ class MalachiApplication : Application() {
                 .map { Triple(it.filteringEnabled, it.listUpdateHours, it.listUpdateWifiOnly) }
                 .distinctUntilChanged()
                 .collect { (filtering, hours, wifiOnly) ->
-                    if (filtering) {
-                        ListUpdateWorker.schedule(this@MalachiApplication, hours, wifiOnly)
-                        FilterWatchdogWorker.schedule(this@MalachiApplication)
-                    } else {
-                        ListUpdateWorker.cancel(this@MalachiApplication)
-                        FilterWatchdogWorker.cancel(this@MalachiApplication)
-                    }
+                    // Guarded so one refusal is one refusal: a throw reaching this collector
+                    // would end it for the life of the process, and the periodic work would then
+                    // never be applied or cancelled again however the settings moved.
+                    runCatching {
+                        if (filtering) {
+                            ListUpdateWorker.schedule(this@MalachiApplication, hours, wifiOnly)
+                            FilterWatchdogWorker.schedule(this@MalachiApplication)
+                        } else {
+                            ListUpdateWorker.cancel(this@MalachiApplication)
+                            FilterWatchdogWorker.cancel(this@MalachiApplication)
+                        }
+                    }.onFailure { DebugLog.w(TAG, "could not apply the background schedule", it) }
                 }
         }
 

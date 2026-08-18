@@ -88,6 +88,21 @@ object TunnelPolicy {
         previous.queryLogEnabled && !next.queryLogEnabled
 
     /**
+     * True when where lookups are sent has changed, though the tunnel itself may stay.
+     *
+     * Deliberately not part of [MalachiSettings.tunnelShape]: the resolver list is not baked into
+     * the tun, so changing it must not cost a rebuild and a blink of unfiltered DNS. But it is not
+     * read per query either — it is resolved once, because doing it per lookup would put a
+     * settings read and a parse on the hot path — so something has to notice, and until this
+     * nothing did. Choosing a different DNS server while the filter was running saved the setting,
+     * showed it on the settings screen, and went on asking the old one until the phone happened to
+     * change network: the home screen and the settings screen naming different resolvers, both
+     * confidently, for as long as that took.
+     */
+    fun upstreamMoved(previous: MalachiSettings, next: MalachiSettings): Boolean =
+        previous.upstream != next.upstream || previous.customUpstream != next.customUpstream
+
+    /**
      * What stands in the way of even trying, in the order the user can act on it. Empty apps
      * first because it is the one no retry can fix, always-on next because its remedy is a
      * different screen entirely, and consent last because asking for it is the ordinary path.
@@ -96,13 +111,33 @@ object TunnelPolicy {
         settings: MalachiSettings,
         alwaysOnHeldElsewhere: Boolean,
         hasConsent: Boolean,
+        selectedAppsPresent: Int,
     ): StartRefusal? = when {
-        settings.scopeMode == AppScopeMode.ONLY_SELECTED && settings.includedApps.isEmpty() ->
+        settings.scopeMode == AppScopeMode.ONLY_SELECTED && selectedAppsPresent <= 0 ->
             StartRefusal.NO_APPS_SELECTED
         alwaysOnHeldElsewhere -> StartRefusal.ALWAYS_ON_ELSEWHERE
         !hasConsent -> StartRefusal.NO_CONSENT
         else -> null
     }
+
+    /**
+     * Whether a tun built in [AppScopeMode.ONLY_SELECTED] would actually be selective, given that
+     * [applied] of the chosen apps went into the builder.
+     *
+     * This is not belt and braces, it is the difference between filtering three apps and filtering
+     * the phone. `Builder.addAllowedApplication` throws for a package that is not installed, and
+     * the platform's rule for the allow-list is that it applies **only if the method was called at
+     * least once** — so a tun whose every `addAllowedApplication` was refused carries no
+     * restriction at all, which Android reads as "every app on the device". Somebody who chose
+     * three apps and has since uninstalled all three would get the exact opposite of what their
+     * screen says, with nothing raised anywhere: the filter comes up, reports itself as running,
+     * and covers their bank.
+     *
+     * Counting what actually went in is the only way to tell the two apart, because `establish()`
+     * succeeds either way.
+     */
+    fun scopeIsSelective(mode: AppScopeMode, applied: Int): Boolean =
+        mode != AppScopeMode.ONLY_SELECTED || applied > 0
 
     /**
      * `establish()` says only "no". Consent is re-read rather than assumed, because it can be

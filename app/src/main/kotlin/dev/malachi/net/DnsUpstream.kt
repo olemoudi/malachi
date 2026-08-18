@@ -26,8 +26,20 @@ class UpstreamSockets(
 
     private val pool = ArrayDeque<DatagramSocket>()
 
+    /**
+     * Which network's sockets these are, as a number that only ever goes up.
+     *
+     * A socket is borrowed *before* the exchange and given back after, and a network handover
+     * happens in between often enough to matter — that is most of walking around a house with
+     * weak Wi-Fi. [closeAll] can only close what it is holding, so without this the socket that
+     * was out on loan comes home afterwards and is pooled as though it were current: the next
+     * lookup borrows a socket bound to a network that has gone and spends its whole budget on it.
+     * One five-second timeout per socket that happened to be in flight, on every handover.
+     */
+    private var epoch = 0
+
     /** A socket connected to [target], reused if the pool has one and fresh otherwise. */
-    fun borrow(target: InetAddress): DatagramSocket? {
+    fun borrow(target: InetAddress): Loan? {
         synchronized(pool) {
             val candidates = pool.iterator()
             while (candidates.hasNext()) {
@@ -38,30 +50,38 @@ class UpstreamSockets(
                 }
                 if (socket.inetAddress == target) {
                     candidates.remove()
-                    return socket
+                    return Loan(socket, epoch)
                 }
             }
         }
-        return open(target)
+        val fresh = open(target) ?: return null
+        return Loan(fresh, synchronized(pool) { epoch })
     }
 
-    /** Hands a still-usable socket back, or closes it if the pool is already full. */
-    fun give(socket: DatagramSocket) {
+    /**
+     * Hands a still-usable socket back — unless the network moved while it was out, or the pool
+     * is already full, in which case it is closed rather than handed to the next lookup.
+     */
+    fun give(loan: Loan) {
         synchronized(pool) {
-            if (pool.size >= capacity) socket.close() else pool.push(socket)
+            if (loan.epoch != epoch || pool.size >= capacity) loan.socket.close() else pool.push(loan.socket)
         }
     }
 
     /**
-     * Closes everything held. Called when the network changes: these are bound to the network
-     * that existed when they were made, and one bound to a Wi-Fi that has gone is a five-second
-     * timeout waiting to happen.
+     * Closes everything held, and disowns everything that is out on loan. Called when the network
+     * changes: these are bound to the network that existed when they were made, and one bound to
+     * a Wi-Fi that has gone is a five-second timeout waiting to happen.
      */
     fun closeAll() {
         synchronized(pool) {
+            epoch++
             while (pool.isNotEmpty()) runCatching { pool.poll()?.close() }
         }
     }
+
+    /** A borrowed socket and the network generation it belongs to. See [epoch]. */
+    class Loan(val socket: DatagramSocket, internal val epoch: Int)
 
     /** How many sockets are held right now. For tests and for reasoning about the cap. */
     val size: Int get() = synchronized(pool) { pool.size }

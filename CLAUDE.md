@@ -319,6 +319,18 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   0.9.10 pins again, against a reference kept current by the non-VPN callback, best-effort: three
   refusals in a row turn it off for the life of the service, and the diagnostics header says
   which happened. **If it is ever reverted again, say in the log which of the two it was.**
+- **`closeAll()` can only close what the pool is holding, and a lookup in flight is not in it.** A
+  socket is borrowed before the exchange and given back after, and a handover happens in between
+  often enough to matter — that is most of walking around a house with weak Wi-Fi. The socket then
+  came home afterwards and was pooled as current, so the *next* lookup borrowed one bound to a
+  network that had gone and spent its whole budget on it: one five-second timeout per socket that
+  happened to be out at the time, on every handover. `UpstreamSockets` hands out a `Loan` carrying
+  the epoch it was borrowed in, and `closeAll` bumps the epoch.
+- **The TCP retry of a truncated answer needs one budget, not one per syscall.** It had a fresh
+  five seconds for the connect and another for every read, and there are only `FORWARD_THREADS` of
+  them: four resolvers that set TC and then dawdle, and every other lookup on the phone is dropped
+  with "forward queue full" for as long as it lasts. The client stopped waiting long before any of
+  that, so the time bought nothing at all.
 - **A per-socket failure must never be logged with its throwable.** On a phone that cannot reach
   its resolvers it is one fifteen-line stack per lookup; the log filled with identical traces and
   evicted the lines that explained what was happening — diagnostics defeated by their own noise.
@@ -510,6 +522,67 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   symptom, and a rate-limited log line about them is still a line a minute forever, which is a
   capped debug log spent entirely on the one message that never means anything.
 
+### What must never stop, and what must never crash
+
+- **An exception out of a `collect { }` ends that collection for the life of the process, and
+  nothing says so.** The settings flow itself is kept alive across a storage failure
+  (`retryingWithBackoff`), but that protects the *source*; the **body** needs the same promise
+  separately, and three of them did not have it. The one in `MalachiVpnService` is the only thing
+  in the process that reacts to a settings change — one throw and the switch in the app writes
+  `false` forever while the tunnel goes on filtering. The one in `FilterRepository` is the only
+  thing that rebuilds the engine — one throw and every rule the user writes from then on is saved,
+  listed on screen, and never consulted. Neither would look broken from the outside. Every
+  long-lived collector body is wrapped, and adding a new one means wrapping it.
+- **`viewModelScope` carries no exception handler, so anything launched in it crashes the
+  process.** That would be a fair price for a bug, except the likeliest throw is not one: DataStore
+  reports a write it could not make — a full disk, an app-data directory an OEM "cleaner" removed —
+  as an ordinary `IOException` from `edit`, and *every tap that changes a setting* goes through
+  there. So the device least able to recover was the one that crashed on the next tap. Everything
+  goes through `MalachiViewModel.launchSafely`; `viewModelScope.launch` appears once, inside it.
+- **`WorkManager.getInstance` is not the safe accessor it looks like.** It throws when the
+  initialization provider never ran, and the calls under it throw too — JobScheduler refuses an app
+  more than a hundred jobs, and a damaged WorkManager database surfaces as a `SQLiteException` from
+  the enqueue. `UpdateWorker.schedule` is called from `Application.onCreate`, so that was an app
+  that could not be opened at all, on a device nobody can reach to fix it. Every call goes through
+  `withWorkQueue`, which logs and carries on: the periodic work is a floor under things that also
+  happen by other means.
+- **A DataStore without a `corruptionHandler` is the same bug twice.** `SettingsStore` had one and
+  `ThemeStore` did not, so a damaged theme file was an app that showed the default theme, could
+  never store another, and threw into a view-model coroutine every time somebody tried. Any new
+  DataStore gets one, and an instrumented test that damages the file and then writes to it.
+- **A notification that will not post must never be on the path to something that works.**
+  `InstallReceiver` posted the confirmation notification and *then* tried to launch the confirming
+  activity, so a refused notification lost both. They are alternatives, not a sequence.
+- **`VpnService.prepare` can refuse rather than answer** — a restricted profile, a policy that
+  forbids VPNs — and it sits behind the one button the whole app is about.
+
+### The scope can invert, and `establish()` will not tell you
+
+- **`addAllowedApplication` throws for a package that is not installed, and the allow-list applies
+  only if the method succeeded at least once.** So a tun in `ONLY_SELECTED` whose every call was
+  refused carries no restriction at all, which Android reads as *every app on the phone*. Somebody
+  who chose three apps and has since uninstalled all three got the exact opposite of what their
+  screen said, silently, with the filter reporting itself as running. `TunnelPolicy.refusal` now
+  takes how many of the chosen apps are actually present, and `TunnelPolicy.scopeIsSelective` is
+  the belt to that brace inside `build()`. Both are tested; the failure is invisible otherwise.
+- **The message for it has to be true in both cases** — no app chosen, and none of the chosen ones
+  installed — because the Apps screen will still be showing three ticked apps while the home screen
+  explains why nothing is filtered.
+
+### Settings that are read once have to be re-read when they move
+
+- **`upstream` is deliberately not part of `tunnelShape()`** — changing where lookups go must not
+  cost a tunnel rebuild and a blink of unfiltered DNS — but it is not read per query either, and
+  for a long time nothing noticed it at all. Choosing a different DNS server while filtering saved
+  the setting, showed it on the settings screen, and went on asking the old resolvers until the
+  phone happened to change network: two screens naming different resolvers, both confidently.
+  `TunnelPolicy.upstreamMoved` is what notices, and `adoptUpstreams` throws away everything that
+  belonged to the old list — the pooled sockets are *connected* to those addresses and cannot carry
+  a query anywhere else.
+- The general shape: anything resolved once out of the settings needs a named predicate saying
+  when to resolve it again, next to `forgetsQueryLog` and `upstreamMoved`. A field with neither a
+  per-query read nor a re-read is a setting that does nothing.
+
 ### Battery rules for the tunnel (this is an always-on process)
 - **No unconditional timers.** Anything periodic is gated on the screen being on, or it does not
   exist. The notification refresh parks on a screen-state flow rather than ticking.
@@ -532,6 +605,35 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   entirely (`onLost`). So that case is a reference comparison instead of the three or four binder
   round trips an adoption costs. The one thing it is still worth waking for is noticing lockdown,
   and that is capped at one binder call a minute.
+- **The idle path is where an always-on app actually spends its battery, and it is the path
+  nobody profiles.** Four drains were found there and every one of them was a call that did
+  nothing:
+  - `applySettings` runs on **every** settings write — every rule, every switch, every step of a
+    guided search — and it cancelled the pause alarm unconditionally, which is a `PendingIntent`
+    built and an `AlarmManager.cancel` for an alarm that almost never exists. `cancelPauseAlarm`
+    now knows whether one is out there, and starts believing there is because an alarm outlives the
+    process that set it.
+  - `FilterRepository` rebuilt the whole engine on every settings write, so tapping **pause** sorted
+    the user's rules into two fresh indexes and a nine-step guided search did it nine times. It is
+    gated on `EngineInputs`, and `EngineInputsTest` pins both directions: a field the engine reads
+    that is missing from it would be a rule that is saved, listed, and never consulted.
+  - `SettingsStore.settings` is a cold flow that half the process collects, each ending in its own
+    `map { decode(...) }` — so one boolean write parsed the whole settings document six times, and
+    that document grows with the user. One memoised decode by raw string serves every collector;
+    DataStore hands them all the same instance, so the comparison settles on identity.
+  - `adoptNetwork` ended in two binder round trips (`isLockdownEnabled`, `setUnderlyingNetworks`)
+    that ran on **every** callback. `onAvailable` and `onLinkPropertiesChanged` both arrive for the
+    same network, and below Android 12 a network we are not using reports itself as well, so an
+    idle phone with Wi-Fi and mobile up paid for all of it several times a minute to re-state facts
+    that had not moved. Each is now conditional on the thing it describes having changed, and the
+    re-decision prompted by an unrelated network's capabilities is throttled — the events that
+    genuinely need to be prompt arrive as `onAvailable`, `onLost` and `onLinkPropertiesChanged`,
+    none of which is throttled at all.
+- **A sweep that finds nothing must write nothing.** `BlocklistStore.prune` is reached on every
+  process start by way of `downloadMissingLists`, and it rewrote `state.json` whether or not it had
+  deleted anything — a disk write, dozens of times a day, for a document that had not changed. It
+  is also the safer half: `states()` answers empty for a file it cannot read, and writing that
+  answer back replaced a recoverable file with an authoritative empty one.
 - **Nothing on the hot path may allocate or IPC without earning it.** Attribution
   (`getConnectionOwnerUid`) is a binder round trip and is skipped entirely unless the query log
   is on or a per-app rule exists. Upstream sockets are pooled so `protect()` — another round
@@ -715,6 +817,14 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   it asks with numbers on both sides — what the file holds against what is on the phone — because
   picking the wrong file from a list of filenames is an ordinary mistake and "0 rules" is the only
   moment anybody would catch it.
+
+- **The navigation stack is `rememberSaveable`, and that is not tidiness.** The activity is
+  destroyed and rebuilt for every configuration change the device can produce — a rotation, a
+  font-size change, a theme switch, unfolding a foldable, resizing a window in a desktop mode — and
+  a plain `remember` put the user back on the home screen from wherever they were. Worst exactly
+  where it happens most: half of a guided search is spent leaving the app and coming back to it. A
+  saved entry this version cannot read back — a list category removed by an update that arrived
+  while the activity was in the background — is dropped rather than thrown.
 
 ### Privacy constraints (non-negotiable)
 - **A domain never touches disk.** The query log lives in memory only and dies with the process.

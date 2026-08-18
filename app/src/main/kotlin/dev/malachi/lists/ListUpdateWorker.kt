@@ -9,9 +9,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.malachi.MalachiApplication
+import dev.malachi.withWorkQueue
 import dev.malachi.debug.DebugLog
 import java.util.concurrent.TimeUnit
 
@@ -57,8 +57,9 @@ class ListUpdateWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 .setConstraints(constraints(wifiOnly))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
+            withWorkQueue(context, "schedule the list refresh") {
+                it.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
+            }
         }
 
         /**
@@ -74,7 +75,7 @@ class ListUpdateWorker(context: Context, params: WorkerParameters) : CoroutineWo
          * a radio and somebody's data plan on a file nothing will read.
          */
         fun cancel(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
+            withWorkQueue(context, "stop the list refresh") { it.cancelUniqueWork(PERIODIC) }
         }
 
         fun runNow(context: Context, force: Boolean = false) {
@@ -83,7 +84,9 @@ class ListUpdateWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 .setInputData(androidx.work.workDataOf(KEY_FORCE to force))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(IMMEDIATE, ExistingWorkPolicy.REPLACE, request)
+            withWorkQueue(context, "refresh the lists now") {
+                it.enqueueUniqueWork(IMMEDIATE, ExistingWorkPolicy.REPLACE, request)
+            }
         }
 
         private fun constraints(wifiOnly: Boolean) = Constraints.Builder()

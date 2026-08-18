@@ -29,7 +29,12 @@ class InstallReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java) ?: return
                 UpdateCenter.report(UpdateUiState.PendingConfirmation(target = null))
-                UpdateNotifications.notifyConfirmationNeeded(context, Intent(confirm))
+                // Guarded, and the order matters: this used to be able to throw — a channel the
+                // system would not create, a notification an OEM's own rules refused — and take
+                // the direct launch below with it. The two are alternatives, not a sequence:
+                // whichever of them works is the one that lets the update finish.
+                runCatching { UpdateNotifications.notifyConfirmationNeeded(context, Intent(confirm)) }
+                    .onFailure { DebugLog.w(TAG, "could not post the confirmation notification", it) }
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 runCatching { context.startActivity(confirm) }
             }

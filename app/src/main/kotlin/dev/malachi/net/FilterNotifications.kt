@@ -81,7 +81,15 @@ object FilterNotifications {
         runCatching { NotificationManagerCompat.from(context).cancel(PROBLEM_ID) }
     }
 
-    private fun base(context: Context) = NotificationCompat.Builder(context, CHANNEL)
+    private fun base(context: Context): NotificationCompat.Builder {
+        // Cheap, idempotent, and the only thing standing between a failed channel creation at
+        // service start and a foreground promotion the platform answers with a crash. `onCreate`
+        // already tries; this is what covers the run where that try was the one that failed.
+        runCatching { ensureChannel(context) }
+        return builder(context)
+    }
+
+    private fun builder(context: Context) = NotificationCompat.Builder(context, CHANNEL)
         .setSmallIcon(R.drawable.ic_shield)
         .setContentIntent(
             PendingIntent.getActivity(

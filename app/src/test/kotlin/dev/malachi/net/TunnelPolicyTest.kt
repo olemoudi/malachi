@@ -123,6 +123,27 @@ class TunnelPolicyTest {
         assertEquals(one.tunnelShape(), other.tunnelShape())
     }
 
+    @Test
+    fun `changing the DNS server is noticed without rebuilding the tunnel`() {
+        val system = on.copy(upstream = UpstreamDns.SYSTEM)
+        val cloudflare = system.copy(upstream = UpstreamDns.CLOUDFLARE)
+        val custom = system.copy(upstream = UpstreamDns.CUSTOM, customUpstream = "192.0.2.53")
+        val otherCustom = custom.copy(customUpstream = "192.0.2.54")
+
+        assertTrue(TunnelPolicy.upstreamMoved(system, cloudflare))
+        assertTrue(TunnelPolicy.upstreamMoved(custom, otherCustom))
+        assertFalse(TunnelPolicy.upstreamMoved(system, system))
+
+        // And it stays out of the tunnel's shape, because noticing it must not cost a rebuild
+        // and the blink of unfiltered DNS that comes with one.
+        assertEquals(system.tunnelShape(), cloudflare.tunnelShape())
+        assertEquals(system.tunnelShape(), otherCustom.tunnelShape())
+        assertEquals(
+            TunnelAction.LeaveRunning,
+            TunnelPolicy.decide(cloudflare, tunnelUp = true, currentShape = system.tunnelShape(), nowMs = 0),
+        )
+    }
+
     // ---- what stops a start ---------------------------------------------------------------
 
     @Test
@@ -130,8 +151,37 @@ class TunnelPolicyTest {
         val settings = on.copy(scopeMode = AppScopeMode.ONLY_SELECTED, includedApps = emptySet())
         assertEquals(
             StartRefusal.NO_APPS_SELECTED,
-            TunnelPolicy.refusal(settings, alwaysOnHeldElsewhere = false, hasConsent = true),
+            TunnelPolicy.refusal(settings, alwaysOnHeldElsewhere = false, hasConsent = true, selectedAppsPresent = 0),
         )
+    }
+
+    @Test
+    fun `an allow-list whose apps are all gone is refused too`() {
+        // The same failure wearing different clothes, and the more dangerous of the two because
+        // the screen still lists three apps. Every addAllowedApplication is refused for a package
+        // that is not installed, and a builder that took none of them carries no restriction at
+        // all — which Android reads as "filter every app on the phone".
+        val settings = on.copy(
+            scopeMode = AppScopeMode.ONLY_SELECTED,
+            includedApps = setOf("com.gone.one", "com.gone.two"),
+        )
+        assertEquals(
+            StartRefusal.NO_APPS_SELECTED,
+            TunnelPolicy.refusal(settings, alwaysOnHeldElsewhere = false, hasConsent = true, selectedAppsPresent = 0),
+        )
+        // One survivor is a filter that does what it says, so it is not refused.
+        assertNull(
+            TunnelPolicy.refusal(settings, alwaysOnHeldElsewhere = false, hasConsent = true, selectedAppsPresent = 1),
+        )
+    }
+
+    @Test
+    fun `a scope that took none of its chosen apps is not selective`() {
+        assertFalse(TunnelPolicy.scopeIsSelective(AppScopeMode.ONLY_SELECTED, applied = 0))
+        assertTrue(TunnelPolicy.scopeIsSelective(AppScopeMode.ONLY_SELECTED, applied = 1))
+        // "Everything except" needs nothing to have gone in: every app is in scope regardless,
+        // and a refused exclusion costs that app its exemption rather than inverting the filter.
+        assertTrue(TunnelPolicy.scopeIsSelective(AppScopeMode.ALL_EXCEPT, applied = 0))
     }
 
     @Test
@@ -139,16 +189,18 @@ class TunnelPolicyTest {
         // Asking for consent would walk the user through a dialog Android refuses to honour.
         assertEquals(
             StartRefusal.ALWAYS_ON_ELSEWHERE,
-            TunnelPolicy.refusal(on, alwaysOnHeldElsewhere = true, hasConsent = false),
+            TunnelPolicy.refusal(on, alwaysOnHeldElsewhere = true, hasConsent = false, selectedAppsPresent = 0),
         )
     }
 
     @Test
     fun `nothing in the way is nothing to report`() {
-        assertNull(TunnelPolicy.refusal(on, alwaysOnHeldElsewhere = false, hasConsent = true))
+        assertNull(
+            TunnelPolicy.refusal(on, alwaysOnHeldElsewhere = false, hasConsent = true, selectedAppsPresent = 0),
+        )
         assertEquals(
             StartRefusal.NO_CONSENT,
-            TunnelPolicy.refusal(on, alwaysOnHeldElsewhere = false, hasConsent = false),
+            TunnelPolicy.refusal(on, alwaysOnHeldElsewhere = false, hasConsent = false, selectedAppsPresent = 0),
         )
     }
 

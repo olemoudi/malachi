@@ -16,7 +16,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import dev.malachi.lists.BlocklistCategory
 import dev.malachi.ui.screens.AboutScreen
@@ -52,6 +55,67 @@ sealed interface Screen {
     data object About : Screen
 }
 
+/** Separates a destination's name from its one argument; see [encodeScreen]. */
+internal const val ARGUMENT_SEPARATOR = ':'
+
+/**
+ * One destination, as something the platform can put in a Bundle and hand back.
+ *
+ * A screen is a name and at most one argument, so it saves as one string. The argument is
+ * whatever follows the *first* separator, so a name that happens to contain one comes back whole.
+ */
+internal fun encodeScreen(screen: Screen): String = when (screen) {
+    is Screen.AppDetail -> "AppDetail$ARGUMENT_SEPARATOR${screen.packageName}"
+    is Screen.ListCategory -> "ListCategory$ARGUMENT_SEPARATOR${screen.category.name}"
+    Screen.Home -> "Home"
+    Screen.Apps -> "Apps"
+    Screen.Lists -> "Lists"
+    Screen.Activity -> "Activity"
+    Screen.Diagnose -> "Diagnose"
+    Screen.Rules -> "Rules"
+    Screen.Settings -> "Settings"
+    Screen.AdvancedSettings -> "AdvancedSettings"
+    Screen.DebugLog -> "DebugLog"
+    Screen.About -> "About"
+}
+
+/**
+ * The destination [saved] named, or null when this version cannot make sense of it.
+ *
+ * Null rather than a throw, because the case is real: Malachi updates itself while the activity is
+ * in the background, and comes back to a saved stack naming a list category the new version no
+ * longer has. Arriving at the top of the app is a small disappointment; a crash on resume, from a
+ * self-update nobody asked to notice, is not.
+ */
+internal fun decodeScreen(saved: String): Screen? {
+    val name = saved.substringBefore(ARGUMENT_SEPARATOR)
+    val argument = saved.substringAfter(ARGUMENT_SEPARATOR, "")
+    return when (name) {
+        "AppDetail" -> argument.takeIf { it.isNotEmpty() }?.let { Screen.AppDetail(it) }
+        "ListCategory" -> BlocklistCategory.entries.firstOrNull { it.name == argument }
+            ?.let { Screen.ListCategory(it) }
+        "Home" -> Screen.Home
+        "Apps" -> Screen.Apps
+        "Lists" -> Screen.Lists
+        "Activity" -> Screen.Activity
+        "Diagnose" -> Screen.Diagnose
+        "Rules" -> Screen.Rules
+        "Settings" -> Screen.Settings
+        "AdvancedSettings" -> Screen.AdvancedSettings
+        "DebugLog" -> Screen.DebugLog
+        "About" -> Screen.About
+        else -> null
+    }
+}
+
+/** The stack itself, saved as one string per entry and rebuilt entry by entry. */
+private val screenStackSaver = listSaver<SnapshotStateList<Screen>, String>(
+    save = { stack -> stack.map(::encodeScreen) },
+    restore = { saved ->
+        saved.mapNotNull(::decodeScreen).ifEmpty { listOf(Screen.Home) }.toMutableStateList()
+    },
+)
+
 /**
  * The whole app: a home screen and a stack of detail screens on top of it.
  *
@@ -80,7 +144,13 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
         return
     }
 
-    val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
+    // Saveable, not merely remembered. The activity is recreated for every configuration
+    // change the device can produce — a rotation, a font-size change, a theme switch, unfolding
+    // a foldable, resizing a window in a desktop mode — and with a plain `remember` every one of
+    // those threw the user back to the home screen from wherever they were. On the phones where
+    // that happens most it is also least excusable: half of a guided search is spent leaving the
+    // app and coming back.
+    val stack = rememberSaveable(saver = screenStackSaver) { mutableStateListOf(Screen.Home) }
     val current = stack.last()
 
     fun go(screen: Screen) = stack.add(screen)
