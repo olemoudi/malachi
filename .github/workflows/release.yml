@@ -127,7 +127,7 @@ jobs:
           FILE="channels/${{ steps.channel.outputs.name }}.json"
           git add "$FILE"
           git diff --cached --quiet && echo "channel already points here" && exit 0
-          git commit -m "chore: point the ${{ steps.channel.outputs.name }} channel at ${{ steps.channel.outputs.versionName }} [skip ci]"
+          git commit -m "chore: point the ${{ steps.channel.outputs.name }} channel at ${{ steps.manifest.outputs.versionName }} [skip ci]"
           for attempt in 1 2 3 4 5; do
             git fetch origin main
             git rebase origin/main && git push origin HEAD:main && exit 0
