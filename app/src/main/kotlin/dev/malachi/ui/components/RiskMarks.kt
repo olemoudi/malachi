@@ -84,6 +84,16 @@ private fun riskTint(risk: BreakageRisk): Color = when (risk) {
  */
 val RiskMarkHeight = 14.dp
 
+/**
+ * The width three dots occupy at [RiskMarkHeight].
+ *
+ * For a column of rows, where the dots lead each one: each dot sits in a square slot, so a
+ * one-dot row is a third as wide as a three-dot one and the titles beside them would step in and
+ * out. A fixed box makes the marks a column and the titles a column, which is what makes a group
+ * of them scannable at all.
+ */
+val RiskMarksWidth = RiskMarkHeight * 3
+
 internal fun riskLabel(risk: BreakageRisk) = when (risk) {
     BreakageRisk.SAFE -> R.string.lists_risk_safe
     BreakageRisk.MODERATE -> R.string.lists_risk_moderate

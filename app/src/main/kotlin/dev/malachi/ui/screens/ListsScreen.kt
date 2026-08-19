@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +50,8 @@ import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.RiskMarkHeight
+import dev.malachi.ui.components.RiskLegend
+import dev.malachi.ui.components.RiskMarksWidth
 import dev.malachi.ui.components.RiskMarks
 import dev.malachi.ui.components.riskLabel
 import dev.malachi.ui.components.SwitchRow
@@ -106,6 +109,10 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
                         supporting = stringResource(R.string.lists_recent_hint),
                     )
                 }
+                // The legend belongs here more than anywhere: this is the screen somebody
+                // opens when an app has just broken, and among the lists they turned on last the
+                // most aggressive one is the first thing to try switching off.
+                item { RiskLegend() }
                 item {
                     CardGroup {
                         recent.forEachIndexed { index, source ->
@@ -115,6 +122,11 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
                                 checked = true,
                                 onCheckedChange = { vm.setListEnabled(source.id, it) },
                                 position = cardPosition(index, recent.size),
+                                leading = {
+                                    Box(Modifier.width(RiskMarksWidth), contentAlignment = Alignment.CenterStart) {
+                                        RiskMarks(source.risk, Modifier.height(RiskMarkHeight))
+                                    }
+                                },
                             )
                         }
                     }

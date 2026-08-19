@@ -56,10 +56,16 @@ fun SwitchRow(
     subtitle: String? = null,
     enabled: Boolean = true,
     position: CardPosition = CardPosition.Single,
+    /** Drawn before the text, for a row whose subject carries a mark of its own. */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val spacing = Tokens.spacing
     MalachiCard(onClick = { onCheckedChange(!checked) }, enabled = enabled, position = position) {
         Row(Modifier.padding(spacing.lg), verticalAlignment = Alignment.CenterVertically) {
+            if (leading != null) {
+                leading()
+                Spacer(Modifier.width(spacing.md))
+            }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 if (subtitle != null) {
