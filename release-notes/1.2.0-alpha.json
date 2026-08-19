@@ -1,0 +1,4 @@
+{
+  "en": "• A blocked domain now says how aggressive the list that blocked it is: one green dot for a list that rarely breaks anything, up to three red ones for a list you should expect to fix things after. It appears wherever a verdict names a list — the activity log, each app's own list, the guided search and the app trace — with a short legend above.",
+  "es": "• Un dominio bloqueado ahora indica el nivel de agresividad de la lista que lo bloqueó: un punto verde si rara vez rompe nada, hasta tres rojos si es de las que dan trabajo. Aparece en todas las pantallas donde un veredicto nombra una lista —el registro de actividad, la lista propia de cada app, la búsqueda guiada y la traza— con una leyenda breve encima."
+}
