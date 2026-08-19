@@ -2,5 +2,8 @@
   "versionCode": 45,
   "versionName": "1.1.0-alpha",
   "apk": "https://github.com/olemoudi/malachi/releases/download/v1.1.0-alpha/malachi.apk",
-  "notes": {}
+  "notes": {
+    "en": "The testing channel starts here. Same app as 1.0.0-beta; new work lands on this channel first.",
+    "es": "Aquí empieza el canal de pruebas. La misma app que la 1.0.0-beta; a partir de ahora lo nuevo llega antes por este canal."
+  }
 }
