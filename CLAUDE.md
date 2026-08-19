@@ -964,6 +964,18 @@ the one path every revival has in common.
   is what stops a download racing a release published in between. CI writes them after the release
   exists — pointing a channel at a download that has not been published yet is minutes of every
   phone on it failing to fetch.
+- **The manifest is served from a CDN with a five-minute cache, and a stale read is not a failed
+  release.** `raw.githubusercontent.com` answers `cache-control: max-age=300` from a regional
+  edge, and sending `Cache-Control: no-cache` on the request does not move it. So for a few
+  minutes after every release: CI is green, `chore: point the … channel at X` is on `main`, and
+  the URL every phone reads still serves the version before it. Measured at 255 s for
+  v1.4.0-alpha. **Verify a release against `git log origin/main`, not against the raw URL** —
+  reading the URL and concluding the channel was never pointed is a wrong diagnosis of a working
+  release, and the fix somebody would reach for is to hand-commit the manifest, which is the one
+  thing that actually breaks it. Benign in the direction it happens: the stale manifest names the
+  *previous* release, which exists, so a phone checking in that window sees an older version and
+  asks again later. That is the exact reverse of pointing a channel at a release that does not
+  exist yet, and the reverse of a 404.
 - **Never hand-commit a channel manifest ahead of its release — CI writes it, and only after.**
   Done once, bootstrapping the two channels: `channels/testing.json` was committed naming
   `v1.1.0-alpha` before that tag was cut, and the release then spent fourteen minutes on the
