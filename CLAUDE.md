@@ -927,9 +927,17 @@ the one path every revival has in common.
   should ever see. The **testing** channel carries `-alpha`. `MalachiSettings.updateChannel` picks
   between them, defaulting to stable — which is also what every install that predates the setting
   decodes to, so the whole fleet lands on the public channel with nothing to do.
-- **Everything goes to testing as an alpha unless told otherwise.** Promoting to stable is a
-  deliberate act, and it is a **rebuild, not a re-point**: the version name is baked into the APK
-  at build time, so pointing the stable channel at a build stamped `-alpha` would show "alpha" to
+- **Every release is an alpha on the testing channel. Always. The only thing that makes it a
+  stable one is being told so, in words, for that release.** This is a standing instruction, not a
+  default to be weighed against how big or how safe a change looks. None of these is the signal:
+  a fix that is obviously correct, a version worth being proud of, a bug bad enough that
+  "everybody should have this", a release that closes a milestone, or a stable channel that has
+  not moved in a while. The signal is the owner saying *cut a stable one*. **Do not offer stable
+  as an option when asking what to cut either** — the question is which alpha, never which
+  channel, and putting the choice on the table is how a stable release gets cut by agreement
+  rather than by decision.
+- **Promoting to stable is a rebuild, not a re-point**: the version name is baked into the APK at
+  build time, so pointing the stable channel at a build stamped `-alpha` would show "alpha" to
   everybody on stable. Promotion means cutting the same code again as `X.Y.Z-beta` with the next
   version code.
 - **The testing channel is always at or ahead of stable, and that invariant is what makes the
