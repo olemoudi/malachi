@@ -2,5 +2,8 @@
   "versionCode": 44,
   "versionName": "1.0.0-beta",
   "apk": "https://github.com/olemoudi/malachi/releases/download/v1.0.0-beta/malachi.apk",
-  "notes": {}
+  "notes": {
+    "en": "Malachi's first public release.\n\n• Two update channels. Stable is this one; Testing carries early builds, and Settings can move you between them.\n• Steadier in the background: several ways the filter could stop working without saying so are gone, and it wakes the phone less often while idle.\n• Going back through the app returns you where you were — the list you scrolled, the app you searched for.\n• The Apps screen can now show just the apps you left out of the filter, so a decision made months ago is easy to find again.",
+    "es": "La primera versión pública de Malachi.\n\n• Dos canales de actualización. Este es el estable; el de pruebas lleva versiones tempranas, y en Ajustes puedes cambiar de uno a otro.\n• Más estable en segundo plano: se han corregido varias formas en las que el filtro podía dejar de funcionar sin avisar, y despierta el móvil menos veces cuando no hay nada que hacer.\n• Al volver atrás vuelves donde estabas: la lista que habías desplazado, la app que habías buscado.\n• La pantalla de Apps puede mostrar solo las que dejaste fuera del filtro, así una decisión de hace meses vuelve a ser fácil de encontrar."
+  }
 }
