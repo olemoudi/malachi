@@ -1,9 +1,9 @@
 {
-  "versionCode": 47,
-  "versionName": "1.3.0-alpha",
-  "apk": "https://github.com/olemoudi/malachi/releases/download/v1.3.0-alpha/malachi.apk",
+  "versionCode": 48,
+  "versionName": "1.4.0-alpha",
+  "apk": "https://github.com/olemoudi/malachi/releases/download/v1.4.0-alpha/malachi.apk",
   "notes": {
-    "en": "• The list picker's headings now carry the same dots as a blocked domain does, so the scale is learned where the choice is actually made rather than only where it bites.",
-    "es": "• Las cabeceras del selector de listas llevan ahora los mismos puntos que un dominio bloqueado, así la escala se aprende donde de verdad se elige y no solo donde molesta."
+    "en": "• The lists you turned on recently now show how aggressive each one is. If something has just broken, the list to try switching off first is visible without reading a single name.",
+    "es": "• Las listas que activaste hace poco ahora muestran su nivel de agresividad. Si algo acaba de romperse, la que conviene apagar primero se ve sin leer ni un nombre."
   }
 }
