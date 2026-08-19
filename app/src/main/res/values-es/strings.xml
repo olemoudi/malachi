@@ -168,7 +168,7 @@
     <string name="lists_risk_moderate_hint">Lo bastante amplias como para que antes o después algo pida permiso. La pantalla de Actividad te dice qué.</string>
     <string name="lists_risk_aggressive">Cuenta con tener que arreglar cosas</string>
     <string name="lists_risk_aggressive_hint">Muy grandes, o bloquean un tema entero a propósito. Añádelas de una en una y dales un día antes de poner la siguiente.</string>
-    <string name="risk_legend">Las marcas indican con qué frecuencia rompe algo la lista que bloquea:</string>
+    <string name="risk_legend">Los puntos indican el nivel de agresividad de la lista que bloquea:</string>
     <string name="lists_category_ads">Anuncios</string>
     <string name="lists_category_ads_hint">El trabajo del día a día. Aquí están las dos que vienen activadas.</string>
     <string name="lists_category_privacy">Rastreadores</string>

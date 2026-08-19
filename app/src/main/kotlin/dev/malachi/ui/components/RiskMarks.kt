@@ -1,6 +1,7 @@
 package dev.malachi.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -15,7 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,9 +48,10 @@ import dev.malachi.ui.theme.Tokens
  * odd?* "Blocked by HaGeZi Pro" and "blocked by AdAway" are the same sentence and very different
  * news, and nothing on these screens said so.
  *
- * The count carries the meaning and the colour only reinforces it. One mark is deliberately not
- * a warning: a glyph that read as one would put an alarm against the safest lists in the
- * catalogue, which is most of what blocks anything, and an alarm that is always on is furniture.
+ * Dots rather than a glyph with a meaning of its own, because the count is the meaning and a
+ * shape that argued with it would win. One dot is deliberately not a warning — it is green, the
+ * same green this app already uses for "allowed" — since the safest lists in the catalogue are
+ * most of what blocks anything, and an alarm that is always on is furniture.
  */
 private fun marksFor(risk: BreakageRisk): Int = when (risk) {
     BreakageRisk.SAFE -> 1
@@ -57,10 +59,18 @@ private fun marksFor(risk: BreakageRisk): Int = when (risk) {
     BreakageRisk.AGGRESSIVE -> 3
 }
 
-/** Muted, amber, red — and amber already means a warning in this palette. */
+/**
+ * A traffic light, drawn from the palette's own roles rather than from three literals.
+ *
+ * `primary` is this app's deep teal and is already what "allowed, nothing to worry about" looks
+ * like on these very screens — the allow icon beside each of these rows is tinted with it — so
+ * the safe tier is green in the sense that matters: the same green the app already uses to say
+ * fine. Amber is reserved here for a warning and red for something wrong, which is exactly the
+ * two steps above it.
+ */
 @Composable
 private fun riskTint(risk: BreakageRisk): Color = when (risk) {
-    BreakageRisk.SAFE -> MaterialTheme.colorScheme.onSurfaceVariant
+    BreakageRisk.SAFE -> MaterialTheme.colorScheme.primary
     BreakageRisk.MODERATE -> MaterialTheme.colorScheme.secondary
     BreakageRisk.AGGRESSIVE -> MaterialTheme.colorScheme.error
 }
@@ -76,7 +86,7 @@ internal fun riskLabel(risk: BreakageRisk) = when (risk) {
  *
  * Sized by the caller — an `em` placeholder inline in a sentence, a dp height in the legend — so
  * that beside text they grow with the font scale exactly as the sentence they qualify does. At
- * 200% text a hardcoded 12.dp glyph is a speck next to the words it is meant to be marking.
+ * 200% text a hardcoded 12.dp dot is a speck next to the words it is meant to be marking.
  */
 @Composable
 fun RiskMarks(risk: BreakageRisk, modifier: Modifier = Modifier) {
@@ -89,16 +99,19 @@ fun RiskMarks(risk: BreakageRisk, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(marksFor(risk)) {
-            // Square, derived from the height it was given. Without the aspect ratio an Icon
-            // falls back to its own 24.dp width whatever box it is in, so three of them inside a
-            // placeholder measured in `em` would be three times wider than the hole they sit in
-            // — which is not a clipped glyph, it is a mark drawn over the words beside it.
-            Icon(
-                Icons.Filled.Bolt,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.fillMaxHeight().aspectRatio(1f),
-            )
+            // A square slot, and a dot filling part of it. The slot is what makes the gaps: three
+            // of Material's Circle drawn edge to edge read as one caterpillar rather than as a
+            // count, and counting is the whole job. The aspect ratio is load-bearing too — an
+            // Icon with no width falls back to its own 24.dp whatever box it is in, so inside a
+            // placeholder measured in `em` the dots would be drawn over the words beside them.
+            Box(Modifier.fillMaxHeight().aspectRatio(1f), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Filled.Circle,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.fillMaxSize(DOT_SCALE),
+                )
+            }
         }
     }
 }
@@ -191,13 +204,16 @@ fun RiskLegend(modifier: Modifier = Modifier) {
 
 private const val RISK_SLOT = "risk"
 
-/** Stands in for one mark wherever the glyphs cannot be drawn. */
-private const val MARK_ALTERNATE = "!"
+/** Stands in for one dot wherever the glyphs cannot be drawn. */
+private const val MARK_ALTERNATE = "•"
 
 /**
- * One mark is a square of this many `em`, so the placeholder is exactly as wide as the marks
- * that fill it. The two must stay equal — the glyphs are square by construction.
+ * One dot occupies a square slot of this many `em`, so the placeholder is exactly as wide as the
+ * slots that fill it — the width is `marks * MARK_SIDE` and the height is one of them.
  */
-private const val MARK_SIDE = 1.05f
+private const val MARK_SIDE = 0.9f
+
+/** How much of its slot the dot itself takes; the remainder is the gap that makes it countable. */
+private const val DOT_SCALE = 0.62f
 
 private val LEGEND_MARK_HEIGHT = 14.dp

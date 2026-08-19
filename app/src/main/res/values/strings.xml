@@ -169,7 +169,7 @@
     <string name="lists_risk_moderate_hint">Broad enough that something will want allowing eventually. The Activity screen tells you what.</string>
     <string name="lists_risk_aggressive">Expect to fix things</string>
     <string name="lists_risk_aggressive_hint">Very large, or blocking a whole subject on purpose. Add one at a time and give it a day before adding another.</string>
-    <string name="risk_legend">Marks show how often the list doing the blocking breaks something:</string>
+    <string name="risk_legend">Dots show how aggressive the list doing the blocking is:</string>
     <string name="lists_category_ads">Ads</string>
     <string name="lists_category_ads_hint">The everyday job. The two that ship on are here.</string>
     <string name="lists_category_privacy">Trackers</string>
