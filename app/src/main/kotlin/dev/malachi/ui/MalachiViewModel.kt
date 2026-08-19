@@ -21,6 +21,7 @@ import dev.malachi.data.GuidedSearch
 import dev.malachi.data.InstalledApp
 import dev.malachi.data.MalachiSettings
 import dev.malachi.data.ThemeMode
+import dev.malachi.data.UpdateChannel
 import dev.malachi.debug.DebugLog
 import dev.malachi.data.UpstreamDns
 import dev.malachi.filter.AppTrace
@@ -36,9 +37,13 @@ import dev.malachi.net.VpnController
 import dev.malachi.net.VpnStatus
 import dev.malachi.stats.StatsData
 import dev.malachi.stats.StatsWindow
+import dev.malachi.update.ChannelSwitch
 import dev.malachi.update.UpdateCenter
+import dev.malachi.update.UpdateInfo
+import dev.malachi.update.UpdatePolicy
 import dev.malachi.update.UpdateWorker
 import dev.malachi.update.Updater
+import dev.malachi.update.notesIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -569,6 +574,63 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     fun clearQueryLog() = QueryLog.clearRecords()
 
     fun setUpdateWifiOnly(wifiOnly: Boolean) = update { it.copy(updateWifiOnly = wifiOnly) }
+
+    // ---- which stream of builds this phone follows ---------------------------------------
+
+    /** What the chosen channel last said it had; null until a manifest has been read. */
+    val channelOffer = UpdateCenter.channelOffer
+
+    /**
+     * Moves this phone to [channel] and asks straight away.
+     *
+     * The check is forced rather than left to the twelve-hourly one, because a person who has
+     * just chosen a channel is owed the answer now — and because in the one direction where
+     * something *can* happen immediately, it should.
+     */
+    fun setUpdateChannel(channel: UpdateChannel) {
+        if (settings.value.updateChannel == channel) return
+        // What is on screen describes the channel being left, and would otherwise sit there
+        // being wrong until the check comes back.
+        UpdateCenter.forgetChannelOffer()
+        launchSafely("moving to the ${channel.name.lowercase()} channel") {
+            // One coroutine, and the write is awaited before the check. These were two, and the
+            // check routinely won the race: choosing a channel then asked the channel being
+            // *left* what it had, reported that, and left the screen describing the wrong one
+            // until something else triggered a check. Caught on a device, where the log said
+            // "checking the stable channel" a moment after testing had been chosen.
+            app.settingsStore.update { it.copy(updateChannel = channel) }
+            Updater(app).checkAndUpdate(force = true)
+        }
+    }
+
+    /**
+     * What choosing [channel] would do, for the sentence the screen shows before and after.
+     *
+     * Pure, and shared by the confirmation dialog and the standing notice underneath the row, so
+     * the warning and the explanation cannot come to disagree about what is going to happen.
+     */
+    fun channelSwitch(offer: UpdateInfo?): ChannelSwitch = UpdatePolicy.switching(
+        installedVersionCode = versionCode,
+        channelVersionCode = offer?.versionCode ?: 0,
+        channelVersionName = offer?.versionName.orEmpty(),
+    )
+
+    // ---- what changed in the version that just installed itself ---------------------------
+
+    /**
+     * The notes for the running build, if they have not been read yet.
+     *
+     * Only ever the *installed* version: notes held for something not yet installed describe a
+     * future that may never arrive, and showing them would be announcing a change that has not
+     * happened.
+     */
+    fun releaseNotes(settings: MalachiSettings, language: String): String? {
+        if (settings.pendingNotesVersionCode != versionCode) return null
+        if (settings.notesShownForVersionCode == versionCode) return null
+        return settings.pendingNotes.notesIn(language).takeIf { it.isNotBlank() }
+    }
+
+    fun markReleaseNotesSeen() = update { it.copy(notesShownForVersionCode = versionCode) }
 
     // ---- backup -------------------------------------------------------------------------
 

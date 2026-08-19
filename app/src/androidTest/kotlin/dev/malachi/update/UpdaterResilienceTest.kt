@@ -3,6 +3,7 @@ package dev.malachi.update
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.malachi.data.UpdateChannel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -61,7 +62,14 @@ class UpdaterResilienceTest {
         UpdateCenter.report(UpdateUiState.Idle)
     }
 
-    private fun updater() = Updater(app, versionJsonUrl = server.url("/version.json").toString())
+    // The channel is stated rather than read off the device: every case here is about what the
+    // updater does with what it fetched, and a test whose answer depends on a setting left behind
+    // by another test is a test that reports the wrong thing on the day it fails.
+    private fun updater(channel: UpdateChannel = UpdateChannel.STABLE) = Updater(
+        app,
+        versionJsonUrl = server.url("/version.json").toString(),
+        channelOverride = channel,
+    )
 
     private fun installedVersionCode(): Int {
         val info = app.packageManager.getPackageInfo(app.packageName, 0)
@@ -153,5 +161,48 @@ class UpdaterResilienceTest {
 
         assertEquals(UpdateCheckOutcome.NOT_ATTEMPTED, second)
         assertEquals(UpdateUiState.AlreadyChecking, stateWhenRefused)
+    }
+
+    // ---- channels ------------------------------------------------------------------------
+
+    @Test
+    fun aManifestThatIsNotThereIsAnOutcomeRatherThanAThrow() = runBlocking {
+        // A channel whose manifest 404s — a promotion half done, a file renamed — must be a
+        // retryable outcome. This is the one part of the app that cannot be fixed remotely, so a
+        // throw crossing into the worker would cost every future check, not this one.
+        script = listOf(MockResponse().setResponseCode(404))
+        assertEquals(UpdateCheckOutcome.TRANSIENT_FAILURE, updater().checkAndUpdate(force = true))
+    }
+
+    @Test
+    fun aManifestNamingTheOtherChannelIsNeverSilentlyFollowed() = runBlocking {
+        // The failure having channels at all exists to prevent: a manifest that names a build
+        // from the other lineage. The app is on the stable channel here, and it must not end up
+        // running a test build because a file on the internet said so.
+        val ahead = installedVersionCode() + 1
+        script = listOf(
+            MockResponse().setBody(
+                """{"versionCode": $ahead, "versionName": "9.9.9-alpha", "apk": "https://example.test/malachi.apk"}""",
+            ),
+        )
+        // Refused before anything is downloaded, because the url is not on the release host —
+        // and the channel check behind it is covered without a device in UpdatePolicyTest.
+        assertEquals(UpdateCheckOutcome.INSTALL_FAILURE, updater().checkAndUpdate(force = true))
+    }
+
+    @Test
+    fun releaseNotesSurviveTheRoundTripAndAreOptional() = runBlocking {
+        // Both shapes a real manifest takes, against a real parse.
+        val ahead = installedVersionCode() + 1
+        val withNotes = UpdateInfo.parse(
+            """{"versionCode": $ahead, "versionName": "9.9.9-beta", "apk": "https://example.test/a.apk",
+               "notes": {"en": "hello", "es": "hola"}}""",
+        )
+        assertEquals("hola", withNotes?.notesFor("es"))
+
+        val without = UpdateInfo.parse(
+            """{"versionCode": $ahead, "versionName": "9.9.9-beta", "apk": "https://example.test/a.apk"}""",
+        )
+        assertEquals("", without?.notesFor("es"))
     }
 }

@@ -105,6 +105,28 @@ class SettingsTest {
     }
 
     @Test
+    fun `a phone that has never chosen a channel follows the stable one`() {
+        // Every install that predates channels decodes to this, which is how the whole fleet
+        // lands on the public channel with nothing to do and nobody to ask.
+        assertEquals(UpdateChannel.STABLE, MalachiSettings().updateChannel)
+        assertEquals(
+            UpdateChannel.STABLE,
+            json.decodeFromString(MalachiSettings.serializer(), """{"filteringEnabled":true}""").updateChannel,
+        )
+    }
+
+    @Test
+    fun `the channel survives a round trip and does not change the tunnel`() {
+        val testing = MalachiSettings(updateChannel = UpdateChannel.TESTING)
+        val text = json.encodeToString(MalachiSettings.serializer(), testing)
+        assertEquals(UpdateChannel.TESTING, json.decodeFromString(MalachiSettings.serializer(), text).updateChannel)
+        // Which builds this phone accepts has nothing to do with how the tun is shaped, and
+        // rebuilding the tunnel to change a download preference would be a blink of unfiltered
+        // DNS bought for nothing.
+        assertEquals(MalachiSettings().tunnelShape(), testing.tunnelShape())
+    }
+
+    @Test
     fun `only what is baked into the tunnel changes its shape`() {
         val base = MalachiSettings(filteringEnabled = true)
 

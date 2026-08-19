@@ -916,6 +916,60 @@ the one path every revival has in common.
   did not bring it back in testing. `FilterWatchdogWorker` covers that, and always-on VPN covers
   it properly, which is why the app asks for it.
 
+### Versions and channels (read this before cutting anything)
+
+- **`X.Y.Z-tag`, and each letter means one thing.** **X** is a major upgrade — the version you are
+  proud of. **Y** is minor upgrades and new features. **Z** is the shame version: hotfixes and
+  bugfixes. The `-tag` is optional and is only ever `beta` or `alpha`; a build with no tag predates
+  channels and belongs to neither.
+- **Two channels, and they are two lineages rather than two qualities of one release.** The
+  **stable** channel carries `-beta` and is what a new install gets and what a stranger's phone
+  should ever see. The **testing** channel carries `-alpha`. `MalachiSettings.updateChannel` picks
+  between them, defaulting to stable — which is also what every install that predates the setting
+  decodes to, so the whole fleet lands on the public channel with nothing to do.
+- **Everything goes to testing as an alpha unless told otherwise.** Promoting to stable is a
+  deliberate act, and it is a **rebuild, not a re-point**: the version name is baked into the APK
+  at build time, so pointing the stable channel at a build stamped `-alpha` would show "alpha" to
+  everybody on stable. Promotion means cutting the same code again as `X.Y.Z-beta` with the next
+  version code.
+- **The testing channel is always at or ahead of stable, and that invariant is what makes the
+  toggle work at all.** Android refuses to install a lower `versionCode` over a higher one, and the
+  only way round it is uninstalling, which takes the user's rules with it. So leaving stable is
+  immediate and coming back is a wait: the phone stops taking alphas and rejoins when stable
+  overtakes what is installed. The settings screen says so rather than looking like a dead control,
+  and points anybody in a hurry at a backup and a manual install. After every promotion, move
+  development straight on to the next alpha so the invariant holds.
+- **There is no rolling back on Android. A bad release is only ever fixed by a newer one** —
+  which is exactly what `Z` is for. Pointing a channel manifest back at an older build does
+  nothing for the phones that already took the bad one.
+- **Alpha releases are published as GitHub pre-releases, and that reverses an older rule here for
+  the reason the older rule existed.** `releases/latest/…` has to keep resolving to something
+  installable, and with two channels the pre-release flag is what makes it resolve to *stable*.
+  Three things fall out: the install QR and the README link never change, the per-release
+  `version.json` asset keeps working, and every pre-channel install migrates onto stable by itself.
+  **Never mark a `-beta` release as a pre-release** — that is still the mistake the old rule was
+  about, and it would 404 the install link and freeze the fleet.
+- **The channel manifests are committed files, not release assets** (`channels/stable.json`,
+  `channels/testing.json`, read over `raw.githubusercontent.com`). "The newest release on GitHub"
+  and "what this channel should serve" stopped being the same question the moment alphas started
+  shipping between stable ones. The APK each names is pinned to its **tag**, not to `latest`, which
+  is what stops a download racing a release published in between. CI writes them after the release
+  exists — pointing a channel at a download that has not been published yet is minutes of every
+  phone on it failing to fetch.
+- **The tag decides the channel and CI refuses a tag that names neither.** `v*-alpha` → testing and
+  pre-release; `v*-beta` → stable. Getting this wrong is not recoverable once a phone has installed.
+- **The suffix is checked against the downloaded APK, not against the manifest that named it.** A
+  manifest is a document on the internet; a promotion pointing stable at a test build would
+  otherwise move every stable phone onto the testing lineage silently. See `UpdatePolicy`.
+- **A changelog must never be the reason a fix does not ship.** `release-notes/<versionName>.json`
+  is hand-written, bilingual and optional; CI warns and publishes without it rather than failing,
+  and `UpdateInfo.notes` is read leniently so a manifest with the field written wrongly loses its
+  notes and nothing else. Found the hard way by a test that had used `"notes"` as its example of an
+  unknown key — making the field known made that manifest unparseable, which on the one part of
+  the app that cannot be fixed remotely would have been permanent.
+- **What the changelog is for**: a short summary of what changed, written for somebody who does not
+  read the commit log. Not long, and no internals.
+
 ### Distribution & releases
 - GitHub remote: `https://github.com/olemoudi/malachi.git`.
 - This is a sideloaded personal app (not Play Store).
@@ -955,11 +1009,12 @@ the one path every revival has in common.
   tag that lands on it produces no Release run at all, silently: no failure, no run, nothing to
   look at. Cut the tag on a commit of your own (an empty `chore: cut vX.Y.Z` will do) and check
   that the Release workflow actually started.
-- **Never mark a release as a pre-release on GitHub**, however alpha the build is. The whole
-  distribution model hangs off `…/releases/latest/download/…`, and that path skips
-  pre-releases: marking one would 404 the install QR in the README *and* the `version.json`
-  every installed copy polls, silently freezing the fleet on whatever build it was running.
-  The stage belongs in `versionName`, which nothing parses.
+- **Never mark a `-beta` release as a pre-release on GitHub.** The whole distribution model hangs
+  off `…/releases/latest/download/…`, and that path skips pre-releases: marking the stable one
+  would 404 the install QR in the README *and* the `version.json` every pre-channel install polls,
+  silently freezing the fleet on whatever build it was running. `-alpha` releases *are*
+  pre-releases, and for the same reason — it is what keeps `latest` meaning stable. See
+  **Versions and channels** above.
 
 ### Auto-update
 - `UpdateWorker` (periodic, plus on launch and on regaining focus) runs `Updater`, which reads

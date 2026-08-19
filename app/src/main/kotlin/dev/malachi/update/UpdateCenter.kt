@@ -33,7 +33,28 @@ object UpdateCenter {
     private val mutable = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val state: StateFlow<UpdateUiState> = mutable
 
+    /**
+     * What the chosen channel last said it had, whether or not it was newer than what is running.
+     *
+     * Separate from [state] because it answers a different question and outlives the answer to
+     * the first: the settings screen needs to say "the stable channel is on 1.0.0-beta" while
+     * this phone sits on a test build that is ahead of it, and there is no update in flight to
+     * carry that fact. Null until a manifest has actually been read — the screen must be able to
+     * tell "behind you" from "not asked yet".
+     */
+    private val offered = MutableStateFlow<UpdateInfo?>(null)
+    val channelOffer: StateFlow<UpdateInfo?> = offered
+
     internal fun report(state: UpdateUiState) {
         mutable.value = state
+    }
+
+    internal fun channelOffers(info: UpdateInfo) {
+        offered.value = info
+    }
+
+    /** Forgotten when the channel changes: it described the other one. */
+    internal fun forgetChannelOffer() {
+        offered.value = null
     }
 }

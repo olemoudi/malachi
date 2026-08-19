@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.core.app.PendingIntentCompat
 import dev.malachi.Distribution
 import dev.malachi.MalachiApplication
+import dev.malachi.data.UpdateChannel
 import dev.malachi.debug.DebugLog
 import dev.malachi.net.Http
 import kotlinx.coroutines.CancellationException
@@ -48,11 +49,16 @@ enum class UpdateCheckOutcome {
 class Updater(
     private val context: Context,
     /**
-     * Where the version file lives. A parameter only so a test can point it at a server it
-     * controls — the retry behaviour and the refusal to install the wrong file are the parts of
-     * this class that matter most and were the parts nothing exercised.
+     * Where the manifest lives, when it is not to be worked out from the chosen channel.
+     *
+     * A parameter only so a test can point it at a server it controls — the retry behaviour and
+     * the refusal to install the wrong file are the parts of this class that matter most and were
+     * the parts nothing exercised. Null means "ask the settings which channel this phone
+     * follows", which is every real caller.
      */
-    private val versionJsonUrl: String = Distribution.VERSION_JSON_URL,
+    private val versionJsonUrl: String? = null,
+    /** Likewise: the channel a test is pretending to be on. */
+    private val channelOverride: UpdateChannel? = null,
 ) {
 
     // Derived from the shared client (pools reused); longer timeouts for a ~15 MB download.
@@ -137,15 +143,22 @@ class Updater(
     }
 
     private suspend fun doCheckAndUpdate(): UpdateCheckOutcome = withContext(Dispatchers.IO) {
-        DebugLog.i(TAG, "checking for an update")
+        val channel = channelOverride ?: readChannel()
+        val manifest = versionJsonUrl ?: Distribution.manifestUrl(channel)
+        DebugLog.i(TAG, "checking for an update on the ${channel.name.lowercase()} channel")
         UpdateCenter.report(UpdateUiState.Checking)
-        val info = retrying("fetching version.json") { fetchInfo() }
+        val info = retrying("fetching the channel manifest") { fetchInfo(manifest) }
         if (info == null) {
             UpdateCenter.report(UpdateUiState.Failed("fetch"))
             return@withContext UpdateCheckOutcome.TRANSIENT_FAILURE
         }
         val current = currentVersionCode()
-        DebugLog.i(TAG, "installed=$current latest=${info.versionCode}")
+        DebugLog.i(TAG, "installed=$current channel=${channel.name.lowercase()} offers=${info.versionCode}")
+        // Held whatever happens next, so the launch after the update can say what changed. The
+        // download may still fail; the notes describe the version either way, and they are only
+        // ever shown once the code they name is the code that is running.
+        rememberNotes(info)
+        UpdateCenter.channelOffers(info)
         if (!info.isNewerThan(current)) {
             UpdateCenter.report(UpdateUiState.UpToDate(current))
             return@withContext UpdateCheckOutcome.UP_TO_DATE
@@ -177,7 +190,7 @@ class Updater(
         }
         // What arrived is not necessarily what was asked for. Checked before a session is opened,
         // because the installer failing is a worse way to learn this than not starting.
-        val rejection = rejectionReason(apk, expected = info, installed = current)
+        val rejection = rejectionReason(apk, expected = info, installed = current, channel = channel)
         if (rejection != null) {
             DebugLog.e(TAG, "refusing the downloaded file: $rejection")
             runCatching { apk.delete() }
@@ -205,11 +218,41 @@ class Updater(
         }
     }
 
-    private fun fetchInfo(): UpdateInfo? {
-        client.newCall(Request.Builder().url(versionJsonUrl).build()).execute().use { resp ->
+    private fun fetchInfo(url: String): UpdateInfo? {
+        client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             if (!resp.isSuccessful) return null
             return UpdateInfo.parse(resp.body?.string() ?: return null)
         }
+    }
+
+    /**
+     * Which channel this phone follows.
+     *
+     * Falls back to stable rather than throwing, and that direction is the safe one: a settings
+     * read that fails must not leave a phone taking test builds, and it must not leave it taking
+     * nothing at all either.
+     */
+    private suspend fun readChannel(): UpdateChannel {
+        val app = context.applicationContext as? MalachiApplication ?: return UpdateChannel.STABLE
+        return runCatching { app.settingsStore.current().updateChannel }.getOrDefault(UpdateChannel.STABLE)
+    }
+
+    /** Keeps this version's notes for the launch that follows installing it. */
+    private suspend fun rememberNotes(info: UpdateInfo) {
+        if (info.notes.isEmpty() || info.versionCode <= 0) return
+        val app = context.applicationContext as? MalachiApplication ?: return
+        runCatching {
+            app.settingsStore.update {
+                if (it.pendingNotesVersionCode == info.versionCode) {
+                    it
+                } else {
+                    it.copy(
+                        pendingNotesVersionCode = info.versionCode,
+                        pendingNotes = info.notesWorthKeeping(),
+                    )
+                }
+            }
+        }.onFailure { DebugLog.w(TAG, "could not keep the release notes", it) }
     }
 
     /**
@@ -260,7 +303,12 @@ class Updater(
      * file answers all three questions at once: whether it is an APK, whose it is, and which
      * version — see [dev.malachi.update.rejectionReason].
      */
-    private fun rejectionReason(apk: File, expected: UpdateInfo, installed: Int): String? {
+    private fun rejectionReason(
+        apk: File,
+        expected: UpdateInfo,
+        installed: Int,
+        channel: UpdateChannel,
+    ): String? {
         val archive = runCatching {
             context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
         }.getOrNull()
@@ -274,6 +322,8 @@ class Updater(
             archiveVersionCode = archiveVersion,
             expectedPackage = context.packageName,
             installedVersionCode = installed,
+            archiveVersionName = archive?.versionName,
+            expectedChannel = channel,
         )
         if (reason != null) return reason
         // Not fatal on its own — "latest" can move between the two requests — but worth saying,

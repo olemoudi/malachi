@@ -51,6 +51,7 @@ import dev.malachi.net.TunnelProblem
 import dev.malachi.net.VpnController
 import dev.malachi.ui.BackupMessage
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.ReleaseNotes
 import dev.malachi.ui.RestoreConfirmation
 import dev.malachi.ui.Screen
 import dev.malachi.ui.rememberBackupActions
@@ -116,6 +117,9 @@ fun HomeScreen(
     val backup = rememberBackupActions(vm)
     BackupMessage(vm)
     RestoreConfirmation(vm)
+    // On the home screen only: this is the screen an update lands on, and a second copy on
+    // Settings would be a second chance to meet the same dialog.
+    ReleaseNotes(vm)
     val spacing = Tokens.spacing
     var pausing by remember { mutableStateOf(false) }
 

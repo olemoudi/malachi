@@ -29,6 +29,23 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # The tag decides the channel, and a tag that names neither is a mistake worth stopping
+      # for: publishing it would either put a test build in front of everybody or hide a stable
+      # one where nobody is looking, and neither is undoable once a phone has installed it.
+      - name: Work out which channel this tag is for
+        id: channel
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in
+            *-alpha) NAME=testing; PRERELEASE=true ;;
+            *-beta)  NAME=stable;  PRERELEASE=false ;;
+            *) echo "::error::tag '$TAG' names no channel; it has to end in -alpha or -beta"; exit 1 ;;
+          esac
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "publishing $TAG to the $NAME channel (prerelease=$PRERELEASE)"
+
       # Through gradle_retry.sh, for a reason this workflow feels more sharply than CI does: a
       # rate limiter that cannot be reached here does not merely go red, it abandons a tag that
       # has already been pushed, leaving a version nobody can install and a tag that has to be
@@ -45,13 +62,44 @@ jobs:
       - name: Copy the APK to its stable asset name
         run: cp app/build/outputs/apk/release/app-release.apk malachi.apk
 
-      - name: Build version.json (drives the in-app update)
+      # Two manifests, and they are not the same document.
+      #
+      # version.json is what an install published before channels existed still polls, through
+      # `releases/latest`. Those copies must keep updating, and because test builds are
+      # pre-releases `latest` is always the stable one, so they migrate onto the stable channel
+      # by themselves with nothing to do.
+      #
+      # The channel manifest is what every current install reads. Its APK url is pinned to *this*
+      # tag rather than to `latest`, which is what stops a download racing a release published
+      # between reading the manifest and fetching the file it named.
+      - name: Build the manifests
+        id: manifest
         run: |
           VC=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)
           VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          TAG="${{ steps.channel.outputs.tag }}"
+          PINNED="https://github.com/olemoudi/malachi/releases/download/$TAG/malachi.apk"
+
+          # Hand-written, per version, and optional: a release with nothing to say about itself
+          # still installs. Anything but a readable object is treated as absent rather than
+          # failing the release — a changelog must never be the reason a fix does not ship.
+          NOTES='{}'
+          if [ -f "release-notes/$VN.json" ] && jq -e . "release-notes/$VN.json" >/dev/null 2>&1; then
+            NOTES=$(jq -c . "release-notes/$VN.json")
+          else
+            echo "::warning::no readable release-notes/$VN.json; publishing without notes"
+          fi
+
           printf '{"versionCode": %s, "versionName": "%s", "apk": "%s"}\n' \
             "$VC" "$VN" "https://github.com/olemoudi/malachi/releases/latest/download/malachi.apk" > version.json
+
+          jq -n --argjson vc "$VC" --arg vn "$VN" --arg apk "$PINNED" --argjson notes "$NOTES" \
+            '{versionCode: $vc, versionName: $vn, apk: $apk, notes: $notes}' \
+            > "channels/${{ steps.channel.outputs.name }}.json"
+
+          echo "versionName=$VN" >> "$GITHUB_OUTPUT"
           cat version.json
+          cat "channels/${{ steps.channel.outputs.name }}.json"
 
       - name: Publish the GitHub release
         uses: softprops/action-gh-release@v3
@@ -61,3 +109,30 @@ jobs:
             version.json
           fail_on_unmatched_files: true
           generate_release_notes: true
+          # The flag that keeps `releases/latest` meaning "stable", which is what the install QR,
+          # the README link and every pre-channel install all resolve through.
+          prerelease: ${{ steps.channel.outputs.prerelease }}
+
+      # Only after the release exists: the manifest names an APK, and pointing a channel at a
+      # download that has not been published yet is a few minutes of every phone on that channel
+      # failing to fetch it.
+      #
+      # Rebased and retried for the reason the coverage badge is: this pushes minutes after the
+      # checkout, by which time main has usually moved. Unlike the badge this one is not allowed
+      # to fail quietly — a release nobody's channel points at is a release nobody receives.
+      - name: Point the channel at it
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          FILE="channels/${{ steps.channel.outputs.name }}.json"
+          git add "$FILE"
+          git diff --cached --quiet && echo "channel already points here" && exit 0
+          git commit -m "chore: point the ${{ steps.channel.outputs.name }} channel at ${{ steps.channel.outputs.versionName }} [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git rebase origin/main && git push origin HEAD:main && exit 0
+            echo "push $attempt was beaten to it; trying again"
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not point the channel at this release"
+          exit 1

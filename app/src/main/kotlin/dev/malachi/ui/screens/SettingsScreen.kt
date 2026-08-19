@@ -2,9 +2,16 @@ package dev.malachi.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Info
@@ -14,6 +21,9 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Troubleshoot
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -22,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.data.BackupPolicy
 import dev.malachi.data.ThemeMode
+import dev.malachi.data.UpdateChannel
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.net.VpnController
 import dev.malachi.ui.BackupMessage
@@ -37,6 +48,7 @@ import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.ValueRow
 import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.theme.Tokens
+import dev.malachi.update.ChannelSwitch
 import dev.malachi.update.UpdateUiState
 
 /**
@@ -184,6 +196,7 @@ fun SettingsScreen(
                     supporting = stringResource(R.string.settings_updates_hint),
                 )
             }
+            item { UpdateChannelChoice(vm, settings.updateChannel) }
             item {
                 CardGroup {
                     SwitchRow(
@@ -273,6 +286,103 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/**
+ * Which stream of builds this phone follows, and what choosing the other one would really do.
+ *
+ * A segmented choice rather than a switch, because neither option is the absence of the other:
+ * "off" would have to mean stable, and a switch labelled with one channel cannot say what the
+ * other one is. The line underneath is the honest part — see [ChannelSwitch], and the standing
+ * notice for the direction Android will not perform on demand.
+ */
+@Composable
+private fun UpdateChannelChoice(vm: MalachiViewModel, channel: UpdateChannel) {
+    val spacing = Tokens.spacing
+    val offer by vm.channelOffer.collectAsStateWithLifecycle()
+    var confirming by remember { mutableStateOf(false) }
+
+    Column {
+        // Named, unlike the theme row above it: that one is the only thing under its section
+        // header, and this one shares "Updates" with two other controls — two words in a
+        // segmented row are not enough to say what they are choosing between.
+        Text(
+            stringResource(R.string.settings_channel_title),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(bottom = spacing.sm, start = spacing.xs, end = spacing.xs),
+        )
+        SegmentedChoice(
+            options = UpdateChannel.entries,
+            selected = channel,
+            onSelect = { chosen ->
+                // Only the way in asks. Choosing stable is choosing the safer of the two and
+                // interrupting that would be a dialog for its own sake.
+                if (chosen == UpdateChannel.TESTING) confirming = true else vm.setUpdateChannel(chosen)
+            },
+            label = { stringResource(channelLabel(it)) },
+        )
+        Text(
+            stringResource(channelHint(channel)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = spacing.sm, start = spacing.xs, end = spacing.xs),
+        )
+        // The one case the toggle cannot make true on its own: a phone on a test build that has
+        // asked to come back. Saying nothing here would make the choice look like a dead control
+        // for however long it takes the stable channel to catch up — days, usually.
+        val switch = vm.channelSwitch(offer)
+        if (channel == UpdateChannel.STABLE && switch is ChannelSwitch.WaitsForNextRelease) {
+            Text(
+                stringResource(R.string.channel_waiting, switch.channelVersionName),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = spacing.sm, start = spacing.xs, end = spacing.xs),
+            )
+            Text(
+                stringResource(R.string.channel_waiting_manual),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = spacing.xs, start = spacing.xs, end = spacing.xs),
+            )
+        }
+    }
+
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text(stringResource(R.string.channel_warn_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.channel_warn_body), style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    // The asymmetry, said before the choice rather than discovered after it.
+                    Text(
+                        stringResource(R.string.channel_warn_back),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { confirming = false; vm.setUpdateChannel(UpdateChannel.TESTING) }) {
+                    Text(stringResource(R.string.channel_warn_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
+}
+
+private fun channelLabel(channel: UpdateChannel) = when (channel) {
+    UpdateChannel.STABLE -> R.string.settings_channel_stable
+    UpdateChannel.TESTING -> R.string.settings_channel_testing
+}
+
+private fun channelHint(channel: UpdateChannel) = when (channel) {
+    UpdateChannel.STABLE -> R.string.settings_channel_stable_hint
+    UpdateChannel.TESTING -> R.string.settings_channel_testing_hint
 }
 
 @Composable

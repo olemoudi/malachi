@@ -53,6 +53,21 @@ enum class BypassGuard {
     PUBLIC_RESOLVERS,
 }
 
+/**
+ * Which stream of builds this phone follows.
+ *
+ * Two, and they are not two qualities of the same release — they are two lineages. [STABLE]
+ * carries `-beta` and is what an install gets by default and what a stranger's phone should ever
+ * see. [TESTING] carries `-alpha`, is where every day's work goes, and is always at or ahead of
+ * stable, which is the invariant that makes moving *to* it possible at all: Android will not
+ * install a lower version code over a higher one, so the journey out is immediate and the journey
+ * back waits for the next stable release to overtake what is installed.
+ *
+ * Default [STABLE], which is also what every install that predates this setting decodes to.
+ */
+@Serializable
+enum class UpdateChannel { STABLE, TESTING }
+
 /** A user rule scoped to one app, in persistable form. */
 @Serializable
 data class AppRule(
@@ -140,6 +155,37 @@ data class MalachiSettings(
 
     /** Wi-Fi-only self-update, for a phone on a small data plan. */
     val updateWifiOnly: Boolean = false,
+
+    /**
+     * Which stream of builds to follow. See [UpdateChannel].
+     *
+     * Deliberately absent from a backup: it is a preference like [updateWifiOnly] and looks like
+     * its sibling, but restoring a file onto a fresh phone must not quietly opt it into builds
+     * nobody else has run.
+     */
+    val updateChannel: UpdateChannel = UpdateChannel.STABLE,
+
+    /**
+     * The version code whose release notes have already been shown, so they are shown once.
+     *
+     * A self-update replaces the process without asking, so there is no moment *before* it at
+     * which "here is what is about to change" could be read. What there is instead is the moment
+     * after: the app comes back as a version the user did not choose, and this is what lets it
+     * say what happened exactly once rather than every launch.
+     */
+    val notesShownForVersionCode: Int = 0,
+
+    /** The version code [pendingNotes] describes; 0 when there are none held. */
+    val pendingNotesVersionCode: Int = 0,
+
+    /**
+     * The release notes last seen in a channel manifest, by language.
+     *
+     * Held rather than re-fetched because the moment they are wanted — the launch straight after
+     * an update — is the moment the network is least worth waiting on, and because by then the
+     * manifest has moved on to describing the version that is now installed anyway.
+     */
+    val pendingNotes: Map<String, String> = emptyMap(),
 
     /**
      * Which migrations have been applied to this blob.

@@ -205,4 +205,18 @@ class BackupTest {
         assertTrue(name.endsWith(".json"), name)
         assertTrue(name.contains("2023-11"), name)
     }
+
+    @Test
+    fun `the update channel is not carried by a backup`() {
+        // It looks like updateWifiOnly, which is in the file, and it is deliberately not:
+        // restoring somebody's settings onto a fresh phone must not quietly enrol that phone in
+        // builds nobody else has run. Reversible in one line if that ever reads wrong — this
+        // test is here so it would be a decision rather than a drift.
+        val onTesting = MalachiSettings(updateChannel = UpdateChannel.TESTING, userBlocked = setOf("ads.example.com"))
+        val restored = Backup.of(onTesting, "1.1.0-alpha", nowMs = 0)
+            .restoredInto(MalachiSettings(updateChannel = UpdateChannel.STABLE))
+
+        assertEquals(UpdateChannel.STABLE, restored.updateChannel)
+        assertEquals(setOf("ads.example.com"), restored.userBlocked)
+    }
 }

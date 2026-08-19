@@ -1816,7 +1816,10 @@ class MalachiVpnService : VpnService() {
      */
     private fun traceEnvironment(settings: MalachiSettings) {
         DebugLog.trace(TAG, "— diagnostics on for ${DIAGNOSTICS_MINUTES} minutes —")
-        DebugLog.trace(TAG, "app ${dev.malachi.BuildConfig.VERSION_NAME} on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
+        // The channel belongs in the first line of any report: "which build is this and where did
+        // it come from" decides whether a fault is worth chasing or is a test build doing what
+        // test builds do, and a tester cannot be expected to volunteer it.
+        DebugLog.trace(TAG, "app ${dev.malachi.BuildConfig.VERSION_NAME} (${settings.updateChannel.name.lowercase()} channel) on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
         DebugLog.trace(TAG, "upstream setting=${settings.upstream}${if (settings.customUpstream.isNotBlank()) " (${settings.customUpstream})" else ""}")
         DebugLog.trace(TAG, "resolvers in use=${upstreams.joinToString { it.hostAddress.orEmpty() }}")
         // Whose resolvers, and how old. Without both, a list of four addresses that nothing

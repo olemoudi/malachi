@@ -16,7 +16,7 @@ Point your phone's camera at this code, or tap the link below.
 **[github.com/olemoudi/malachi/releases/latest/download/malachi.apk](https://github.com/olemoudi/malachi/releases/latest/download/malachi.apk)**
 
 Android 10 or newer. Once installed, Malachi keeps itself up to date from that same page — the
-QR always resolves to the newest release, so it never has to be reprinted.
+QR always resolves to the newest stable release, so it never has to be reprinted.
 
 Your phone will warn you that the file comes from outside the Play Store, and Play Protect may
 offer to scan it first — that is normal for any app installed this way.
@@ -66,7 +66,10 @@ does what it looks like it does. Tomorrow's list refresh cannot overwrite a deci
 you opening anything; after a reboot that can take a couple of minutes, and Malachi says so
 rather than pretending otherwise. Setting it as your always-on VPN makes recovery immediate and
 is the only thing that survives a force-stop. Updates are checked every twelve hours whether or
-not you ever open the app, and a new version announces itself with a notification.
+not you ever open the app, and a new version announces itself with a notification. There are two
+channels — **stable**, which is what you get, and **testing**, which carries early builds and is
+one tap away in Settings. Leaving stable takes effect at once; coming back waits for the next
+stable release, because Android will not install an older version over a newer one.
 
 **Honest about its own state.** Only one VPN can run on Android at a time, consent can be
 withdrawn, and the system's Private DNS setting sends lookups somewhere Malachi will never see
@@ -130,6 +133,22 @@ to answer every query.
 
 ## Releases
 
-Push a tag matching `v*`. GitHub Actions builds the release APK and publishes it as
-`malachi.apk` alongside a `version.json`, which is what the in-app updater reads. The asset
-names never change: they are baked into every installed copy.
+Push a tag matching `v*-alpha` or `v*-beta`. The suffix decides the channel: `-alpha` publishes
+to **testing** as a GitHub pre-release, `-beta` publishes to **stable**. CI refuses a tag that
+names neither — getting it wrong is not recoverable once a phone has installed.
+
+GitHub Actions builds the release APK and publishes it as `malachi.apk` alongside a
+`version.json`. Those asset names never change: they are baked into every installed copy, and
+because test builds are pre-releases, `releases/latest` keeps meaning *stable*. CI then points
+the channel's manifest — `channels/stable.json` and `channels/testing.json`, committed files
+rather than release assets — at the tag it has just published. That manifest is what the in-app
+updater reads, and the APK it names is pinned to the tag rather than to `latest`, so a download
+cannot race a release published in between.
+
+The suffix is checked again against the downloaded APK, not against the manifest that named it:
+a manifest is a document on the internet, and a phone must never change lineage because a file
+said so.
+
+`release-notes/<versionName>.json` is a hand-written, bilingual, optional changelog. It travels
+in the manifest and is shown once, on the launch after the update installed itself. A missing
+one warns and publishes anyway — a changelog must never be the reason a fix does not ship.
