@@ -41,7 +41,6 @@ import dev.malachi.update.ChannelSwitch
 import dev.malachi.update.UpdateCenter
 import dev.malachi.update.UpdateInfo
 import dev.malachi.update.UpdatePolicy
-import dev.malachi.update.UpdateWorker
 import dev.malachi.update.Updater
 import dev.malachi.update.notesIn
 import kotlinx.coroutines.Dispatchers
@@ -739,8 +738,6 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     fun checkForUpdate() {
         launchSafely("checking for an update") { Updater(app).checkAndUpdate(force = true) }
     }
-
-    fun scheduleUpdateCheck() = UpdateWorker.runNow(app)
 
     /**
      * Display label for a package, falling back to the package name itself.
