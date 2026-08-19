@@ -6,11 +6,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -94,12 +98,27 @@ fun CardGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
  * The one way a screen introduces a section: an eyebrow label in the accent colour, inset to
  * align with card content, with air above so the between-section gap always beats the
  * within-section one.
+ *
+ * [leading] draws something before the label, on the same baseline. It exists for a section whose
+ * heading *is* a value rather than a name — the list picker's risk tiers, where the same dots
+ * that mark a verdict elsewhere teach the scale in the place the choice is actually made.
  */
 @Composable
-fun SectionHeader(title: String, modifier: Modifier = Modifier, supporting: String? = null) {
+fun SectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    supporting: String? = null,
+    leading: (@Composable () -> Unit)? = null,
+) {
     val spacing = Tokens.spacing
     Column(modifier.fillMaxWidth().padding(top = spacing.lg, start = spacing.xs, end = spacing.xs)) {
-        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (leading != null) {
+                leading()
+                Spacer(Modifier.width(spacing.xs))
+            }
+            Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
         if (supporting != null) {
             Text(
                 supporting,

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,6 +48,9 @@ import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.SectionHeader
+import dev.malachi.ui.components.RiskMarkHeight
+import dev.malachi.ui.components.RiskMarks
+import dev.malachi.ui.components.riskLabel
 import dev.malachi.ui.components.SwitchRow
 import dev.malachi.ui.components.ValueRow
 import dev.malachi.ui.components.cardPosition
@@ -214,8 +218,14 @@ fun ListCategoryScreen(
 
                 item(key = "header-$risk") {
                     SectionHeader(
-                        title = stringResource(riskTitle(risk)),
+                        title = stringResource(riskLabel(risk)),
                         supporting = stringResource(riskHint(risk)),
+                        // The same dots that mark a verdict elsewhere, here on the heading that
+                        // names the tier. This is where the scale is learned: somebody choosing
+                        // a list reads "two amber dots" beside the words that explain it, and
+                        // meets those two dots again months later beside the domain that broke
+                        // something — without a legend having to teach it twice.
+                        leading = { RiskMarks(risk, Modifier.height(RiskMarkHeight)) },
                     )
                 }
                 item(key = "group-$risk") {
@@ -387,12 +397,6 @@ private fun categoryHint(category: BlocklistCategory) = when (category) {
     BlocklistCategory.NATIVE -> R.string.lists_category_native_hint
     BlocklistCategory.REGIONAL -> R.string.lists_category_regional_hint
     BlocklistCategory.OTHER -> R.string.lists_category_other_hint
-}
-
-private fun riskTitle(risk: BreakageRisk) = when (risk) {
-    BreakageRisk.SAFE -> R.string.lists_risk_safe
-    BreakageRisk.MODERATE -> R.string.lists_risk_moderate
-    BreakageRisk.AGGRESSIVE -> R.string.lists_risk_aggressive
 }
 
 private fun riskHint(risk: BreakageRisk) = when (risk) {

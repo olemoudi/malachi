@@ -75,6 +75,15 @@ private fun riskTint(risk: BreakageRisk): Color = when (risk) {
     BreakageRisk.AGGRESSIVE -> MaterialTheme.colorScheme.error
 }
 
+/**
+ * How tall the dots are when they sit beside a label rather than inside a sentence.
+ *
+ * One value for the legend and for the list picker's tier headings, because those two are the
+ * same object seen twice — the scale explained, and the scale being chosen — and a size that
+ * drifted between them would read as two different marks.
+ */
+val RiskMarkHeight = 14.dp
+
 internal fun riskLabel(risk: BreakageRisk) = when (risk) {
     BreakageRisk.SAFE -> R.string.lists_risk_safe
     BreakageRisk.MODERATE -> R.string.lists_risk_moderate
@@ -189,7 +198,7 @@ fun RiskLegend(modifier: Modifier = Modifier) {
         ) {
             BreakageRisk.entries.forEach { risk ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RiskMarks(risk, Modifier.height(LEGEND_MARK_HEIGHT))
+                    RiskMarks(risk, Modifier.height(RiskMarkHeight))
                     Spacer(Modifier.width(spacing.xs))
                     Text(
                         stringResource(riskLabel(risk)),
@@ -216,4 +225,4 @@ private const val MARK_SIDE = 0.9f
 /** How much of its slot the dot itself takes; the remainder is the gap that makes it countable. */
 private const val DOT_SCALE = 0.62f
 
-private val LEGEND_MARK_HEIGHT = 14.dp
+
