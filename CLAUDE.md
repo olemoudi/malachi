@@ -956,6 +956,14 @@ the one path every revival has in common.
   is what stops a download racing a release published in between. CI writes them after the release
   exists — pointing a channel at a download that has not been published yet is minutes of every
   phone on it failing to fetch.
+- **Never hand-commit a channel manifest ahead of its release — CI writes it, and only after.**
+  Done once, bootstrapping the two channels: `channels/testing.json` was committed naming
+  `v1.1.0-alpha` before that tag was cut, and the release then spent fourteen minutes on the
+  emulator gate. A phone that switched to testing in that window read the manifest, asked for the
+  APK it named and got a 404 — reported on screen as a failed download, which is exactly what it
+  was and tells the user nothing they can act on. The manifest is a promise that a file exists;
+  make it after the file does. Bootstrapping a *new* channel means cutting its first release and
+  letting CI create the file.
 - **The tag decides the channel and CI refuses a tag that names neither.** `v*-alpha` → testing and
   pre-release; `v*-beta` → stable. Getting this wrong is not recoverable once a phone has installed.
 - **The suffix is checked against the downloaded APK, not against the manifest that named it.** A
