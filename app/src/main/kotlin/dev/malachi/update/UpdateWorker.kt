@@ -6,6 +6,7 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
@@ -27,6 +28,9 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     companion object {
         /** Internal so a test can ask WorkManager whether the periodic check is really there. */
         internal const val PERIODIC = "malachi-update-periodic"
+
+        /** The one-off check, named so several of them cannot be in flight at once. */
+        internal const val IMMEDIATE = "malachi-update-now"
         private const val MAX_RETRIES = 5
 
         /** How often to look, when the system lets us. */
@@ -64,14 +68,26 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             }
         }
 
-        /** One-off immediate check (launch, boot, the manual button). Bypasses the guard. */
+        /**
+         * One-off immediate check (launch, boot, the manual button). Bypasses the guard.
+         *
+         * Unique, and KEEP rather than REPLACE. A failed check retries with a widening gap for
+         * over two hours, and it spends nearly all of that enqueued — so an app opened every
+         * quarter of an hour used to stack a second, third and fourth check on top of one that
+         * was already coming. They cannot even run: [Updater] is single-flight, so each extra one
+         * is refused, and each refusal used to overwrite what the screen was showing about the
+         * check that was really happening. KEEP steps aside for work that is already on its way
+         * and takes over from work that has finished, which is exactly the distinction wanted.
+         */
         fun runNow(context: Context) {
             lastEnqueueMs.set(SystemClock.elapsedRealtime())
             val request = OneTimeWorkRequestBuilder<UpdateWorker>()
                 .setConstraints(connected)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
                 .build()
-            withWorkQueue(context, "run an update check") { it.enqueue(request) }
+            withWorkQueue(context, "run an update check") {
+                it.enqueueUniqueWork(IMMEDIATE, ExistingWorkPolicy.KEEP, request)
+            }
         }
 
         /** Focus-triggered check: runs at most once per guard window. */

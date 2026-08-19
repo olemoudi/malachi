@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.malachi.debug.DebugLog
+import dev.malachi.update.UpdateNotifications
+import dev.malachi.update.Updater
 
 /**
  * Brings the filter back after a reboot and after Malachi updates itself.
@@ -24,7 +26,23 @@ class BootReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         DebugLog.i(TAG, "restoring the filter after $action")
+        if (action == Intent.ACTION_MY_PACKAGE_REPLACED) clearUpAfterSelfUpdate(context)
         VpnController.start(context)
+    }
+
+    /**
+     * What a silent self-update leaves behind, because the receiver meant to clear it never ran.
+     *
+     * [dev.malachi.update.InstallReceiver] drops the downloaded APK and withdraws the "an update
+     * is available" notification when the install reports success — and a successful silent
+     * install replaces this process first, so in the ordinary case neither happens. The result is
+     * tens of megabytes in the cache until the day-old sweep collects them, and a notification
+     * announcing a version that is now the one running. This broadcast is the one thing every
+     * self-update is guaranteed to produce, and by the time it arrives the install is a fact.
+     */
+    private fun clearUpAfterSelfUpdate(context: Context) {
+        UpdateNotifications.cancel(context)
+        Updater.discardDownload(context)
     }
 
     private companion object {

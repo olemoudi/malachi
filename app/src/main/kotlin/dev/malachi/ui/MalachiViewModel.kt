@@ -208,7 +208,19 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun dismissAlwaysOnTip() = update { it.copy(alwaysOnTipDismissed = true) }
 
-    fun markWelcomeSeen() = update { it.copy(welcomeSeen = true) }
+    /**
+     * The welcome screen is done with, and with it the only launch that has no "before".
+     *
+     * The notes for whatever is installed right now are marked as read at the same moment,
+     * because a fresh install has no previous version and "what changed" is then a dialog about
+     * a change nobody experienced — landing, on the one screen that has to go well, directly
+     * behind Android's own VPN consent dialog. It is done here rather than by having the updater
+     * decline to keep them, so a build somebody sideloaded by hand over an older one still
+     * explains itself at its next launch.
+     */
+    fun markWelcomeSeen() = update {
+        it.copy(welcomeSeen = true, notesShownForVersionCode = versionCode)
+    }
 
     fun dismissPrivateDnsNote() = update { it.copy(privateDnsNoteDismissed = true) }
 

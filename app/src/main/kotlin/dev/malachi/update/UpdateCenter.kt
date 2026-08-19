@@ -49,6 +49,24 @@ object UpdateCenter {
         mutable.value = state
     }
 
+    /**
+     * Reports a check that declined to run, without erasing one that is.
+     *
+     * A refusal is only ever news about the request that was refused, and there are two of them:
+     * another check holds the lock, or the connection is metered. Written straight over the top,
+     * they replaced "Downloading 1.4.0-alpha" with "another check is already running" whenever a
+     * background worker fired while somebody was watching a manual download — and since a
+     * download reports nothing further until it fails, that is where the screen stayed. A state
+     * describing work actually in flight outranks a note about work that never started; a state
+     * describing a finished one does not.
+     */
+    internal fun reportDeclined(state: UpdateUiState) {
+        when (mutable.value) {
+            is UpdateUiState.Downloading, is UpdateUiState.PendingConfirmation -> Unit
+            else -> mutable.value = state
+        }
+    }
+
     internal fun channelOffers(info: UpdateInfo) {
         offered.value = info
     }

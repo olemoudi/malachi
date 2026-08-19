@@ -92,12 +92,12 @@ class Updater(
     private suspend fun attempt(force: Boolean): UpdateCheckOutcome {
         if (!force && wifiOnlyBlocks()) {
             DebugLog.i(TAG, "update skipped: Wi-Fi-only is on and this connection is metered")
-            UpdateCenter.report(UpdateUiState.SkippedMetered)
+            UpdateCenter.reportDeclined(UpdateUiState.SkippedMetered)
             return UpdateCheckOutcome.NOT_ATTEMPTED
         }
         if (!updateMutex.tryLock()) {
             DebugLog.i(TAG, "update check already in flight; skipping")
-            UpdateCenter.report(UpdateUiState.AlreadyChecking)
+            UpdateCenter.reportDeclined(UpdateUiState.AlreadyChecking)
             return UpdateCheckOutcome.NOT_ATTEMPTED
         }
         try {
@@ -340,9 +340,17 @@ class Updater(
         // fail with "too many active sessions" on a phone that has had a bad week. Any
         // confirmation notification goes with them: it points at a session that no longer
         // exists, so tapping it would do nothing and explain nothing.
+        //
+        // Remembered as ours before it is abandoned, and that is not bookkeeping: abandoning a
+        // committed session fires a failure at InstallReceiver, which deletes the very APK the
+        // next few lines are about to read. See [AbandonedSessions].
         runCatching {
-            if (installer.mySessions.isNotEmpty()) UpdateNotifications.cancel(context)
-            installer.mySessions.forEach { installer.abandonSession(it.sessionId) }
+            val stale = installer.mySessions
+            if (stale.isNotEmpty()) UpdateNotifications.cancel(context)
+            stale.forEach {
+                AbandonedSessions.remember(it.sessionId)
+                installer.abandonSession(it.sessionId)
+            }
         }
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(context.packageName)
@@ -378,6 +386,18 @@ class Updater(
 
         /** The downloaded APK, deleted once the install reaches a terminal state. */
         const val APK_FILE = "update.apk"
+
+        /**
+         * Drops the downloaded APK, wherever an install has reached its end.
+         *
+         * Tens of megabytes in a cache, and the next check would fetch it again anyway. Shared
+         * because an install ends in more than one place — the status receiver when it runs, and
+         * the package-replaced broadcast when a silent update replaced the process before it
+         * could.
+         */
+        internal fun discardDownload(context: Context) {
+            runCatching { File(context.cacheDir, APK_FILE).delete() }
+        }
 
         /** Free space required before downloading, so a full phone fails fast, not mid-write. */
         private const val REQUIRED_FREE_BYTES = 150L * 1024 * 1024

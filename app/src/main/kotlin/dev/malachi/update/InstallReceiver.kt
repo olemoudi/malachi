@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import androidx.core.content.IntentCompat
 import dev.malachi.debug.DebugLog
-import java.io.File
 
 /**
  * Receives PackageInstaller status callbacks.
@@ -22,6 +21,15 @@ class InstallReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
+        val sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
+        // A session Malachi abandoned itself reports the same failure as one the user cancelled,
+        // and acting on it is worse than ignoring it: the report contradicts an install that was
+        // just committed, and the tidy-up deletes the APK that install is reading. See
+        // [AbandonedSessions].
+        if (AbandonedSessions.claim(sessionId)) {
+            DebugLog.i(TAG, "session $sessionId was abandoned by us; its status is not an install failing")
+            return
+        }
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)
         val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
         DebugLog.i(TAG, "install status=$status message=$message")
@@ -42,22 +50,14 @@ class InstallReceiver : BroadcastReceiver() {
                 // A self-update normally restarts the process before this runs; tidy up if not.
                 UpdateNotifications.cancel(context)
                 UpdateCenter.report(UpdateUiState.Idle)
-                discardApk(context)
+                Updater.discardDownload(context)
             }
             else -> {
                 UpdateNotifications.cancel(context)
                 UpdateCenter.report(UpdateUiState.Failed("install status $status${message?.let { ": $it" } ?: ""}"))
-                discardApk(context)
+                Updater.discardDownload(context)
             }
         }
-    }
-
-    /**
-     * Drops the downloaded APK once the install reached a terminal state: it is tens of
-     * megabytes sitting in the cache, and the next check would download it again anyway.
-     */
-    private fun discardApk(context: Context) {
-        runCatching { File(context.cacheDir, Updater.APK_FILE).delete() }
     }
 
     companion object {
