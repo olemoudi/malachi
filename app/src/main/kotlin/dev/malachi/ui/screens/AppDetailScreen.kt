@@ -47,6 +47,8 @@ import dev.malachi.data.DomainInput
 import dev.malachi.filter.QueryRecord
 import dev.malachi.filter.RuleSource
 import dev.malachi.filter.Verdict
+import dev.malachi.lists.BlocklistCatalog
+import dev.malachi.lists.BreakageRisk
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.rememberRuleAnnouncer
 import dev.malachi.ui.components.AppIcon
@@ -55,10 +57,12 @@ import dev.malachi.ui.components.ChoiceRow
 import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.NavRow
+import dev.malachi.ui.components.RiskLegend
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.SwitchRow
 import dev.malachi.ui.components.UndoBarHost
+import dev.malachi.ui.components.VerdictLine
 import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.components.lastSeenLabel
 import dev.malachi.ui.components.rememberUndoBar
@@ -275,6 +279,12 @@ fun AppDetailScreen(
                     }
                 }
 
+                // Only when there is something below to interpret: a legend for marks nobody
+                // can see is three lines of furniture at the top of every app that behaves.
+                if (settings.queryLogEnabled && seen.any { listRisk(it) != null }) {
+                    item { RiskLegend(Modifier.padding(top = spacing.sm)) }
+                }
+
                 if (seen.isEmpty() && settings.queryLogEnabled) {
                     item {
                         Text(
@@ -303,9 +313,9 @@ fun AppDetailScreen(
                         Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(record.domain, style = MonoSmall)
-                                Text(
-                                    liveVerdictLabel(record, verdict),
-                                    style = MaterialTheme.typography.bodySmall,
+                                VerdictLine(
+                                    text = liveVerdictLabel(record, verdict),
+                                    risk = listRisk(verdict),
                                     color = if (verdict.blocked) {
                                         MaterialTheme.colorScheme.error
                                     } else {
@@ -379,6 +389,26 @@ private fun seenOrderLabel(order: SeenOrder) = when (order) {
     SeenOrder.FREQUENT -> R.string.app_detail_order_frequent
     SeenOrder.BLOCKED -> R.string.app_detail_order_blocked
 }
+
+/**
+ * What the list that blocked this name is known to cost, or null when no list did.
+ *
+ * Only for a block, and only for a block a *list* caused. A rule the user wrote themselves has
+ * no risk tier and never had one — marking it would be the app grading a decision its owner
+ * made — and an allowed name is not news whatever list carries an exception for it.
+ */
+internal fun listRisk(blocked: Boolean, source: RuleSource, detail: String): BreakageRisk? =
+    if (blocked && source == RuleSource.LIST) BlocklistCatalog.riskOfTitle(detail) else null
+
+// Three loose fields rather than a Verdict, because the callers are inside list rows and the
+// legend above them scans every visible record on each recomposition — building a Verdict to ask
+// one question would be one allocation per row per frame, on a screen that repaints twice a
+// second while the log is on.
+internal fun listRisk(verdict: Verdict): BreakageRisk? =
+    listRisk(verdict.blocked, verdict.source, verdict.detail)
+
+internal fun listRisk(record: QueryRecord): BreakageRisk? =
+    listRisk(record.blocked, record.source, record.detail)
 
 /** A rule the user has asked for and not yet chosen the reach of. */
 private data class PendingRule(val domain: String, val block: Boolean)

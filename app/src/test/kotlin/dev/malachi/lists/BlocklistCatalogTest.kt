@@ -186,6 +186,29 @@ class BlocklistCatalogTest {
     }
 
     @Test
+    fun `every list answers for its own risk, and a stranger answers nothing`() {
+        // The screens that mark a verdict have only the list's title to go on — that is what
+        // FilterEngine puts in Verdict.detail — so the lookup has to answer for every title the
+        // catalogue can produce.
+        for (source in BlocklistCatalog.sources) {
+            assertEquals(source.risk, BlocklistCatalog.riskOfTitle(source.title), source.id)
+        }
+        // And decline to guess. A phone can still be holding a verdict naming a list a later
+        // release dropped, and marking that one would be grading something nobody assessed.
+        assertNull(BlocklistCatalog.riskOfTitle("A list we have never carried"))
+        assertNull(BlocklistCatalog.riskOfTitle(""))
+    }
+
+    @Test
+    fun `titles are unique, or one list would wear another's risk`() {
+        // The lookup is a map keyed by title, so two lists sharing one would collapse into a
+        // single entry and whichever lost would be marked with the other's risk — a safe list
+        // showing three marks, or worse, an aggressive one showing one.
+        val titles = BlocklistCatalog.sources.map { it.title }
+        assertEquals(titles.size, titles.distinct().size, titles.groupBy { it }.filterValues { it.size > 1 }.keys.toString())
+    }
+
+    @Test
     fun `only lists that are actually on, and only ones with a recorded moment`() {
         // A date left behind by a list since switched off would offer to switch off something
         // already off; a list on by default was never switched on by anybody and has no date.

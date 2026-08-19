@@ -59,6 +59,7 @@ import dev.malachi.filter.TraceEvent
 import dev.malachi.filter.TraceOutcome
 import dev.malachi.filter.TraceReason
 import dev.malachi.filter.TraceSuspect
+import dev.malachi.lists.BlocklistCatalog
 import dev.malachi.net.MalachiVpnService
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.AppIcon
@@ -68,9 +69,11 @@ import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.PrimaryAction
+import dev.malachi.ui.components.RiskLegend
 import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.UndoBarHost
+import dev.malachi.ui.components.VerdictLine
 import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.components.rememberUndoBar
 import dev.malachi.ui.rememberRuleAnnouncer
@@ -426,6 +429,9 @@ private fun TraceSession(
                             )
                         }
                     }
+                    if (suspects.any { it.source == RuleSource.LIST && BlocklistCatalog.riskOfTitle(it.detail) != null }) {
+                        item { RiskLegend(Modifier.padding(bottom = spacing.sm)) }
+                    }
                     item {
                         CardGroup {
                             suspects.forEachIndexed { index, suspect ->
@@ -489,6 +495,13 @@ private fun TraceSession(
                     }
                 }
 
+                if (visible.any {
+                        it.outcome == TraceOutcome.BLOCKED && it.source == RuleSource.LIST &&
+                            BlocklistCatalog.riskOfTitle(it.detail) != null
+                    }
+                ) {
+                    item { RiskLegend(Modifier.padding(vertical = spacing.sm)) }
+                }
                 items(visible) { event -> EventRow(event, clock) }
             }
         }
@@ -866,15 +879,22 @@ private fun SuspectRow(
                     // switch or from a rule written against a parent name.
                     color = if (liveBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
                 )
-                Text(
-                    buildString {
+                VerdictLine(
+                    text = buildString {
                         append(pluralStringResource(R.plurals.diagnose_queries, suspect.queries, suspect.queries))
                         if (suspect.detail.isNotEmpty() && suspect.source == RuleSource.LIST) {
                             append(" · ")
                             append(stringResource(R.string.verdict_blocked_by_list, suspect.detail))
                         }
                     },
-                    style = MaterialTheme.typography.bodySmall,
+                    // Every candidate here is a name a list refused — that is what makes it a
+                    // candidate — so the marks say which of them is the likely culprit before a
+                    // single round of the search has been run.
+                    risk = if (suspect.source == RuleSource.LIST) {
+                        BlocklistCatalog.riskOfTitle(suspect.detail)
+                    } else {
+                        null
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -917,7 +937,15 @@ private fun EventRow(event: TraceEvent, clock: SimpleDateFormat) {
                     Spacer(Modifier.width(spacing.sm))
                     Text(event.domain, style = MonoSmall, modifier = Modifier.weight(1f))
                 }
-                Text(outcomeLabel(event), style = MaterialTheme.typography.bodySmall, color = tint)
+                VerdictLine(
+                    text = outcomeLabel(event),
+                    risk = if (event.outcome == TraceOutcome.BLOCKED && event.source == RuleSource.LIST) {
+                        BlocklistCatalog.riskOfTitle(event.detail)
+                    } else {
+                        null
+                    },
+                    color = tint,
+                )
             }
         }
     }

@@ -624,6 +624,21 @@ object BlocklistCatalog {
         sources.filter { it.category == category }
             .sortedWith(compareBy<BlocklistSource> { it.risk.ordinal }.thenByDescending { it.approximateEntries })
 
+    /**
+     * What the list called [title] costs, or null for a title this catalogue does not carry.
+     *
+     * By title rather than by id because that is what a verdict holds: `FilterEngine` puts
+     * `CompiledList.title` into `Verdict.detail`, and the query log carries it around long after
+     * the lookup. Titles come from this catalogue in the first place, so the match is exact.
+     *
+     * Null is a real answer and not a shrug. A list can leave the catalogue while a phone is
+     * still holding verdicts that name it, and a screen that guessed would be putting marks
+     * against something nobody assessed.
+     */
+    fun riskOfTitle(title: String): BreakageRisk? = riskByTitle[title]
+
+    private val riskByTitle: Map<String, BreakageRisk> = sources.associate { it.title to it.risk }
+
     /** The sources in [category] at one risk tier, for the picker's sub-groups. */
     fun inCategory(category: BlocklistCategory, risk: BreakageRisk): List<BlocklistSource> =
         inCategory(category).filter { it.risk == risk }

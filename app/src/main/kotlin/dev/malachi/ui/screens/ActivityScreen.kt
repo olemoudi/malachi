@@ -53,6 +53,8 @@ import dev.malachi.ui.components.PrimaryAction
 import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
+import dev.malachi.ui.components.RiskLegend
+import dev.malachi.ui.components.VerdictLine
 import dev.malachi.ui.components.SegmentedChoice
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.SectionHeader
@@ -288,6 +290,14 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String)
                     )
                 }
 
+                // Only when something below carries marks — which, with the search box above it,
+                // also means the legend goes away as soon as a search narrows to rows without any.
+                // A plain scan rather than a remembered one: this is LazyListScope, not a
+                // composable, and `any` stops at the first marked row anyway.
+                if (visible.any { listRisk(it) != null }) {
+                    item { RiskLegend(Modifier.padding(top = spacing.sm)) }
+                }
+
                 if (visible.isEmpty()) {
                     item {
                         Text(
@@ -452,13 +462,13 @@ private fun QueryRow(record: QueryRecord, vm: MalachiViewModel, nowMs: Long, onC
             Spacer(Modifier.width(spacing.md))
             Column(Modifier.weight(1f)) {
                 Text(record.domain, style = MonoSmall)
-                Text(
-                    buildString {
+                VerdictLine(
+                    text = buildString {
                         append(record.packageName?.let { vm.labelFor(it) } ?: stringResource(R.string.activity_system))
                         append(" · ")
                         append(verdictLabel(record.blocked, record.source, record.detail, record.count))
                     },
-                    style = MaterialTheme.typography.bodySmall,
+                    risk = listRisk(record),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // Its own line rather than a corner of the row: "last seen 10 sec. ago" is the
