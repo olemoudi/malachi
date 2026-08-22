@@ -136,14 +136,19 @@ class TunnelConnectivityTest {
     }
 
     /**
-     * Whether the filter has adopted a network since [after] — which is to say, noticed.
-     *
-     * The log line is the only observable form of it, and it is the line a report is read for:
-     * "these are eth0's resolvers, adopted eleven hours ago" is the whole diagnosis of a phone
-     * resolving nothing on a Wi-Fi it has long since joined.
+     * Whether the filter has ever adopted a network — the log line is the only observable form
+     * of it, and it is the line a report is read for.
      */
-    private fun adoptedANetwork(after: Int = 0): Boolean =
-        DebugLog.entries.value.drop(after).any { it.message.startsWith("network ") && it.message.contains("dns=") }
+    private fun adoptedANetwork(): Boolean = adoptedInterface() != null
+
+    /** The interface whose resolvers the filter is asking, according to its own log. */
+    private fun adoptedInterface(): String? = DebugLog.entries.value
+        .lastOrNull { it.message.startsWith("network ") && it.message.contains("dns=") }
+        ?.message?.removePrefix("network ")?.substringBefore(':')?.trim()
+        ?.takeIf { it.isNotEmpty() }
+
+    private fun liveInterfaces(): Set<String> =
+        underlyingNetworks().mapNotNull { (_, properties) -> properties.interfaceName }.toSet()
 
     /** Waits for something to become true, because a network change is not instantaneous. */
     private fun eventually(timeoutMs: Long, condition: () -> Boolean): Boolean {
@@ -293,7 +298,6 @@ class TunnelConnectivityTest {
         assertTrue("nothing resolved before the hand-off", eventually(30_000) { resolvesThroughTheTunnel() })
 
         // Out of Wi-Fi range, as far as the platform is concerned.
-        val beforeTheHandover = DebugLog.entries.value.size
         shell("svc wifi disable")
         assertTrue(
             "the phone never moved to the mobile network",
@@ -305,9 +309,16 @@ class TunnelConnectivityTest {
         // working internet — which is what "it made me go out through mobile data" looks like
         // from the other side of the same failure.
         assertTrue("the tunnel did not survive the hand-off", VpnStatus.status.value.tunnelUp)
+        // The invariant, and deliberately not "an adoption happened": whether the phone had to
+        // change network at all depends on which one it was using, and on an emulator that is
+        // whichever the image happens to make the default — this asserted a log line that CI's
+        // phone had no reason to write, because its filter was on the mobile network to begin
+        // with. What must always hold is that the filter is not left asking a network the phone
+        // no longer has. That is the eleven-hour bug stated as a property.
         assertTrue(
-            "the filter never noticed the phone had changed network",
-            eventually(60_000) { adoptedANetwork(after = beforeTheHandover) },
+            "the filter is still using ${adoptedInterface()}, which this phone no longer has " +
+                "(it has ${liveInterfaces()}): every lookup now goes to a network that is gone",
+            eventually(60_000) { adoptedInterface()?.let { it in liveInterfaces() } ?: true },
         )
         assertTrue(
             "nothing resolved after moving to the mobile network: the filter is still holding " +
