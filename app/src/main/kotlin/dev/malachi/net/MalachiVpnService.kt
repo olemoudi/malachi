@@ -23,6 +23,7 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
+import android.system.StructTimeval
 import androidx.core.app.PendingIntentCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -38,6 +39,7 @@ import dev.malachi.filter.AppTrace
 import dev.malachi.filter.QueryLog
 import dev.malachi.filter.TraceReason
 import dev.malachi.filter.dns.DnsMessage
+import dev.malachi.filter.dns.IcmpEcho
 import dev.malachi.filter.dns.IpPacket
 import dev.malachi.filter.dns.UdpDatagram
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -50,6 +52,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.FileDescriptor
 import java.io.FileOutputStream
+import java.io.InterruptedIOException
 import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -108,6 +111,17 @@ class MalachiVpnService : VpnService() {
     ) { r -> Thread(r, "malachi-dns").apply { isDaemon = true } }
         .apply { allowCoreThreadTimeOut(true) }
 
+    /**
+     * A thread of its own for pings, so a burst of them cannot take a forwarder away from the
+     * lookups every app on the phone is waiting for. One is plenty: a ping is a person typing a
+     * command, or a phone checking a gateway once a few seconds. Core threads time out, so a
+     * device nobody is pinging holds no thread at all.
+     */
+    private val pingers = ThreadPoolExecutor(
+        1, 1, 30L, TimeUnit.SECONDS, LinkedBlockingQueue(PING_QUEUE),
+    ) { r -> Thread(r, "malachi-ping").apply { isDaemon = true } }
+        .apply { allowCoreThreadTimeOut(true) }
+
     private lateinit var app: MalachiApplication
     private lateinit var cm: ConnectivityManager
 
@@ -157,6 +171,19 @@ class MalachiVpnService : VpnService() {
 
     /** The network the current resolvers came from, for the diagnostics header. */
     @Volatile private var activeNetwork: Network? = null
+
+    /**
+     * Whether [activeNetwork] is one the platform has confirmed reaches the internet, and
+     * therefore one worth tying sockets to.
+     *
+     * The two questions are separate and were conflated, at a cost. *Whose resolvers to ask* has
+     * only ever one sensible answer — the network the phone is actually on, validated or not,
+     * because the alternative is asking a network that has gone. *Which network to pin a socket
+     * to* is the opposite: pinning to one that reaches nothing turns a lookup that would have
+     * worked over the default route into a guaranteed timeout. So an unvalidated network is
+     * adopted for its resolvers and left unpinned, and the sockets follow the system's own route.
+     */
+    @Volatile private var networkPinnable = false
 
     /**
      * Its interface name and when it was adopted, both for the diagnostics header.
@@ -229,6 +256,15 @@ class MalachiVpnService : VpnService() {
      */
     @Volatile private var declaredUnderlying: Network? = null
 
+    /**
+     * Whether any declaration has been made for the tunnel that is up.
+     *
+     * Null became a value in its own right — "follow the system default" — so "we declared null"
+     * and "we have declared nothing" stopped being the same state, and only the second one may
+     * be skipped as already-current.
+     */
+    @Volatile private var underlyingDeclared = false
+
     private var resumeJob: Job? = null
     private var retryJob: Job? = null
     private var diagnoseJob: Job? = null
@@ -296,7 +332,10 @@ class MalachiVpnService : VpnService() {
                 return
             }
             networkDnsServers = emptyList()
+            networkPinnable = false
             upstreams = resolveUpstreams()
+            // The network we were naming to the platform has gone with it.
+            followSystemDefault()
             // Never silent: this is the moment the phone stops asking the resolvers it was given
             // and starts asking the fallback.
             DebugLog.w(
@@ -750,13 +789,22 @@ class MalachiVpnService : VpnService() {
             }
         }
 
-        candidates.distinct()
-            .filterNot { it.isAnyLocalAddress || it.isLoopbackAddress || it.isLinkLocalAddress }
-            .filterNot { it.hostAddress.orEmpty() in SENTINELS }
-            .forEach { address ->
-                runCatching { builder.addRoute(address, if (address is Inet4Address) 32 else 128) }
-                    .onFailure { DebugLog.w(TAG, "cannot route ${address.hostAddress}", it) }
-            }
+        // Public addresses only — see TunnelPolicy.routableByGuard. The network's own resolver
+        // is usually the router, and a routed router is a router that answers nothing but DNS:
+        // no ping, no admin page, and a phone whose own connectivity checks conclude the Wi-Fi
+        // is dead. Nothing is lost by leaving it out, because no app hardcodes it.
+        val (routed, skipped) = candidates.distinct().partition { TunnelPolicy.routableByGuard(it, SENTINELS) }
+        routed.forEach { address ->
+            runCatching { builder.addRoute(address, if (address is Inet4Address) 32 else 128) }
+                .onFailure { DebugLog.w(TAG, "cannot route ${address.hostAddress}", it) }
+        }
+        if (skipped.isNotEmpty()) {
+            DebugLog.i(
+                TAG,
+                "the bypass guard leaves this network's own addresses alone: " +
+                    skipped.joinToString { it.hostAddress.orEmpty() },
+            )
+        }
     }
 
     /**
@@ -850,7 +898,7 @@ class MalachiVpnService : VpnService() {
     }
 
     private fun handle(packet: ByteArray, length: Int) {
-        val udp = IpPacket.parseUdp(packet, length) ?: return dropNonDns(packet, length)
+        val udp = IpPacket.parseUdp(packet, length) ?: return notUdp(packet, length)
         if (udp.destinationPort != DNS_PORT) return dropUnroutable("UDP port ${udp.destinationPort}")
 
         // The only copy taken per lookup, and only of the DNS message — never of the packet.
@@ -1072,7 +1120,7 @@ class MalachiVpnService : VpnService() {
      * reference rather than the call was at fault.
      */
     private fun openUpstream(target: InetAddress): DatagramSocket? {
-        val network = activeNetwork.takeIf { pinFailures < PIN_ATTEMPTS }
+        val network = activeNetwork.takeIf { pinFailures < PIN_ATTEMPTS && networkPinnable }
         if (network != null) {
             newUpstream(target, network)?.let { return it }
             // The pin was refused and the socket it may have damaged is already closed. An
@@ -1206,10 +1254,96 @@ class MalachiVpnService : VpnService() {
      * message that never means anything. They are dropped in silence. What is still worth
      * saying is the rest: TCP to a routed resolver, or QUIC, which is what the bypass guard is
      * about and what a user debugging a broken app needs to see.
+     *
+     * The exception is a **ping**, which is the one thing on this list somebody is actively
+     * waiting for an answer to. See [relayPing].
      */
-    private fun dropNonDns(packet: ByteArray, length: Int) {
-        if (IpPacket.protocol(packet, length) in IpPacket.ROUTINE_ON_A_TUN) return
+    private fun notUdp(packet: ByteArray, length: Int) {
+        val protocol = IpPacket.protocol(packet, length)
+        if (protocol == IpPacket.PROTOCOL_ICMP || protocol == IpPacket.PROTOCOL_ICMPV6) {
+            IpPacket.parseEcho(packet, length)?.let { return relayPing(it) }
+        }
+        if (protocol in IpPacket.ROUTINE_ON_A_TUN) return
         dropUnroutable(describe(packet, length))
+    }
+
+    /**
+     * Answers a ping to an address this tunnel routes.
+     *
+     * **Why a DNS filter carries ICMP at all.** Everything routed into this tun is routed for
+     * DNS, and everything else addressed to it used to vanish — silently, because ICMP is
+     * routine on a tun and never logged. Ping is the one diagnostic every person and half the
+     * software on a phone reaches for, so the addresses the guard routes became addresses that
+     * "do not answer", and "the Wi-Fi doesn't even ping" is what that looks like from outside.
+     * A refusal we cannot explain is the worst answer this app can give, and relaying is cheap:
+     * an unprivileged ICMP datagram socket, which Android allows every app (that is how
+     * `InetAddress.isReachable` works without root), protected exactly like an upstream socket.
+     *
+     * The tunnel's own sentinel is answered here rather than on the network, because there is no
+     * host to ask: that address exists only inside this tun, and a phone pinging its own DNS
+     * server should be told it is there.
+     */
+    private fun relayPing(echo: IcmpEcho) {
+        val target = runCatching { InetAddress.getByAddress(echo.destinationAddress) }.getOrNull()
+            ?: return dropUnroutable("a ping we could not address")
+        if (target.hostAddress.orEmpty() in SENTINELS) {
+            if (tracing()) DebugLog.trace(TAG, "ping to ${target.hostAddress}: answered by the tunnel itself")
+            val message = IpPacket.echoReplyMessage(echo)
+            IpPacket.buildEchoReply(echo, message, message.size)?.let { writeToTun(it) }
+            return
+        }
+        // Their own single thread and a short queue: a burst of pings must not take a forwarder
+        // away from the lookups every app on the phone is waiting for. Rejection is a dropped
+        // ping, which is what a lossy network looks like and what ping is built to survive.
+        runCatching { pingers.execute { exchangePing(echo, target) } }
+            .onFailure { dropUnroutable("ping queue full") }
+    }
+
+    /** One ping, out through a protected ICMP socket and back down the tun. */
+    private fun exchangePing(echo: IcmpEcho, target: InetAddress) {
+        val domain = if (echo.ipVersion == 4) OsConstants.AF_INET else OsConstants.AF_INET6
+        val protocol = if (echo.ipVersion == 4) OsConstants.IPPROTO_ICMP else OsConstants.IPPROTO_ICMPV6
+        var socket: FileDescriptor? = null
+        try {
+            socket = Os.socket(domain, OsConstants.SOCK_DGRAM, protocol)
+            // Same promise as an upstream socket: it must not be routed back into our own tunnel.
+            // `protect` takes a descriptor number, and the only public way to a descriptor's
+            // number is a dup — which names the same socket, so the mark lands where it must.
+            val protected = ParcelFileDescriptor.dup(socket).use { protect(it.fd) }
+            if (!protected) return noteSocketTrouble("could not protect a ping socket")
+            activeNetwork.takeIf { pinFailures < PIN_ATTEMPTS && networkPinnable }
+                ?.let { network -> runCatching { network.bindSocket(socket) } }
+            Os.setsockoptTimeval(
+                socket, OsConstants.SOL_SOCKET, OsConstants.SO_RCVTIMEO,
+                StructTimeval.fromMillis(PING_TIMEOUT_MS),
+            )
+            Os.connect(socket, target, 0)
+            // The kernel rewrites the identifier with this socket's own port and recomputes the
+            // checksum, which is why the reply is put back under the app's identifier before it
+            // goes down the tun (see IpPacket.buildEchoReply).
+            Os.write(socket, echo.message, 0, echo.message.size)
+            val buffer = ByteArray(PING_BUFFER)
+            val read = Os.read(socket, buffer, 0, buffer.size)
+            val reply = IpPacket.buildEchoReply(echo, buffer, read)
+            if (reply == null) {
+                if (tracing()) DebugLog.trace(TAG, "ping to ${target.hostAddress}: nothing usable came back")
+                return
+            }
+            if (tracing()) DebugLog.trace(TAG, "ping to ${target.hostAddress}: answered")
+            writeToTun(reply)
+        } catch (e: ErrnoException) {
+            // A host that does not answer pings is the ordinary case, and saying so per packet
+            // would fill the log with the very thing ping is designed to survive.
+            if (e.errno !in PING_QUIET_ERRORS) {
+                noteSocketTrouble("ping to ${target.hostAddress} failed: ${e.message}")
+            }
+        } catch (t: InterruptedIOException) {
+            // The read timed out, which is the same ordinary silence in another shape.
+        } catch (t: Throwable) {
+            noteSocketTrouble("ping to ${target.hostAddress} failed: ${t.javaClass.simpleName}")
+        } finally {
+            socket?.let { fd -> runCatching { Os.close(fd) } }
+        }
     }
 
     /**
@@ -1323,6 +1457,21 @@ class MalachiVpnService : VpnService() {
         val changed = network != activeNetwork || dnsServers != networkDnsServers
         activeNetwork = network
         networkDnsServers = dnsServers
+        // Whether this one is worth tying sockets to, which is a different question from whether
+        // its resolvers are worth asking. See [networkPinnable].
+        val pinnable = isValidated(network)
+        if (pinnable != networkPinnable) {
+            networkPinnable = pinnable
+            if (!pinnable) {
+                DebugLog.w(
+                    TAG,
+                    "the system has not validated ${linkProperties.interfaceName.orEmpty().ifEmpty { "this network" }}; " +
+                        "asking its DNS servers but letting lookups follow the default route",
+                )
+            }
+            // A socket pinned under the old answer is pinned to the wrong thing now.
+            sockets.closeAll()
+        }
 
         if (changed) {
             networkLabel = linkProperties.interfaceName.orEmpty()
@@ -1363,7 +1512,11 @@ class MalachiVpnService : VpnService() {
         // and moves without the network or its resolvers moving at all.
         if (privateDnsMoved) VpnStatus.privateDns(privateDnsActive, privateDnsHost)
         publishLockdown(force = changed)
-        declareUnderlying(network)
+        // Only a network the platform vouches for is named as what carries this tunnel. Naming
+        // an unvalidated one would advertise a tunnel that reaches nothing; null is not silence,
+        // it is "whatever the system default is", which is the honest answer and the one that
+        // cannot go stale. See [declareUnderlying].
+        declareUnderlying(network.takeIf { pinnable })
 
         if (tunnel != null) {
             if (changed || privateDnsMoved) VpnStatus.up(upstreamLabel(), privateDnsActive, privateDnsHost)
@@ -1401,10 +1554,18 @@ class MalachiVpnService : VpnService() {
      *
      * `NetworkCapabilities.getUnderlyingNetworks()` would answer this exactly, and it is not in
      * the public SDK — the compiler said so, it was not assumed. So the phone is asked for every
-     * network it has and they are ranked the way the platform ranks them itself: validated, with
-     * internet, not a VPN, wire before Wi-Fi before mobile. On Android 12 and up this is only a
-     * fallback — [underlyingCallback] gets the platform's own answer, which is better than any
-     * ranking because it is the same choice our sockets are about to follow.
+     * network it has and they are ranked in [TunnelPolicy.chooseUnderlying]: validated first,
+     * then whichever transport the platform says is under this tunnel, then a wire over Wi-Fi
+     * over mobile. On Android 12 and up this is only a fallback — [underlyingCallback] gets the
+     * platform's own answer, which is better than any ranking because it is the same choice our
+     * sockets are about to follow.
+     *
+     * **It answers with an unvalidated network rather than with nothing.** Insisting on
+     * validation was right for pinning and wrong for this: a phone whose Wi-Fi the platform has
+     * stopped vouching for — which is most of a house with weak Wi-Fi — got no answer at all, so
+     * the filter kept the resolvers of a network it had left and every lookup on the phone timed
+     * out until something else happened. Asking the only network there is beats asking one that
+     * is gone; whether to *pin* to it is decided separately, in [adoptNetwork].
      */
     private fun bestUnderlyingNetwork(): Network? = runCatching {
         @Suppress("DEPRECATION")
@@ -1412,6 +1573,15 @@ class MalachiVpnService : VpnService() {
             .mapNotNull { network -> cm.getNetworkCapabilities(network)?.let { network to it } }
             .filterNot { (_, caps) -> caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
             .filter { (_, caps) -> caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) }
+            .map { (network, caps) ->
+                TunnelPolicy.Candidate(
+                    network = network,
+                    validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                    wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                    ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                    cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                )
+            }
 
         // A network that is connected and that the system has decided reaches nothing. Worth a
         // line, because from inside this app it is otherwise invisible: the phone sits on mobile
@@ -1419,33 +1589,68 @@ class MalachiVpnService : VpnService() {
         // re-check it until something forces a re-evaluation — which starting or stopping a VPN
         // happens to do. That is the platform's judgement and not ours to override, but a report
         // that says "it connects and the phone won't use it" should not need guessing at.
-        candidates.filterNot { (_, caps) -> caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
-            .forEach { (network, _) -> noteUnvalidated(network) }
+        candidates.filterNot { it.validated }.forEach { noteUnvalidated(it.network) }
 
-        candidates
-            .filter { (_, caps) -> caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
-            .minByOrNull { (_, caps) ->
-                TunnelPolicy.transportRank(
-                    wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
-                    ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
-                    cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
-                )
-            }
-            ?.first
+        TunnelPolicy.chooseUnderlying(candidates, underlyingTransportHint())
     }.getOrNull()
+
+    /**
+     * Which transport the platform believes is under this tunnel, read from the tunnel's own
+     * capabilities — or null when there is no tunnel to ask about.
+     *
+     * This is the platform's answer to the question we are otherwise guessing at, and it is
+     * available on every Android this app runs on: with no underlying network declared, a VPN
+     * inherits the transports of the system default network. So a phone that has moved to mobile
+     * because Android judged its Wi-Fi poor says so here — and without it, a ranking that puts
+     * Wi-Fi above mobile follows the phone onto the Wi-Fi it just left, asks resolvers it cannot
+     * reach, and tells the platform the tunnel runs on a network nothing is using.
+     */
+    private fun underlyingTransportHint(): TunnelPolicy.TransportHint? {
+        val caps = runCatching { cm.getNetworkCapabilities(activeTunnelNetwork() ?: return null) }.getOrNull()
+            ?: return null
+        val hint = TunnelPolicy.TransportHint(
+            wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+            ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+            cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+        )
+        return hint.takeIf { it.wifi || it.ethernet || it.cellular }
+    }
+
+    /** Our own tunnel as the platform sees it, which is what carries the transports above. */
+    private fun activeTunnelNetwork(): Network? =
+        runCatching { cm.activeNetwork }.getOrNull()?.takeIf { isVpn(it) }
 
     /**
      * Adopts [named] if the platform named it, and otherwise whichever network we would pick.
      *
      * The naming is trusted only while it still holds up: a network is named as the best match
-     * and can lose its validation a moment later without another callback, and adopting a network
-     * that cannot reach anything is worse than keeping one that can — the sockets are pinned to
-     * it. Falling back to our own ranking asks the same question a second time.
+     * and can lose its validation a moment later without another callback, and a network that
+     * has since stopped being validated is put back through the same ranking as everything else
+     * rather than taken on trust.
+     *
+     * **A dead end is not silence.** When the phone has nothing at all to offer — the seconds
+     * between losing one network and joining the next — the declaration is handed back to the
+     * system default rather than left naming a network that has gone, which is what made this
+     * tunnel advertise the capabilities of a network the phone had left.
      */
     private fun adoptUnderlying(named: Network?) {
-        val network = named?.takeIf { isValidated(it) } ?: bestUnderlyingNetwork() ?: return
-        val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return
+        val network = named?.takeIf { isValidated(it) } ?: bestUnderlyingNetwork() ?: return followSystemDefault()
+        val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return followSystemDefault()
         adoptNetwork(network, linkProperties)
+    }
+
+    /**
+     * Stops claiming to know what carries this tunnel, and says so once.
+     *
+     * `setUnderlyingNetworks(null)` is not "no network": it is the platform's own default, which
+     * is exactly right when we cannot name one and, unlike a network reference of ours, cannot go
+     * stale. Everything the platform derives from it — whether the tunnel is metered, roaming, or
+     * on Wi-Fi — then follows the phone instead of following a network that has gone.
+     */
+    private fun followSystemDefault() {
+        if (declaredUnderlying == null && underlyingDeclared) return
+        DebugLog.w(TAG, "nothing usable to name as this tunnel's network; following the system default")
+        declareUnderlying(null)
     }
 
     private fun isVpn(network: Network): Boolean =
@@ -1457,7 +1662,10 @@ class MalachiVpnService : VpnService() {
         if (now - lastUnvalidatedLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
         lastUnvalidatedLogMs = now
         val name = runCatching { cm.getLinkProperties(network)?.interfaceName }.getOrNull() ?: "a network"
-        DebugLog.w(TAG, "$name is connected but the system has not validated it; its resolvers are not adopted")
+        DebugLog.w(
+            TAG,
+            "$name is connected but the system has not validated it; usable only if nothing better is",
+        )
     }
 
     /** Whether the platform has confirmed this network actually reaches the internet. */
@@ -1483,7 +1691,14 @@ class MalachiVpnService : VpnService() {
             val reported = runCatching { cm.activeNetwork }.getOrNull() ?: return@launch
             val network = realNetwork(reported) ?: return@launch
             val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return@launch
-            if (!TunnelPolicy.worthAdopting(networkDnsServers, linkProperties.dnsServers.orEmpty())) return@launch
+            if (!TunnelPolicy.worthAdopting(
+                    current = networkDnsServers,
+                    offered = linkProperties.dnsServers.orEmpty(),
+                    sameNetwork = network == activeNetwork,
+                )
+            ) {
+                return@launch
+            }
             DebugLog.w(TAG, "no resolver answered and this network offers others; adopting them")
             adoptNetwork(network, linkProperties)
         }
@@ -1494,14 +1709,24 @@ class MalachiVpnService : VpnService() {
      * correctly instead of appearing to come from the tunnel — and so the platform derives this
      * tun's meteredness from what is actually underneath it.
      *
-     * Only when it is a different network from the one already declared: re-declaring the same
-     * one changes nothing and costs a binder round trip, and the callbacks that reach here fire
-     * several times a minute on a phone being carried around.
+     * **Null is a real answer and the safe one**: it hands the question back to the platform,
+     * which uses its own default network. That is what this must do whenever it cannot name a
+     * live, validated network, because a declaration is not a note to ourselves — everything the
+     * system knows about this tunnel is derived from it. Naming a network the phone has left
+     * makes the tunnel inherit its transport, its meteredness and its validation, so a tun
+     * carried by Wi-Fi went on describing itself as a mobile one, and the phone's own picture of
+     * "am I on a good Wi-Fi" was answered with a network that no longer existed.
+     *
+     * Only when it actually moves: re-declaring costs a binder round trip, and the callbacks
+     * that reach here fire several times a minute on a phone being carried around. [underlyingDeclared]
+     * is what tells "we have said null" from "we have said nothing yet", which are different —
+     * a freshly built tun has made no declaration at all.
      */
-    private fun declareUnderlying(network: Network) {
-        if (network == declaredUnderlying) return
+    private fun declareUnderlying(network: Network?) {
+        if (underlyingDeclared && network == declaredUnderlying) return
         declaredUnderlying = network
-        runCatching { setUnderlyingNetworks(arrayOf(network)) }
+        underlyingDeclared = true
+        runCatching { setUnderlyingNetworks(network?.let { arrayOf(it) }) }
     }
 
     /**
@@ -1649,6 +1874,7 @@ class MalachiVpnService : VpnService() {
         // The declaration belongs to the tun that has just gone, so the next one has to make it
         // again rather than being skipped as already-current.
         declaredUnderlying = null
+        underlyingDeclared = false
         sockets.closeAll()
         // The flush cadence is a lookup count, so a tunnel that stops has to push what is left.
         runCatching { app.statsStore.flush() }
@@ -1704,6 +1930,7 @@ class MalachiVpnService : VpnService() {
         runCatching { unregisterReceiver(packageChanges) }
         scope.cancel()
         forwarders.shutdownNow()
+        pingers.shutdownNow()
         VpnStatus.down()
         super.onDestroy()
     }
@@ -1834,7 +2061,17 @@ class MalachiVpnService : VpnService() {
         // Whether the queries are leaving by the network their resolvers came from or merely by
         // whatever the default route happens to be. The whole question of 0.9.2 through 0.9.10,
         // in one word, on the phone that can answer it.
-        DebugLog.trace(TAG, "sockets pinned to their network=${if (pinFailures < PIN_ATTEMPTS) "yes" else "no, refused"}")
+        DebugLog.trace(
+            TAG,
+            "sockets pinned to their network=" + when {
+                !networkPinnable -> "no, this network is not validated"
+                pinFailures >= PIN_ATTEMPTS -> "no, refused"
+                else -> "yes"
+            },
+        )
+        // What the platform has been told carries this tunnel. "system default" is not a gap in
+        // the record — it is the answer, and the one that cannot be stale.
+        DebugLog.trace(TAG, "declared as carried by=${declaredUnderlying?.toString() ?: "system default"}")
         DebugLog.trace(TAG, "scope=${settings.scopeMode} bypass=${settings.bypassAllowed} guard=${settings.bypassGuard} lockdown=$lastLockdown")
     }
 
@@ -1991,6 +2228,24 @@ class MalachiVpnService : VpnService() {
         private const val UNDERLYING_RECHECK_INTERVAL_MS = 30_000L
         private const val FORWARD_THREADS = 4
         private const val FORWARD_QUEUE = 128
+
+        /**
+         * What a relayed ping may cost. Short on purpose: ping is a diagnostic, the client sends
+         * another one a second later, and a queue of them waiting on a dead host would be a
+         * queue of stale answers.
+         */
+        private const val PING_TIMEOUT_MS = 2_000L
+        private const val PING_QUEUE = 16
+
+        /** Comfortably more than a ping: `ping -s` can ask for a large payload. */
+        private const val PING_BUFFER = 2_048
+
+        /** A host that simply does not answer, in the several shapes the kernel reports it. */
+        private val PING_QUIET_ERRORS = setOf(
+            OsConstants.EAGAIN, OsConstants.ETIMEDOUT, OsConstants.EINTR,
+            // The route to it went away mid-flight, which on a phone is a handover.
+            OsConstants.ENETUNREACH, OsConstants.EHOSTUNREACH,
+        )
         private const val UNROUTABLE_LOG_INTERVAL_MS = 60_000L
 
         /**

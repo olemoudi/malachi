@@ -280,7 +280,7 @@
     <string name="bypass_off">Leave them be</string>
     <string name="bypass_off_hint">The safest setting: nothing on this phone can break because of Malachi. The handful of apps that dodge keep their adverts.</string>
     <string name="bypass_system">Catch the usual ones — recommended</string>
-    <string name="bypass_system_hint">Covers the apps that go straight to your router or your mobile operator, which is where nearly all of them go. It rarely breaks anything.</string>
+    <string name="bypass_system_hint">Covers the apps that go straight to the DNS servers this network gave your phone, which is where nearly all of them go. Your own router is deliberately left alone, so it keeps answering everything else. It rarely breaks anything.</string>
     <string name="bypass_public">Catch them all</string>
     <string name="bypass_public_hint">Also covers the big public services some apps carry inside them, like Google\'s 8.8.8.8. Catches the most, and is the one that occasionally stops an app working — if something breaks, come back and take a step down.</string>
 
@@ -369,6 +369,7 @@
     <string name="about_limit_hardcoded_ip">Content fetched from an IP address with no lookup at all.</string>
     <string name="about_limit_in_page">Ads served from the same domain as the content around them — DNS cannot tell the two apart.</string>
     <string name="about_limit_one_vpn">Anything, while another VPN app is running. Android allows only one.</string>
+    <string name="about_limit_connectivity_checks">The handful of addresses your phone uses to check whether a network works. No list may block those: if one did, your phone would decide a perfectly good Wi-Fi had no internet and quietly move to mobile data.</string>
     <string name="about_source_title">Source</string>
     <string name="about_repository">Code and releases</string>
 

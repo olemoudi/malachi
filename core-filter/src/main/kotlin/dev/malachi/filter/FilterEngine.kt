@@ -68,6 +68,7 @@ class FilterEngine(
     private val userAllow: DomainIndex = DomainIndex.EMPTY,
     private val appRules: List<AppDomainRule> = emptyList(),
     private val lists: List<CompiledList> = emptyList(),
+    private val connectivityChecks: DomainIndex = CONNECTIVITY_CHECK_INDEX,
 ) {
 
     /** Total domains across every subscribed list, before de-duplication between lists. */
@@ -86,6 +87,10 @@ class FilterEngine(
         if (userBlockDepth >= 0) {
             return Verdict(blocked = true, source = RuleSource.USER_RULE, detail = h)
         }
+
+        // Below the user and above every list: the handful of names the phone itself uses to
+        // decide whether a network works. See [CONNECTIVITY_CHECKS].
+        if (connectivityChecks.matches(h)) return Verdict.ALLOWED
 
         // Among the subscribed lists, an exception anywhere outranks a block anywhere: the lists
         // are curated together and their maintainers publish `@@` rules precisely to repair
@@ -147,6 +152,45 @@ class FilterEngine(
     }
 
     companion object {
+
+        /**
+         * The names a phone uses to decide whether the network it is on works at all.
+         *
+         * **This is not a curated exception list and must not grow into one.** It exists because
+         * of one specific, silent and very expensive failure: Android decides a Wi-Fi has no
+         * internet by fetching a `generate_204` over it, and if a blocklist refuses the name that
+         * probe uses, the probe fails. The phone then marks a perfectly good Wi-Fi as unvalidated,
+         * shows "no internet", and — on every vendor that has an "adaptive connectivity" or
+         * "switch to mobile data automatically" feature — leaves the Wi-Fi for the mobile network,
+         * on somebody's data allowance. Nothing on the phone says why, and the app that caused it
+         * reports itself as working perfectly, because from the filter's point of view it was.
+         *
+         * Every entry is a probe endpoint and nothing else: they serve an empty 204 and carry no
+         * content, so allowing them costs no advertising at all. The vendor ones are here because
+         * they are the ones that actually get blocked — Xiaomi's, Huawei's and vivo's probe hosts
+         * appear on aggressive lists as telemetry, which is defensible about the domain and
+         * disastrous about the phone.
+         *
+         * A rule the *user* wrote still wins, because authorship comes first everywhere in this
+         * engine and somebody who deliberately blocks one of these has said what they want. What
+         * this refuses is a downloaded list doing it on their behalf, silently.
+         */
+        val CONNECTIVITY_CHECKS = listOf(
+            // Android's own, current and historical.
+            "connectivitycheck.gstatic.com",
+            "connectivitycheck.android.com",
+            "clients3.google.com",
+            "clients4.google.com",
+            // The HTTPS half of the same probe on a modern Android.
+            "www.google.com",
+            // Vendors that ship their own probe, and whose probe hosts are on real blocklists.
+            "connect.rom.miui.com",
+            "connectivitycheck.platform.hicloud.com",
+            "wifi.vivo.com.cn",
+        )
+
+        private val CONNECTIVITY_CHECK_INDEX = DomainIndex.of(CONNECTIVITY_CHECKS)
+
         /**
          * Labels dropped from [host] before it matched [domain] as a suffix, or -1. `example.com`
          * matches itself at 0 and `ads.example.com` at 1; it never matches `notexample.com`.

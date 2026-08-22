@@ -180,15 +180,88 @@ object TunnelPolicy {
     }
 
     /**
-     * How a network ranks when the platform will not say which one is the default and we have to
-     * choose — lowest first.
+     * Whether the bypass guard may route [address] into the tun.
      *
-     * This is only reached when the default reported to this app is a VPN, which is to say ours:
-     * the question then is which network our protected sockets actually leave by, and the
-     * platform's own preference (a wire over Wi-Fi over mobile) is the best available answer.
-     * Getting it wrong is not fatal — the resolvers of the other network are usually reachable
-     * from this one — but getting it right is what stops a phone on Wi-Fi asking a mobile
-     * network's resolvers.
+     * Only a public address. The guard exists to catch a resolver an app has *hardcoded*, and an
+     * app cannot hardcode an address it could only have learned from the network it happens to
+     * be on — so routing the network's private resolvers catches nothing, and it costs the one
+     * thing every home Wi-Fi has: the router. A router hands itself out as the DNS server, and
+     * for as long as it sat in the tun everything that was not DNS to it vanished — a ping, its
+     * own admin page, the app that talks to it — with nothing logged, because ICMP is routine
+     * on a tun. "The Wi-Fi doesn't ping with Malachi on" was this, and a phone's own smart
+     * network switching probing its gateway and concluding the Wi-Fi was dead was this too.
+     *
+     * The sentinels are refused for the older reason: routing the tun's own resolver upstream is
+     * a loop with no exit.
+     */
+    fun routableByGuard(address: InetAddress, sentinels: Set<String>): Boolean {
+        if (address.hostAddress.orEmpty() in sentinels) return false
+        if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
+            address.isSiteLocalAddress || address.isMulticastAddress
+        ) {
+            return false
+        }
+        val raw = address.address
+        return when (raw.size) {
+            // 100.64.0.0/10, the carrier-grade NAT range: a mobile network's own.
+            4 -> !(raw[0].toInt() and 0xFF == 100 && raw[1].toInt() and 0xC0 == 0x40)
+            // fc00::/7, the unique local range: what a router hands out over IPv6.
+            16 -> raw[0].toInt() and 0xFE != 0xFC
+            else -> false
+        }
+    }
+
+    /** One network the phone has, reduced to what choosing between them depends on. */
+    data class Candidate<T>(
+        val network: T,
+        val validated: Boolean,
+        val wifi: Boolean,
+        val ethernet: Boolean,
+        val cellular: Boolean,
+    )
+
+    /**
+     * Which transport the platform says is under the tunnel, when it has said.
+     *
+     * With no underlying network declared, the platform derives the tunnel's own transports from
+     * whatever it chose as the default network — so the tunnel's capabilities, read back, name
+     * the transport the phone is actually using. That is the platform's choice and not a guess,
+     * and it is readable on every Android this app runs on.
+     */
+    data class TransportHint(val wifi: Boolean, val ethernet: Boolean, val cellular: Boolean) {
+        fun matches(candidate: Candidate<*>): Boolean =
+            (wifi && candidate.wifi) || (ethernet && candidate.ethernet) || (cellular && candidate.cellular)
+    }
+
+    /**
+     * The network our forwarded queries leave by, chosen from what the phone has.
+     *
+     * Validated first, because a network that reaches nothing is not one to pin sockets to while
+     * a better one exists. Then whatever the platform said is under the tunnel, because that is
+     * the same choice our protected sockets are about to follow — and it is how a phone that has
+     * moved to mobile because Android judged its Wi-Fi poor is followed there, instead of every
+     * lookup staying on the Wi-Fi the phone just left. Then the platform's own standing preference,
+     * a wire over Wi-Fi over mobile.
+     *
+     * **An unvalidated network is still a network.** When nothing the phone has is validated —
+     * a Wi-Fi whose captive-portal check cannot reach Google, a LAN with no way out but names of
+     * its own — the platform makes it the default anyway, and every app on the phone uses it. A
+     * filter that insisted on validation then held the resolvers of a network that had gone and
+     * resolved nothing, which is worse than asking the only network there is.
+     */
+    fun <T> chooseUnderlying(candidates: List<Candidate<T>>, hint: TransportHint?): T? =
+        candidates.sortedWith(
+            compareByDescending<Candidate<T>> { it.validated }
+                .thenByDescending { hint?.matches(it) == true }
+                .thenBy { transportRank(it.wifi, it.ethernet, it.cellular) },
+        ).firstOrNull()?.network
+
+    /**
+     * How a network ranks when nothing else distinguishes two of them — lowest first.
+     *
+     * The platform's own standing preference: a wire over Wi-Fi over mobile. Getting it wrong is
+     * not fatal — the resolvers of the other network are usually reachable from this one — but
+     * getting it right is what stops a phone on Wi-Fi asking a mobile network's resolvers.
      */
     fun transportRank(wifi: Boolean, ethernet: Boolean, cellular: Boolean): Int = when {
         ethernet -> 0
@@ -203,12 +276,17 @@ object TunnelPolicy {
      * Two refusals, and both were paid for. **Empty is never worth adopting**: `LinkProperties`
      * arrive in stages and one that has no DNS servers yet would replace a working list with the
      * fallback, so a network coming up would briefly send every lookup to Cloudflare. And **the
-     * same list is not worth adopting either**, because adopting closes every pooled socket and
-     * forgets which resolver was answering — a re-check that fired on every failed lookup would
-     * otherwise make a network outage cost more than the outage.
+     * same list from the same network is not worth adopting either**, because adopting closes
+     * every pooled socket and forgets which resolver was answering — a re-check that fired on
+     * every failed lookup would otherwise make a network outage cost more than the outage.
+     *
+     * The same list from a *different* network is, though: the pooled sockets are pinned to the
+     * network that handed out the list, and two networks that hand out the same resolvers — every
+     * emulator, and any pair of networks somebody pointed at the same public DNS — would otherwise
+     * leave every lookup bound to the one that has gone, for as long as no callback came.
      */
-    fun worthAdopting(current: List<InetAddress>, offered: List<InetAddress>): Boolean =
-        offered.isNotEmpty() && offered != current
+    fun worthAdopting(current: List<InetAddress>, offered: List<InetAddress>, sameNetwork: Boolean): Boolean =
+        offered.isNotEmpty() && (offered != current || !sameNetwork)
 
     /**
      * The resolver to ask for a query that arrived over [wantsIpv6], preferring one of the same

@@ -89,6 +89,9 @@ light over nothing.
 - **Ads served from the same domain as the content around them.** DNS sees a name and nothing
   else; it cannot tell an article from the advertisement beside it.
 - **Anything at all, while another VPN app is running.** Android allows exactly one.
+- **The few addresses your phone uses to check whether a network works**, which no list is
+  allowed to block. If one did, your phone would decide a perfectly good Wi-Fi had no internet
+  and quietly move to mobile data — and nothing on the screen would tell you why.
 
 ## Privacy
 

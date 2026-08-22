@@ -285,16 +285,26 @@ class TunnelPolicyTest {
         // out through all four, and nothing said why.
         val mobile = listOf(parse("80.58.61.250")!!, parse("80.58.61.254")!!)
         val wifi = listOf(parse("192.168.1.1")!!)
-        assertTrue(TunnelPolicy.worthAdopting(mobile, wifi))
+        assertTrue(TunnelPolicy.worthAdopting(mobile, wifi, sameNetwork = false))
     }
 
     @Test
-    fun `the same resolvers are not worth adopting again`() {
+    fun `the same resolvers from the same network are not worth adopting again`() {
         // Adopting closes every pooled socket and forgets which resolver was answering. A
         // re-check that fires whenever a lookup fails must cost nothing when nothing has changed,
         // or a network outage becomes more expensive than the outage.
         val current = listOf(parse("192.168.1.1")!!)
-        assertFalse(TunnelPolicy.worthAdopting(current, listOf(parse("192.168.1.1")!!)))
+        assertFalse(TunnelPolicy.worthAdopting(current, listOf(parse("192.168.1.1")!!), sameNetwork = true))
+    }
+
+    @Test
+    fun `the same resolvers from a different network are worth adopting`() {
+        // Two networks that hand out the same addresses are two networks, and the pooled sockets
+        // are pinned to the one that has gone. Every emulator does this — both its Wi-Fi and its
+        // mobile network offer 10.0.2.3 — and so does any pair of networks pointed at the same
+        // public resolver, which is a common thing for a router to be configured with.
+        val current = listOf(parse("10.0.2.3")!!)
+        assertTrue(TunnelPolicy.worthAdopting(current, listOf(parse("10.0.2.3")!!), sameNetwork = false))
     }
 
     @Test
@@ -303,8 +313,108 @@ class TunnelPolicyTest {
         // working list with the Cloudflare fallback — every lookup on the phone silently
         // rerouted to a resolver the user did not choose, for as long as the gap lasted.
         val current = listOf(parse("192.168.1.1")!!)
-        assertFalse(TunnelPolicy.worthAdopting(current, emptyList()))
-        assertFalse(TunnelPolicy.worthAdopting(emptyList(), emptyList()))
+        assertFalse(TunnelPolicy.worthAdopting(current, emptyList(), sameNetwork = false))
+        assertFalse(TunnelPolicy.worthAdopting(emptyList(), emptyList(), sameNetwork = true))
+    }
+
+    // ---- what the bypass guard may route ----------------------------------------------------
+
+    @Test
+    fun `the guard never routes the network's own router`() {
+        // The bug behind "the Wi-Fi doesn't even ping with Malachi on". A home network hands out
+        // its router as the DNS server, so the guard routed the router into a tunnel that carries
+        // DNS and nothing else: a ping to it vanished, its admin page vanished, and a phone
+        // probing its own gateway concluded the Wi-Fi was dead and left for mobile data.
+        assertFalse(TunnelPolicy.routableByGuard(parse("192.168.1.1")!!, sentinels))
+        assertFalse(TunnelPolicy.routableByGuard(parse("10.0.0.138")!!, sentinels))
+        assertFalse(TunnelPolicy.routableByGuard(parse("172.16.0.1")!!, sentinels))
+        // The carrier-grade NAT range, which is a mobile network's own equipment.
+        assertFalse(TunnelPolicy.routableByGuard(parse("100.90.1.1")!!, sentinels))
+        // And the IPv6 shapes of the same thing.
+        assertFalse(TunnelPolicy.routableByGuard(InetAddress.getByName("fd00::1"), sentinels))
+        assertFalse(TunnelPolicy.routableByGuard(InetAddress.getByName("fe80::1"), sentinels))
+    }
+
+    @Test
+    fun `the guard still routes the addresses an app can actually have hardcoded`() {
+        // Which is the whole point of it: nothing ships with 192.168.1.1 written inside it, and
+        // everything that dodges a filter ships with 8.8.8.8.
+        assertTrue(TunnelPolicy.routableByGuard(parse("8.8.8.8")!!, sentinels))
+        assertTrue(TunnelPolicy.routableByGuard(parse("1.1.1.1")!!, sentinels))
+        // An operator's own resolvers on a mobile network are public addresses and stay covered.
+        assertTrue(TunnelPolicy.routableByGuard(parse("80.58.61.250")!!, sentinels))
+        assertTrue(TunnelPolicy.routableByGuard(InetAddress.getByName("2001:4860:4860::8888"), sentinels))
+    }
+
+    @Test
+    fun `the guard never routes the tunnel's own address`() {
+        // Routing the sentinel upstream is a loop with no exit.
+        assertFalse(TunnelPolicy.routableByGuard(parse("10.111.222.2")!!, sentinels))
+        assertFalse(TunnelPolicy.routableByGuard(InetAddress.getByName("fd00:6d61:6c61:6368::2"), sentinels))
+        assertFalse(TunnelPolicy.routableByGuard(parse("127.0.0.1")!!, sentinels))
+        assertFalse(TunnelPolicy.routableByGuard(parse("0.0.0.0")!!, sentinels))
+    }
+
+    // ---- which network is under the tunnel ---------------------------------------------------
+
+    private fun candidate(
+        name: String,
+        validated: Boolean = true,
+        wifi: Boolean = false,
+        ethernet: Boolean = false,
+        cellular: Boolean = false,
+    ) = TunnelPolicy.Candidate(name, validated, wifi, ethernet, cellular)
+
+    @Test
+    fun `a validated network beats an unvalidated one whatever it is carried by`() {
+        val wifi = candidate("wifi", validated = false, wifi = true)
+        val mobile = candidate("mobile", validated = true, cellular = true)
+        assertEquals("mobile", TunnelPolicy.chooseUnderlying(listOf(wifi, mobile), hint = null))
+    }
+
+    @Test
+    fun `the platform's own answer decides between two networks that both work`() {
+        // The case that sends a phone's lookups to the network it just left. Android moves to
+        // mobile when it judges a Wi-Fi poor — the Wi-Fi is still connected and still validated —
+        // and a ranking that prefers Wi-Fi follows it back there, asks resolvers the phone is no
+        // longer routed to, and tells the platform this tunnel runs on a network nothing is using.
+        val wifi = candidate("wifi", wifi = true)
+        val mobile = candidate("mobile", cellular = true)
+        val onMobile = TunnelPolicy.TransportHint(wifi = false, ethernet = false, cellular = true)
+        assertEquals("mobile", TunnelPolicy.chooseUnderlying(listOf(wifi, mobile), onMobile))
+        val onWifi = TunnelPolicy.TransportHint(wifi = true, ethernet = false, cellular = false)
+        assertEquals("wifi", TunnelPolicy.chooseUnderlying(listOf(wifi, mobile), onWifi))
+    }
+
+    @Test
+    fun `a hint is never enough to choose a network that does not work`() {
+        val wifi = candidate("wifi", validated = false, wifi = true)
+        val mobile = candidate("mobile", cellular = true)
+        val onWifi = TunnelPolicy.TransportHint(wifi = true, ethernet = false, cellular = false)
+        assertEquals("mobile", TunnelPolicy.chooseUnderlying(listOf(wifi, mobile), onWifi))
+    }
+
+    @Test
+    fun `with nothing to go on it is a wire, then Wi-Fi, then mobile`() {
+        val candidates = listOf(
+            candidate("mobile", cellular = true),
+            candidate("wifi", wifi = true),
+            candidate("wire", ethernet = true),
+        )
+        assertEquals("wire", TunnelPolicy.chooseUnderlying(candidates, hint = null))
+        assertEquals("wifi", TunnelPolicy.chooseUnderlying(candidates.filterNot { it.network == "wire" }, null))
+    }
+
+    @Test
+    fun `an unvalidated network is still better than no network at all`() {
+        // Insisting on validation was right for pinning a socket and wrong for choosing whose
+        // resolvers to ask. A phone whose Wi-Fi the platform has stopped vouching for — most of a
+        // house with weak Wi-Fi — got no answer here at all, so the filter kept the resolvers of
+        // a network it had left and every lookup on the phone timed out until something else
+        // happened. The only network there is beats one that is gone.
+        val struggling = candidate("wifi", validated = false, wifi = true)
+        assertEquals("wifi", TunnelPolicy.chooseUnderlying(listOf(struggling), hint = null))
+        assertNull(TunnelPolicy.chooseUnderlying(emptyList<TunnelPolicy.Candidate<String>>(), hint = null))
     }
 
     @Test

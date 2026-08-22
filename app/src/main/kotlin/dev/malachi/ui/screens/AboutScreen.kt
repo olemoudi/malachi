@@ -72,6 +72,7 @@ fun AboutScreen(vm: MalachiViewModel, onBack: () -> Unit) {
                             R.string.about_limit_hardcoded_ip,
                             R.string.about_limit_in_page,
                             R.string.about_limit_one_vpn,
+                            R.string.about_limit_connectivity_checks,
                         ).forEach { line ->
                             Text(
                                 "· " + stringResource(line),

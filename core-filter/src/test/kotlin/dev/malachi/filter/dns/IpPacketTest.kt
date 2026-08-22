@@ -206,6 +206,156 @@ class IpPacketTest {
         assertArrayEquals(payload, parsed.payload(response))
     }
 
+    // ---- ping --------------------------------------------------------------------------------
+
+    private val pingData = byteArrayOf(0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68)
+
+    private fun icmpMessage(type: Int, code: Int = 0, identifier: Int = 0x1234, sequence: Int = 7, data: ByteArray = pingData): ByteArray {
+        val out = ByteArray(8 + data.size)
+        out[0] = type.toByte()
+        out[1] = code.toByte()
+        writeShort(out, 4, identifier)
+        writeShort(out, 6, sequence)
+        data.copyInto(out, 8)
+        return out
+    }
+
+    private fun ipv4Icmp(message: ByteArray, fragmentFlags: Int = 0): ByteArray {
+        val out = ByteArray(20 + message.size)
+        out[0] = 0x45
+        writeShort(out, 2, out.size)
+        writeShort(out, 6, fragmentFlags)
+        out[8] = 64
+        out[9] = IpPacket.PROTOCOL_ICMP.toByte()
+        v4Client.copyInto(out, 12)
+        v4Server.copyInto(out, 16)
+        message.copyInto(out, 20)
+        return out
+    }
+
+    private fun ipv6Icmp(message: ByteArray): ByteArray {
+        val out = ByteArray(40 + message.size)
+        out[0] = 0x60
+        writeShort(out, 4, message.size)
+        out[6] = IpPacket.PROTOCOL_ICMPV6.toByte()
+        out[7] = 64
+        v6Client.copyInto(out, 8)
+        v6Server.copyInto(out, 24)
+        message.copyInto(out, 40)
+        return out
+    }
+
+    private fun pseudoHeaderSumFor(source: ByteArray, destination: ByteArray, length: Int, protocol: Int): Long =
+        pseudoHeaderSum(source, destination, length) - IpPacket.PROTOCOL_UDP + protocol
+
+    @Test
+    fun `an IPv4 ping is read back whole`() {
+        val packet = ipv4Icmp(icmpMessage(type = 8))
+        val echo = IpPacket.parseEcho(packet, packet.size)!!
+        assertEquals(4, echo.ipVersion)
+        assertArrayEquals(v4Client, echo.sourceAddress)
+        assertArrayEquals(v4Server, echo.destinationAddress)
+        assertEquals(0x1234, echo.identifier)
+        assertEquals(7, echo.sequence)
+        // The whole ICMP message, header included: that is what a ping socket wants to send.
+        assertArrayEquals(icmpMessage(type = 8), echo.message)
+    }
+
+    @Test
+    fun `an IPv6 ping is read back whole`() {
+        val packet = ipv6Icmp(icmpMessage(type = 128))
+        val echo = IpPacket.parseEcho(packet, packet.size)!!
+        assertEquals(6, echo.ipVersion)
+        assertArrayEquals(v6Client, echo.sourceAddress)
+        assertArrayEquals(v6Server, echo.destinationAddress)
+        assertEquals(0x1234, echo.identifier)
+        assertArrayEquals(icmpMessage(type = 128), echo.message)
+    }
+
+    @Test
+    fun `only an echo request is a ping we carry`() {
+        // An echo reply arriving on the tun is not a question; neighbour discovery is what
+        // arrives on every tun and stays as silent as it always was; a fragment is part of a
+        // ping, not one; and a datagram is a datagram.
+        val reply = ipv4Icmp(icmpMessage(type = 0))
+        assertNull(IpPacket.parseEcho(reply, reply.size))
+        val oddCode = ipv4Icmp(icmpMessage(type = 8, code = 1))
+        assertNull(IpPacket.parseEcho(oddCode, oddCode.size))
+        val solicitation = ipv6Icmp(icmpMessage(type = 135))
+        assertNull(IpPacket.parseEcho(solicitation, solicitation.size))
+        val fragment = ipv4Icmp(icmpMessage(type = 8), fragmentFlags = 0x2000)
+        assertNull(IpPacket.parseEcho(fragment, fragment.size))
+        val udp = ipv4Udp()
+        assertNull(IpPacket.parseEcho(udp, udp.size))
+        assertNull(IpPacket.parseEcho(ByteArray(0), 0))
+        // Too short to hold an ICMP header at all.
+        val stub = ipv4Icmp(icmpMessage(type = 8))
+        assertNull(IpPacket.parseEcho(stub, 24))
+    }
+
+    @Test
+    fun `an IPv4 echo reply goes back to the pinger under its own identifier and checksums correctly`() {
+        val packet = ipv4Icmp(icmpMessage(type = 8, identifier = 0x1234, sequence = 7))
+        val request = IpPacket.parseEcho(packet, packet.size)!!
+        // What a ping socket hands back: the identifier is the kernel's, not the app's.
+        val fromKernel = icmpMessage(type = 0, identifier = 0x5555, sequence = 7)
+        val reply = IpPacket.buildEchoReply(request, fromKernel, fromKernel.size)!!
+
+        assertEquals(IpPacket.PROTOCOL_ICMP, IpPacket.protocol(reply, reply.size))
+        assertArrayEquals(v4Server, reply.copyOfRange(12, 16), "the reply comes from the host that was pinged")
+        assertArrayEquals(v4Client, reply.copyOfRange(16, 20), "and goes back to whoever pinged it")
+        assertEquals(reply.size, shortAt(reply, 2))
+        assertEquals(0, reply[20].toInt(), "echo reply")
+        assertEquals(0x1234, shortAt(reply, 24), "the app's identifier, or its ping socket will never see this")
+        assertEquals(7, shortAt(reply, 26))
+        assertArrayEquals(pingData, reply.copyOfRange(28, reply.size))
+        assertTrue(sumIsValid(reply, 0, 20), "IPv4 header checksum")
+        assertTrue(sumIsValid(reply, 20, reply.size - 20), "ICMP checksum")
+    }
+
+    @Test
+    fun `an IPv6 echo reply carries the pseudo-header checksum`() {
+        val packet = ipv6Icmp(icmpMessage(type = 128))
+        val request = IpPacket.parseEcho(packet, packet.size)!!
+        val fromKernel = icmpMessage(type = 129, identifier = 0x5555)
+        val reply = IpPacket.buildEchoReply(request, fromKernel, fromKernel.size)!!
+
+        assertEquals(IpPacket.PROTOCOL_ICMPV6, IpPacket.protocol(reply, reply.size))
+        assertArrayEquals(v6Server, reply.copyOfRange(8, 24))
+        assertArrayEquals(v6Client, reply.copyOfRange(24, 40))
+        assertEquals(reply.size - 40, shortAt(reply, 4))
+        assertEquals(129, reply[40].toInt() and 0xFF)
+        assertEquals(0x1234, shortAt(reply, 44))
+        assertTrue(
+            sumIsValid(reply, 40, reply.size - 40, pseudoHeaderSumFor(v6Server, v6Client, reply.size - 40, IpPacket.PROTOCOL_ICMPV6)),
+            "ICMPv6 checksum",
+        )
+    }
+
+    @Test
+    fun `a read that is not an echo reply is refused rather than forged into one`() {
+        val packet = ipv4Icmp(icmpMessage(type = 8))
+        val request = IpPacket.parseEcho(packet, packet.size)!!
+        val unreachable = icmpMessage(type = 3)
+        assertNull(IpPacket.buildEchoReply(request, unreachable, unreachable.size))
+        assertNull(IpPacket.buildEchoReply(request, ByteArray(4), 4))
+        // A length beyond the buffer is a bug in the caller, not a packet.
+        assertNull(IpPacket.buildEchoReply(request, icmpMessage(type = 0), 100))
+    }
+
+    @Test
+    fun `a ping to an address we answer ourselves is echoed back exactly`() {
+        val packet = ipv4Icmp(icmpMessage(type = 8, identifier = 0x4242, sequence = 3))
+        val request = IpPacket.parseEcho(packet, packet.size)!!
+        val local = IpPacket.echoReplyMessage(request)
+        val reply = IpPacket.buildEchoReply(request, local, local.size)!!
+        assertEquals(0, reply[20].toInt())
+        assertEquals(0x4242, shortAt(reply, 24))
+        assertEquals(3, shortAt(reply, 26))
+        assertArrayEquals(pingData, reply.copyOfRange(28, reply.size))
+        assertTrue(sumIsValid(reply, 20, reply.size - 20), "ICMP checksum")
+    }
+
     private fun assertTrue(condition: Boolean, message: String) =
         org.junit.jupiter.api.Assertions.assertTrue(condition, message)
 }

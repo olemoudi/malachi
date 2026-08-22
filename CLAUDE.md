@@ -240,6 +240,20 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   refusal is load-bearing well outside the UI: it is what stops a hosts file's `127.0.0.1
   localhost` line from compiling into a rule that stops the phone resolving `localhost`. Blocking
   a whole TLD would mean moving the check into `RuleParser` and accepting that blast radius.
+- **No downloaded list may take away the phone's own connectivity check.**
+  `FilterEngine.CONNECTIVITY_CHECKS` is a short, fixed set of probe endpoints — Android's
+  `connectivitycheck.gstatic.com` and friends, and the vendor equivalents Xiaomi, Huawei and vivo
+  ship — that sits **below the user's own rules and above every list**. Android decides whether a
+  Wi-Fi works by fetching a `generate_204` over it: refuse that name and the phone marks a
+  perfectly good network as having no internet, says so, and on every vendor with an "adaptive
+  connectivity" feature leaves it for the mobile network, on somebody's data allowance. Nothing
+  says why, and the filter reports itself as working perfectly, because it was. The vendor hosts
+  are the ones that actually get blocked — they appear on aggressive lists as telemetry, which is
+  defensible about the domain and disastrous about the phone. **This is not a general-purpose
+  exception list and must not grow into one**: every entry has to be a name whose loss makes a
+  phone declare a working network dead, and a bare registrable domain is never one (allowing
+  `google.com` would exempt everything under it). A rule the *user* wrote still wins — authorship
+  comes first here as everywhere.
 - **Never hold a whole blocklist as text.** Lists reach a quarter of a million domains;
   they are streamed line by line into `DomainIndex.Builder` and kept as a sorted `LongArray`.
 
@@ -521,6 +535,49 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
 - **ICMPv6 (next header 58) and MLD arrive on every tun there has ever been.** They are not a
   symptom, and a rate-limited log line about them is still a line a minute forever, which is a
   capped debug log spent entirely on the one message that never means anything.
+- **Every address routed into this tun is an address whose *other* traffic dies, and the bypass
+  guard used to route the one address that could least afford it: the router.** A home network
+  hands itself out as the DNS server, so `SYSTEM_RESOLVERS` — the default — put `192.168.1.1` in
+  a tunnel that answers UDP 53 and nothing else. Ping to it vanished (ICMP is routine on a tun and
+  is not even logged), its admin page vanished, and anything on the phone that probes its gateway
+  to decide whether the Wi-Fi is any good got silence. Reported as "the Wi-Fi doesn't even give me
+  ping". Nothing was bought with it either: the guard exists to catch a resolver an app has
+  **hardcoded**, and no app ships with a private address inside it — one that learned the address
+  from the system it is avoiding did not need to avoid the system to get it. `TunnelPolicy.routableByGuard`
+  refuses private, CGNAT (`100.64/10`), link-local and unique-local (`fc00::/7`) addresses; an
+  operator's public resolvers on a mobile network are still covered exactly as before.
+- **A routed address that ignores ping reads as a dead network, so the tunnel answers pings.**
+  This is a DNS filter that relays ICMP echo, and the reason is not tidiness: ping is the one
+  diagnostic every person and half the software on a phone reaches for, and `8.8.8.8` at the top
+  guard setting is precisely the address people ping to ask "is my internet working". An
+  unprivileged ICMP datagram socket (`Os.socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP)`) is available
+  to every app — that is how `InetAddress.isReachable` works without root — and is `protect()`ed
+  like any upstream socket. Two details are load-bearing and were verified on a device, not
+  recalled: a ping socket hands back the ICMP message **with no IP header in front of it**, and
+  the kernel **replaces the identifier** with its own port, so the reply has to be re-stamped with
+  the client's identifier or nothing will ever match it (`IpPacket.buildEchoReply`). The tunnel's
+  own sentinel is answered locally — there is no host to ask.
+- **`setUnderlyingNetworks(null)` is an answer, not silence: it means "the system default".** The
+  declaration is not a note to ourselves — everything the platform knows about this tunnel is
+  derived from it, including its transport, its meteredness and whether it is validated. So a
+  declaration naming a network the phone has left describes the tun as carried by something that
+  no longer exists, and `declareUnderlying` was only ever reached from a successful adoption:
+  lose the last validated network and the last, dead declaration stood. Null cannot go stale, and
+  is now what is declared whenever we cannot name a live validated network.
+- **Validation gates *pinning*, not *adoption*, and conflating the two cost a phone its DNS.**
+  Requiring `NET_CAPABILITY_VALIDATED` before adopting a network means that a Wi-Fi the platform
+  has stopped vouching for — most of a house with weak Wi-Fi — produced *no* answer at all, so the
+  filter kept the resolvers of a network that had gone and every lookup timed out until something
+  else happened to change. Asking the only network there is beats asking one that is not there.
+  Pinning is the opposite: a socket tied to a network that reaches nothing is a guaranteed
+  timeout where the default route would have worked. So an unvalidated network is adopted for its
+  resolvers, left unpinned (`networkPinnable`), and declared as null.
+- **The tunnel's own capabilities are the platform's answer to "what is underneath me".**
+  `getUnderlyingNetworks()` is not public, but with nothing declared a VPN *inherits the
+  transports of the system default network* — so reading our own tun's capabilities names the
+  transport the phone is actually using. That is the tie-break in `TunnelPolicy.chooseUnderlying`,
+  and it is what stops a ranking that prefers Wi-Fi from following the phone back onto the Wi-Fi
+  Android has just judged too poor to use.
 
 ### What must never stop, and what must never crash
 
@@ -1115,6 +1172,24 @@ the one path every revival has in common.
   leave nine tunnel cases failing with a message telling you to run the command you just ran.
   `./gradlew :app:assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`,
   then the grant, then `connectedDebugAndroidTest`; the reinstall AGP does keeps the appop.
+- **A probe from the test process proves nothing about the tunnel: this app is always outside
+  its own tun.** `TunnelConnectivityTest` runs its pings and lookups through
+  `UiAutomation.executeShellCommand`, because shell traffic *is* covered by the VPN — which is
+  not an assumption, it is how lockdown was measured on a device (a shell `nc` to a literal IP
+  came back "Permission denied"). The guard's routes are also frozen at `establish()`, so a test
+  that turns the filter on and immediately pings can pass whatever the rule says: the tun was
+  built before any callback had said what the network's resolvers were, so it routed nothing.
+  Turn the guard on *after* the tunnel is up and a network has been adopted.
+- **A new instrumented test is worth what it catches, so put the old behaviour back and watch it
+  fail.** Three of these do; the hand-off cases do not, and that is worth knowing rather than
+  assuming — an emulator's Wi-Fi and mobile network are the same NAT with the same resolver
+  (`10.0.2.3`), so DNS keeps working across a hand-off however stale the filter's idea of the
+  network is. Those tests assert the invariants instead: the tunnel survives, and the filter is
+  *seen to notice* (an adoption line appears in the log after the change).
+- **Re-granting the appop is part of the experiment, not a detail of it.** A rebuild that changes
+  the APK loses `ACTIVATE_VPN`, and every tunnel case then fails with "VPN consent was expected" —
+  which looks exactly like the bug you were trying to reproduce and is not it. Build, `adb install
+  -r`, `appops set`, *then* run.
 - **They run in their own workflow (`instrumented.yml`), on an emulator, and `release.yml`
   calls it before publishing.** They did not gate the release once, and a build whose tunnel
   tests were red installed itself onto a phone that updates automatically. A few minutes on

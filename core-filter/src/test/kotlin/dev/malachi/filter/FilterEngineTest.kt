@@ -147,6 +147,64 @@ class FilterEngineTest {
         assertFalse(engine(userBlock = listOf("example.com")).decide("", null).blocked)
     }
 
+    // ---- the phone's own connectivity checks -------------------------------------------
+
+    @Test
+    fun `no downloaded list can take away the phone's connectivity check`() {
+        // The failure this prevents is silent and expensive: Android decides a Wi-Fi is dead by
+        // fetching a 204 over it, so a list that refuses the probe's name makes a working Wi-Fi
+        // read as "no internet" — and every phone with an "adaptive connectivity" feature then
+        // leaves it for the mobile network. Reported as "the Wi-Fi doesn't work with the filter
+        // on", which is exactly what it looks like from the outside.
+        val hostile = CompiledList(
+            id = "hostile",
+            title = "Blocks everything",
+            block = DomainIndex.of(
+                listOf("gstatic.com", "google.com", "miui.com", "hicloud.com", "vivo.com.cn", "android.com"),
+            ),
+        )
+        val filter = engine(lists = listOf(hostile))
+        FilterEngine.CONNECTIVITY_CHECKS.forEach { probe ->
+            assertFalse(filter.decide(probe, null).blocked, probe)
+        }
+        // And nothing else about those domains is rescued: the exemption is the probe, not the
+        // company that happens to serve it.
+        assertTrue(filter.decide("ads.gstatic.com", null).blocked)
+        assertTrue(filter.decide("analytics.google.com", null).blocked)
+        assertTrue(filter.decide("tracking.miui.com", null).blocked)
+    }
+
+    @Test
+    fun `a rule the user wrote themselves still outranks the connectivity check`() {
+        // Authorship comes first everywhere in this engine, and somebody who deliberately blocks
+        // a probe has said what they want. What is refused is a list doing it on their behalf.
+        val filter = engine(userBlock = listOf("connectivitycheck.gstatic.com"))
+        assertTrue(filter.decide("connectivitycheck.gstatic.com", null).blocked)
+    }
+
+    @Test
+    fun `a per-app rule can still refuse a probe for one app`() {
+        val rules = listOf(AppDomainRule("connectivitycheck.gstatic.com", "com.some.app", block = true))
+        val filter = engine(appRules = rules)
+        assertTrue(filter.decide("connectivitycheck.gstatic.com", "com.some.app").blocked)
+        assertFalse(filter.decide("connectivitycheck.gstatic.com", "com.other.app").blocked)
+    }
+
+    @Test
+    fun `the protected set stays small and is only ever probe endpoints`() {
+        // A guard against this becoming a general-purpose exception list, which is what it would
+        // silently turn into: every entry has to be a name whose loss makes the phone declare a
+        // working network dead, and there are not many of those.
+        assertTrue(FilterEngine.CONNECTIVITY_CHECKS.size <= 12, "the protected set is growing")
+        assertTrue(FilterEngine.CONNECTIVITY_CHECKS.all { DomainIndex.normalizeHost(it) != null })
+        // Never a bare registrable domain: allowing `google.com` would exempt every tracker
+        // under it, which is the opposite of what this app is for.
+        assertTrue(
+            FilterEngine.CONNECTIVITY_CHECKS.all { it.count { c -> c == '.' } >= 2 },
+            "a protected name has to be a host, not a whole domain",
+        )
+    }
+
     @Test
     fun `match depth is by label`() {
         assertEquals(0, FilterEngine.matchDepth("example.com", "example.com"))

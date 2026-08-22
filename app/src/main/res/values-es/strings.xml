@@ -279,7 +279,7 @@
     <string name="bypass_off">Dejarlas en paz</string>
     <string name="bypass_off_hint">Lo más seguro: nada de este móvil puede romperse por culpa de Malachi. Las pocas apps que esquivan se quedan con sus anuncios.</string>
     <string name="bypass_system">Pillar las habituales — recomendado</string>
-    <string name="bypass_system_hint">Cubre las apps que van directas a tu router o a tu operador, que es donde va casi toda la que esquiva. Rara vez rompe nada.</string>
+    <string name="bypass_system_hint">Cubre las apps que van directas a los servidores DNS que esta red le dio al móvil, que es donde va casi toda la que esquiva. A tu router no se le toca a propósito, así que sigue respondiendo a todo lo demás. Rara vez rompe nada.</string>
     <string name="bypass_public">Pillarlas todas</string>
     <string name="bypass_public_hint">Cubre además los grandes servicios públicos que algunas apps llevan dentro, como el 8.8.8.8 de Google. Es la que más pilla, y la única que de vez en cuando deja una app sin funcionar: si algo se rompe, vuelve y baja un escalón.</string>
 
@@ -368,6 +368,7 @@
     <string name="about_limit_hardcoded_ip">Contenido descargado desde una dirección IP sin ninguna consulta DNS.</string>
     <string name="about_limit_in_page">Anuncios servidos desde el mismo dominio que el contenido que los rodea: el DNS no puede distinguirlos.</string>
     <string name="about_limit_one_vpn">Nada, mientras haya otra app de VPN funcionando. Android solo permite una.</string>
+    <string name="about_limit_connectivity_checks">Las pocas direcciones que usa el móvil para comprobar si una red funciona. Ninguna lista puede bloquearlas: si lo hiciera, el móvil daría por muerta una wifi perfectamente buena y se pasaría a los datos sin decir nada.</string>
     <string name="about_source_title">Código</string>
     <string name="about_repository">Código y versiones</string>
 
