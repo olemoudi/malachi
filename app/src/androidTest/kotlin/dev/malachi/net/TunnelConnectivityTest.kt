@@ -288,6 +288,24 @@ class TunnelConnectivityTest {
         return IpPacket.parseEcho(packet, packet.size)!!
     }
 
+    @Test
+    fun theUnderlyingNetworkWatchIsActuallyRegistered() = runBlocking {
+        // A recovery path disabled by a caught exception looks exactly like one that works, and
+        // this one was: `registerBestMatchingNetworkCallback` refuses a request carrying
+        // NET_CAPABILITY_VALIDATED — "Cannot request network with VALIDATED" — so on every
+        // Android 12 and up the only callback that still speaks after the tunnel comes up was
+        // never registered at all. It was logged, once, at the bottom of a log nobody reads,
+        // and the filter went on asking the resolvers of networks the phone had left.
+        filterOn()
+        val refused = eventually(15_000) {
+            DebugLog.entries.value.any { it.message.contains("CANNOT WATCH THE NETWORKS") }
+        }
+        assertTrue(
+            "the tunnel could not register the callback that notices a hand-off; see the log",
+            !refused,
+        )
+    }
+
     // ---- the hand-off between Wi-Fi and mobile data -------------------------------------------
 
     @Test

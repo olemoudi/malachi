@@ -1395,16 +1395,25 @@ class MalachiVpnService : VpnService() {
         // tunnel is established *our* default network is the tunnel, and that network does not
         // change when the thing underneath it does. NET_CAPABILITY_NOT_VPN is how to ask about
         // the thing underneath.
-        // VALIDATED, and it is not decoration: a Wi-Fi that has associated but cannot reach
-        // anything still has INTERNET, so without this the platform can name it the best match —
-        // and then the tunnel adopts a router's resolvers and (since sockets are pinned) sends
-        // every lookup out of a network with no way out. Which is what walking back into range of
-        // a weak access point looks like. Android does not switch to such a network either; this
-        // is asking the same question it asks.
+        //
+        // **NET_CAPABILITY_VALIDATED is deliberately not asked for, and the reason is that
+        // asking for it does not work.** It is not a requestable capability: the platform answers
+        // `registerBestMatchingNetworkCallback` with `IllegalArgumentException: Cannot request
+        // network with VALIDATED`, which this method caught, logged and carried on from — so on
+        // every Android 12 and up, which is to say on nearly every phone, this callback has
+        // simply never existed. The one that was left is the one that goes quiet the moment the
+        // tunnel comes up. Found by an instrumented test that turned the Wi-Fi off and watched
+        // the filter go on asking `wlan0`'s resolvers for a minute; `theUnderlyingNetworkWatchIsActuallyRegistered`
+        // is now the thing that says so out loud, because a recovery path disabled by a caught
+        // exception looks exactly like one that is working.
+        //
+        // Nothing is lost by not asking. Validation is what decides whether a network is worth
+        // *pinning* sockets to and which of several to prefer, and both of those are decided when
+        // a network is adopted, where the capability can simply be read (`isValidated`,
+        // `TunnelPolicy.chooseUnderlying`). A request is the one place the question cannot be put.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
         runCatching {
             // The check is spelled out here rather than read from [platformPicksBest] because
@@ -1421,7 +1430,11 @@ class MalachiVpnService : VpnService() {
                 // signal to go and decide again; see [bestUnderlyingNetwork].
                 cm.registerNetworkCallback(request, underlyingCallback)
             }
-        }.onFailure { DebugLog.w(TAG, "cannot watch the networks under the tunnel", it) }
+        }.onFailure {
+            // Never quietly: this is the only thing that notices a hand-off once the tunnel is
+            // up, and the last time it failed it did so on every modern phone for months.
+            DebugLog.e(TAG, "CANNOT WATCH THE NETWORKS UNDER THE TUNNEL; hand-offs will be missed", it)
+        }
     }
 
     private fun registerPackageChanges() {

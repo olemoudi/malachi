@@ -418,13 +418,27 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   be the cause; what it can do is *say so*, which `noteUnvalidated` now does. Do not reach for
   `reportNetworkConnectivity(network, false)` to force a re-check: it asserts a network is broken
   when we do not know that, and it can push the phone off a good one.
-- **That request must carry `NET_CAPABILITY_VALIDATED`, and forgetting it is not cosmetic.** A
-  Wi-Fi that has associated but reaches nothing still has `INTERNET`, so the platform will happily
-  name it the best match — and the tunnel then adopts a router's resolvers and, since sockets are
-  pinned, sends every lookup out of a network with no way out. That is precisely what walking back
-  into range of a weak access point looks like. Android does not switch to such a network either;
-  requiring `VALIDATED` is asking the question it asks. The network the platform names is
-  re-checked at adoption too, because validation can be lost without another callback.
+- **That request must NOT carry `NET_CAPABILITY_VALIDATED` — it is not a requestable capability,
+  and asking for it silently disabled this whole callback on every modern phone.** It used to,
+  for a reason that reads well and is wrong in the one way that matters: a Wi-Fi which has
+  associated but reaches nothing still has `INTERNET`, so requiring validation looked like asking
+  the same question Android asks. The platform's answer is
+  `IllegalArgumentException: Cannot request network with VALIDATED` out of
+  `registerBestMatchingNetworkCallback` (`ConnectivityService.ensureRequestableCapabilities`) —
+  and that throw was caught, logged in one line, and carried on from, so from Android 12 up **the
+  second callback never existed**. What was left is the default-network callback, which is exactly
+  the one that goes quiet the moment the tunnel comes up. Below 31 the same request is a *listen*
+  and is accepted, which is why it worked in the only place anybody looked. Found by an
+  instrumented test that switched the Wi-Fi off and watched the filter go on asking `wlan0`'s
+  resolvers for a minute; `theUnderlyingNetworkWatchIsActuallyRegistered` fails now if it ever
+  goes back to being refused, and the log line is an `e` naming the consequence rather than a `w`.
+  Nothing is lost by not asking: validation decides whether a network is worth *pinning* to and
+  which of several to prefer, and both are decided when a network is adopted, where the capability
+  is simply read (`isValidated`, `TunnelPolicy.chooseUnderlying`). A request is the one place the
+  question cannot be put.
+- **A registration that fails inside a `runCatching` is a feature that does not exist, and looks
+  identical to one that works.** That is the general form of the bug above, and the reason this
+  app now has a test asserting the *absence* of the failure line rather than trusting the call.
 - **This is not only about latency: the resolvers and the route have to change together.** A
   protected socket leaves by the *system default route*, which we do not choose. While the resolver
   list belongs to one network and the route to another, the tunnel asks a LAN resolver
