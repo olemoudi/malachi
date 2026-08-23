@@ -42,6 +42,7 @@ object DnsMessage {
     private const val BLOCK_TTL_SECONDS = 60
 
     private const val RCODE_NO_ERROR = 0
+    private const val RCODE_SERVFAIL = 2
     private const val RCODE_NXDOMAIN = 3
     private const val RCODE_REFUSED = 5
 
@@ -55,6 +56,28 @@ object DnsMessage {
     fun transactionId(data: ByteArray): Int? {
         if (data.size < HEADER_BYTES) return null
         return ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
+    }
+
+    /**
+     * Whether [data] is a resolver saying it could not answer, rather than an answer.
+     *
+     * SERVFAIL and REFUSED are the two ways a DNS server declines the job while still replying,
+     * and both mean the same thing to a client: ask somebody else. Every stub resolver on earth
+     * does exactly that, Android's included — which is why a router that advertises a resolver
+     * that refuses everything looks like a perfectly good network with the filter *off*, and
+     * like a phone that resolves nothing with it on. NXDOMAIN is not here and must never be: it
+     * is a real answer ("that name does not exist"), and treating it as a failure would send
+     * every mistyped domain round every resolver the network has.
+     */
+    fun isServerFailure(data: ByteArray): Boolean = when (rcode(data)) {
+        RCODE_SERVFAIL, RCODE_REFUSED -> true
+        else -> false
+    }
+
+    /** The response code in [data]'s header, or null when it is too short to have one. */
+    fun rcode(data: ByteArray): Int? {
+        if (data.size < HEADER_BYTES) return null
+        return data[3].toInt() and 0x0F
     }
 
     /** True when [data] is a standard query (QR=0, OPCODE=0) with at least one question. */

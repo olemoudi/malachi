@@ -139,4 +139,34 @@ class DnsMessageTest {
         assertEquals(0, response[3].toInt() and 0x0F)
         assertEquals(0, shortAt(response, 6))
     }
+
+    // ---- a resolver that answers "no" ------------------------------------------------------
+
+    @Test
+    fun `SERVFAIL and REFUSED are a resolver declining, not an answer`() {
+        // The whole reason this exists: a router that advertises a DNS server which refuses
+        // everything looks like a healthy network with the filter off — Android's own resolver
+        // moves to the next server — and like a phone that resolves nothing with it on.
+        assertTrue(DnsMessage.isServerFailure(responseWithRcode(2)))
+        assertTrue(DnsMessage.isServerFailure(responseWithRcode(5)))
+    }
+
+    @Test
+    fun `NXDOMAIN is an answer and must never send the lookup round the network again`() {
+        assertFalse(DnsMessage.isServerFailure(responseWithRcode(3)))
+        assertFalse(DnsMessage.isServerFailure(responseWithRcode(0)))
+    }
+
+    @Test
+    fun `something too short to have a response code is not a refusal`() {
+        assertFalse(DnsMessage.isServerFailure(ByteArray(4)))
+        assertNull(DnsMessage.rcode(ByteArray(11)))
+        assertEquals(0, DnsMessage.rcode(ByteArray(12)))
+    }
+
+    /** A response header carrying [rcode], which is the low nibble of the fourth byte. */
+    private fun responseWithRcode(rcode: Int): ByteArray = ByteArray(DnsMessage.HEADER_BYTES).also {
+        it[2] = 0x81.toByte()
+        it[3] = ((0x80) or rcode).toByte()
+    }
 }

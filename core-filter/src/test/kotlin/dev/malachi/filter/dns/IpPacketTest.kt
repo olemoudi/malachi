@@ -358,4 +358,145 @@ class IpPacketTest {
 
     private fun assertTrue(condition: Boolean, message: String) =
         org.junit.jupiter.api.Assertions.assertTrue(condition, message)
+
+    // ---- refusing TCP instead of swallowing it -----------------------------------------------
+
+    @Test
+    fun `a SYN to something this tunnel routes is refused, not left waiting`() {
+        // The whole point: a dropped SYN is a client waiting out its connect timeout, which is a
+        // minute of an app that looks hung. The bypass guard produces one of these every time an
+        // app opens a connection to a resolver it routes, and so does the TCP retry of a DNS
+        // answer too big for UDP.
+        val syn = ipv4Tcp(flags = 0x02, sequence = 1000)
+        val segment = IpPacket.parseTcp(syn, syn.size)!!
+        val reset = IpPacket.buildTcpReset(segment)!!
+
+        assertEquals(IpPacket.PROTOCOL_TCP, IpPacket.protocol(reset, reset.size))
+        // Back the way it came, or the client will not recognise it.
+        assertArrayEquals(v4Server, reset.copyOfRange(12, 16))
+        assertArrayEquals(v4Client, reset.copyOfRange(16, 20))
+        assertEquals(53, readShort(reset, 20))
+        assertEquals(40000, readShort(reset, 22))
+        // RST|ACK, sequence zero, acknowledging the SYN's one byte — RFC 793 §3.4. Get this
+        // wrong and the client ignores the reset and goes back to waiting, which is the outcome
+        // this exists to prevent.
+        assertEquals(0x14, reset[33].toInt() and 0xFF)
+        assertEquals(0L, readInt(reset, 24))
+        assertEquals(1001L, readInt(reset, 28))
+        assertEquals(0, checksum16(reset, 20, 20, v4Server, v4Client), "the TCP checksum does not verify")
+    }
+
+    @Test
+    fun `an acknowledged segment is refused with its own acknowledgement number`() {
+        val data = ipv4Tcp(flags = 0x18, sequence = 5000, acknowledgement = 77)
+        val reset = IpPacket.buildTcpReset(IpPacket.parseTcp(data, data.size)!!)!!
+        assertEquals(0x04, reset[33].toInt() and 0xFF, "an acknowledged segment is reset without an ACK")
+        assertEquals(77L, readInt(reset, 24))
+        assertEquals(0L, readInt(reset, 28))
+    }
+
+    @Test
+    fun `a reset is never answered with a reset`() {
+        val rst = ipv4Tcp(flags = 0x04, sequence = 9)
+        assertNull(IpPacket.buildTcpReset(IpPacket.parseTcp(rst, rst.size)!!))
+    }
+
+    @Test
+    fun `IPv6 gets the same refusal`() {
+        val syn = ipv6Tcp(flags = 0x02, sequence = 42)
+        val reset = IpPacket.buildTcpReset(IpPacket.parseTcp(syn, syn.size)!!)!!
+        assertEquals(IpPacket.PROTOCOL_TCP, IpPacket.protocol(reset, reset.size))
+        assertArrayEquals(v6Server, reset.copyOfRange(8, 24))
+        assertArrayEquals(v6Client, reset.copyOfRange(24, 40))
+        assertEquals(43L, readInt(reset, 48))
+        assertEquals(0, checksum16(reset, 40, 20, v6Server, v6Client), "the TCP checksum does not verify")
+    }
+
+    @Test
+    fun `anything that is not a whole TCP header is declined`() {
+        val syn = ipv4Tcp(flags = 0x02, sequence = 1)
+        assertNull(IpPacket.parseTcp(syn, 30))
+        assertNull(IpPacket.parseTcp(ipv4Udp(), ipv4Udp().size))
+        // A fragment may not even carry the header this reads.
+        assertNull(IpPacket.parseTcp(ipv4Tcp(flags = 0x02, sequence = 1, fragmentOffset = 1), 40))
+    }
+
+    private fun ipv4Tcp(
+        flags: Int,
+        sequence: Long = 0,
+        acknowledgement: Long = 0,
+        fragmentOffset: Int = 0,
+    ): ByteArray {
+        val out = ByteArray(20 + 20)
+        out[0] = 0x45
+        writeShort(out, 2, out.size)
+        writeShort(out, 6, fragmentOffset)
+        out[8] = 64
+        out[9] = IpPacket.PROTOCOL_TCP.toByte()
+        v4Client.copyInto(out, 12)
+        v4Server.copyInto(out, 16)
+        writeTcp(out, 20, flags, sequence, acknowledgement)
+        return out
+    }
+
+    private fun ipv6Tcp(flags: Int, sequence: Long = 0, acknowledgement: Long = 0): ByteArray {
+        val out = ByteArray(40 + 20)
+        out[0] = 0x60
+        writeShort(out, 4, 20)
+        out[6] = IpPacket.PROTOCOL_TCP.toByte()
+        out[7] = 64
+        v6Client.copyInto(out, 8)
+        v6Server.copyInto(out, 24)
+        writeTcp(out, 40, flags, sequence, acknowledgement)
+        return out
+    }
+
+    private fun writeTcp(out: ByteArray, at: Int, flags: Int, sequence: Long, acknowledgement: Long) {
+        writeShort(out, at, 40000)
+        writeShort(out, at + 2, 53)
+        writeInt(out, at + 4, sequence)
+        writeInt(out, at + 8, acknowledgement)
+        out[at + 12] = 0x50
+        out[at + 13] = flags.toByte()
+    }
+
+    private fun readShort(data: ByteArray, at: Int): Int =
+        ((data[at].toInt() and 0xFF) shl 8) or (data[at + 1].toInt() and 0xFF)
+
+    private fun readInt(data: ByteArray, at: Int): Long =
+        ((data[at].toLong() and 0xFF) shl 24) or ((data[at + 1].toLong() and 0xFF) shl 16) or
+            ((data[at + 2].toLong() and 0xFF) shl 8) or (data[at + 3].toLong() and 0xFF)
+
+    private fun writeInt(data: ByteArray, at: Int, value: Long) {
+        data[at] = ((value ushr 24) and 0xFF).toByte()
+        data[at + 1] = ((value ushr 16) and 0xFF).toByte()
+        data[at + 2] = ((value ushr 8) and 0xFF).toByte()
+        data[at + 3] = (value and 0xFF).toByte()
+    }
+
+    /** Sums a header against its IP pseudo-header: zero means the checksum in it verifies. */
+    private fun checksum16(
+        packet: ByteArray,
+        at: Int,
+        length: Int,
+        source: ByteArray,
+        destination: ByteArray,
+    ): Int {
+        var total = 0L
+        listOf(source, destination).forEach { address ->
+            var i = 0
+            while (i + 1 < address.size) {
+                total += ((address[i].toInt() and 0xFF) shl 8) or (address[i + 1].toInt() and 0xFF)
+                i += 2
+            }
+        }
+        total += IpPacket.PROTOCOL_TCP.toLong() + length.toLong()
+        var i = at
+        while (i + 1 < at + length) {
+            total += ((packet[i].toInt() and 0xFF) shl 8) or (packet[i + 1].toInt() and 0xFF)
+            i += 2
+        }
+        while (total shr 16 != 0L) total = (total and 0xFFFF) + (total shr 16)
+        return (total.toInt().inv() and 0xFFFF)
+    }
 }

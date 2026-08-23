@@ -363,6 +363,55 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   and remembers the winner so the dud costs its timeout once rather than on every lookup.
   Reproduced on a device with `192.0.2.1` (TEST-NET-1) listed first: 3.7s for the first lookup,
   then 0.9s and 0.6s.
+- **A dud that *answers* is as common as one that stays silent, and only one of the two was
+  handled.** The fix above moves to the next resolver when nothing comes back; a DNS server that
+  replies SERVFAIL or REFUSED to everything got its refusal relayed straight to the app, and the
+  lookup was over. Every stub resolver on earth — Android's included — treats those two codes as
+  "ask somebody else", which is exactly why such a network looks perfectly healthy with the filter
+  off and resolves nothing with it on. `forward` now keeps a refusal, tries the next resolver, and
+  relays what it kept only if none of them does better — because inventing an answer is worse than
+  a real refusal, and dropping is worse than either: the client then waits out its own timeout to
+  learn what we already knew. **NXDOMAIN is not in this set and must never be**; it is a real
+  answer, and retrying it would send every mistyped domain round every resolver on the network.
+- **Behind a captive portal, the user's choice of DNS server cannot be honoured, and honouring it
+  is how the phone ends up with no internet at all.** A hotel, an airport, a coffee shop: the
+  portal answers DNS on its own resolver and drops port 53 to anywhere else, so a phone set to
+  Cloudflare resolves *nothing* — including the sign-in page it is being asked to open. It is
+  worse than the sum of it, because the tunnel is itself a network the platform validates by
+  resolving a name through it: every app on the phone is then told there is no internet, on a
+  network that is one tap from working. `resolveUpstreams` takes the network's own servers
+  whenever the platform reports `NET_CAPABILITY_CAPTIVE_PORTAL`, which is set the moment Android's
+  probe finds a portal and cleared the moment somebody signs in — no probing of ours, and the
+  chosen server comes back by itself. The status line says so (`upstream_portal`), because
+  otherwise the settings screen names one DNS server and the home screen another.
+- **A capability change on the network already in use is not always nothing.** The battery rule
+  says a change on the network we are already asking cannot move its resolvers, and that is true —
+  but two capabilities decide *whether we may ask them at all*: validation, and the captive
+  portal. Both move without the network moving, and neither arrives through any other callback.
+  Signing in at a hotel is exactly that shape, and without noticing it the filter would ask the
+  portal's DNS server for the rest of the trip. The comparison is free — the capabilities are in
+  the callback's own argument — and only a real change pays for an adoption.
+- **The bypass guard at its top setting plus a named Private DNS server is a phone with no DNS.**
+  The guard routes `8.8.8.8`, `1.1.1.1`, `9.9.9.9` and the rest into a tun that answers UDP 53 and
+  nothing else — and those are precisely the addresses `dns.google`, `one.one.one.one` and
+  `dns.quad9.net` resolve to, which is where every lookup on the phone goes in strict mode, over
+  TCP, with no plaintext fallback. The stand-down for Private DNS already existed and covered only
+  the *network's* own resolvers; the public list went on being routed. `TunnelPolicy.guardCandidates`
+  now stands the whole guard down for a named server (nothing is lost: with DoT in force there is
+  no plaintext lookup left to catch), and because the routes are frozen at `establish()`,
+  `guardMovedWithPrivateDns` rebuilds the tun when that switch is thrown while the filter is
+  running. Automatic Private DNS is a different thing and still only excuses the network's own.
+- **A dropped SYN is not a refusal, it is a wait — and this tunnel carries no TCP.** Everything
+  routed here is routed for DNS, so a connection to one of those addresses used to be swallowed,
+  and the client spent its whole connect timeout on it: a minute or more of an app that looks
+  hung, which is how the bypass guard turned "cannot reach 8.8.8.8" into "this app is broken". The
+  same silence swallowed the TCP retry of a DNS answer too big for UDP, so a lookup we could not
+  finish over TCP upstream simply never finished at all. `IpPacket.buildTcpReset` answers with a
+  reset instead, RFC 793 §3.4 to the letter — an acknowledged segment gets its own acknowledgement
+  number and no ACK flag, anything else gets sequence zero and an acknowledgement covering what
+  arrived, and a reset is never answered with a reset. Get the numbers wrong and the client
+  ignores the reset and goes back to waiting, which is the outcome it exists to prevent. Same
+  reasoning as answering pings: a routed address that says nothing reads as a broken network.
 - **A VPN is metered unless it says otherwise, and that belief spreads to the whole phone.**
   Without `Builder.setMetered(false)` the tunnel's capabilities come back without `NOT_METERED`
   while the Wi-Fi underneath it has it — measured with `dumpsys connectivity`, before and after.

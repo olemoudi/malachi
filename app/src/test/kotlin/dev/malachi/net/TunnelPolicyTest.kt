@@ -265,15 +265,107 @@ class TunnelPolicyTest {
     @Test
     fun `system upstream follows the network`() {
         val resolved = TunnelPolicy.resolveUpstreams(
-            UpstreamDns.SYSTEM, "", listOf(parse("192.168.1.1")!!), sentinels, ::parse,
+            UpstreamDns.SYSTEM, "", listOf(parse("192.168.1.1")!!), sentinels, parse = ::parse,
         )
         assertEquals(listOf("192.168.1.1"), resolved.map { it.hostAddress })
     }
 
     @Test
     fun `a network that hands out no resolver still leaves somewhere to ask`() {
-        val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.SYSTEM, "", emptyList(), sentinels, ::parse)
+        val resolved =
+            TunnelPolicy.resolveUpstreams(UpstreamDns.SYSTEM, "", emptyList(), sentinels, parse = ::parse)
         assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
+    }
+
+    // ---- hotels, airports, coffee shops ------------------------------------------------------
+
+    @Test
+    fun `behind a captive portal the portal's own DNS server is the only one that can work`() {
+        // The failure this prevents is total and reads as the app ignoring a setting: the portal
+        // drops port 53 to anywhere but itself, so a phone set to Cloudflare resolves nothing at
+        // all — including the sign-in page it is being asked to open — and the tunnel then fails
+        // the platform's own validation, so every app on the phone is told there is no internet.
+        val portalDns = listOf(parse("10.0.0.1")!!)
+        val resolved = TunnelPolicy.resolveUpstreams(
+            UpstreamDns.CLOUDFLARE, "", portalDns, sentinels, captivePortal = true, parse = ::parse,
+        )
+        assertEquals(listOf("10.0.0.1"), resolved.map { it.hostAddress })
+    }
+
+    @Test
+    fun `signing in gives the chosen DNS server straight back`() {
+        val portalDns = listOf(parse("10.0.0.1")!!)
+        val resolved = TunnelPolicy.resolveUpstreams(
+            UpstreamDns.CLOUDFLARE, "", portalDns, sentinels, captivePortal = false, parse = ::parse,
+        )
+        assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
+    }
+
+    @Test
+    fun `a portal that hands out no resolver of its own is not a reason to ask nobody`() {
+        val resolved = TunnelPolicy.resolveUpstreams(
+            UpstreamDns.QUAD9, "", emptyList(), sentinels, captivePortal = true, parse = ::parse,
+        )
+        assertEquals(UpstreamDns.QUAD9.addresses, resolved.map { it.hostAddress })
+    }
+
+    // ---- what the bypass guard may route -----------------------------------------------------
+
+    @Test
+    fun `a named private DNS server stands the whole guard down`() {
+        // Otherwise the guard routes 8-8-8-8 and 1-1-1-1 into a tun that answers UDP 53 and
+        // nothing else — and with a hostname configured, every lookup the phone makes is DoT to
+        // exactly one of those addresses, with no plaintext fallback. The phone stops resolving
+        // anything at all, and the cause is us.
+        val candidates = TunnelPolicy.guardCandidates(
+            guard = BypassGuard.PUBLIC_RESOLVERS,
+            networkDnsServers = listOf(parse("192.168.1.1")!!),
+            publicResolvers = listOf(parse("8.8.8.8")!!, parse("1.1.1.1")!!),
+            privateDnsActive = true,
+            privateDnsHost = "dns.google",
+        )
+        assertTrue(candidates.isEmpty(), "the guard routed $candidates while the phone's own DNS went there")
+    }
+
+    @Test
+    fun `automatic private DNS only excuses the network's own resolvers`() {
+        // Automatic is opportunistic and does not defeat this filter: plaintext still flows, so
+        // an app with a hardcoded resolver is still worth catching.
+        val candidates = TunnelPolicy.guardCandidates(
+            guard = BypassGuard.PUBLIC_RESOLVERS,
+            networkDnsServers = listOf(parse("192.168.1.1")!!),
+            publicResolvers = listOf(parse("8.8.8.8")!!),
+            privateDnsActive = true,
+            privateDnsHost = null,
+        )
+        assertEquals(listOf("8.8.8.8"), candidates.map { it.hostAddress })
+    }
+
+    @Test
+    fun `with private DNS off the guard considers both lists`() {
+        val candidates = TunnelPolicy.guardCandidates(
+            guard = BypassGuard.PUBLIC_RESOLVERS,
+            networkDnsServers = listOf(parse("192.168.1.1")!!),
+            publicResolvers = listOf(parse("8.8.8.8")!!),
+            privateDnsActive = false,
+            privateDnsHost = null,
+        )
+        assertEquals(listOf("192.168.1.1", "8.8.8.8"), candidates.map { it.hostAddress })
+        assertTrue(
+            TunnelPolicy.guardCandidates(
+                BypassGuard.OFF, listOf(parse("192.168.1.1")!!), listOf(parse("8.8.8.8")!!), false, null,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `turning a named private DNS server on has to rebuild the tun`() {
+        // The routes are frozen at establish(), so the guard cannot be told to let go afterwards.
+        assertTrue(TunnelPolicy.guardMovedWithPrivateDns(BypassGuard.PUBLIC_RESOLVERS, null, "dns.google"))
+        assertTrue(TunnelPolicy.guardMovedWithPrivateDns(BypassGuard.SYSTEM_RESOLVERS, "dns.google", null))
+        // Not for a change between two named servers, and never when there is no guard to move.
+        assertFalse(TunnelPolicy.guardMovedWithPrivateDns(BypassGuard.PUBLIC_RESOLVERS, "dns.google", "dns.quad9.net"))
+        assertFalse(TunnelPolicy.guardMovedWithPrivateDns(BypassGuard.OFF, null, "dns.google"))
     }
 
     // ---- noticing that the resolvers belong to a network we have left -----------------------
@@ -433,13 +525,13 @@ class TunnelPolicyTest {
 
     @Test
     fun `a custom resolver typed wrong falls back instead of black-holing DNS`() {
-        val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.CUSTOM, "not an address", emptyList(), sentinels, ::parse)
+        val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.CUSTOM, "not an address", emptyList(), sentinels, parse = ::parse)
         assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
     }
 
     @Test
     fun `a custom resolver accepts several separators`() {
-        val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.CUSTOM, "9.9.9.9, 1.1.1.1", emptyList(), sentinels, ::parse)
+        val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.CUSTOM, "9.9.9.9, 1.1.1.1", emptyList(), sentinels, parse = ::parse)
         assertEquals(listOf("9.9.9.9", "1.1.1.1"), resolved.map { it.hostAddress })
     }
 
@@ -447,7 +539,7 @@ class TunnelPolicyTest {
     fun `our own sentinel is never used as an upstream`() {
         // Forwarding to the address the tunnel itself advertises is a loop with no exit.
         val resolved = TunnelPolicy.resolveUpstreams(
-            UpstreamDns.SYSTEM, "", listOf(parse("10.111.222.2")!!), sentinels, ::parse,
+            UpstreamDns.SYSTEM, "", listOf(parse("10.111.222.2")!!), sentinels, parse = ::parse,
         )
         assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
         assertFalse(resolved.any { it.hostAddress in sentinels })

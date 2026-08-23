@@ -262,6 +262,7 @@
     <string name="settings_upstream_title">DNS server</string>
     <string name="settings_upstream_hint">A lookup Malachi allows still has to be answered by somebody. This is who answers it.</string>
     <string name="upstream_system">Whatever the network provides</string>
+    <string name="upstream_portal">This network\'s own, until you sign in</string>
     <string name="upstream_system_hint">Follows the Wi-Fi or mobile network you are on. The safest default.</string>
     <string name="upstream_cloudflare">Cloudflare</string>
     <string name="upstream_google">Google</string>

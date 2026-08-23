@@ -261,6 +261,7 @@
     <string name="settings_upstream_title">Servidor DNS</string>
     <string name="settings_upstream_hint">Una consulta que Malachi permite tiene que contestarla alguien. Esto decide quién.</string>
     <string name="upstream_system">El que dé la red</string>
+    <string name="upstream_portal">El de la red, hasta que inicies sesión</string>
     <string name="upstream_system_hint">Sigue al Wi-Fi o a la red móvil en la que estés. La opción más segura.</string>
     <string name="upstream_cloudflare">Cloudflare</string>
     <string name="upstream_google">Google</string>

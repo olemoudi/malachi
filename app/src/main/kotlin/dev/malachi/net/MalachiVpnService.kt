@@ -186,6 +186,16 @@ class MalachiVpnService : VpnService() {
     @Volatile private var networkPinnable = false
 
     /**
+     * Whether the platform has found a captive portal on [activeNetwork] — a hotel, an airport,
+     * a coffee shop, anything with a page to sign in on.
+     *
+     * Kept because it decides *whose* resolvers to ask: a portal carries DNS to its own server
+     * and drops it to anywhere else, so this is the one state in which the user's choice of DNS
+     * server has to be set aside. Cleared by the platform the moment somebody signs in.
+     */
+    @Volatile private var networkPortal = false
+
+    /**
      * Its interface name and when it was adopted, both for the diagnostics header.
      *
      * "These are `rmnet16`'s resolvers and they were adopted eleven hours ago" is the whole
@@ -221,6 +231,7 @@ class MalachiVpnService : VpnService() {
     /** The resolver that last answered, tried first next time. See [forward]. */
     @Volatile private var lastGoodUpstream: InetAddress? = null
     @Volatile private var lastSilentUpstreamLogMs = 0L
+    @Volatile private var lastRefusedUpstreamLogMs = 0L
     @Volatile private var lastSocketTroubleLogMs = 0L
 
     /** Consecutive refusals of [pin]; at [PIN_ATTEMPTS] the tunnel stops asking. */
@@ -333,6 +344,8 @@ class MalachiVpnService : VpnService() {
             }
             networkDnsServers = emptyList()
             networkPinnable = false
+            // Whatever the network we have lost was behind, we are not behind it any more.
+            networkPortal = false
             upstreams = resolveUpstreams()
             // The network we were naming to the platform has gone with it.
             followSystemDefault()
@@ -393,6 +406,18 @@ class MalachiVpnService : VpnService() {
                 if (now - lastUnderlyingRecheckMs < UNDERLYING_RECHECK_INTERVAL_MS) return
                 lastUnderlyingRecheckMs = now
                 return adoptUnderlying(null)
+            }
+            // The network we are already asking, so its resolvers cannot have moved — but two of
+            // these capabilities decide *whether we may ask them at all*, and neither arrives any
+            // other way. A captive portal appearing, and a portal being signed in, are both a
+            // capability change on a network that stays exactly where it is; without this the
+            // filter would go on asking the portal's DNS server for the rest of the trip.
+            // Free unless something moved: the capabilities are already in hand.
+            val moved = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) != networkPinnable ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) != networkPortal
+            if (moved) {
+                val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull()
+                if (linkProperties != null) return adoptNetwork(network, linkProperties)
             }
             publishLockdown()
         }
@@ -777,17 +802,18 @@ class MalachiVpnService : VpnService() {
      * more and risks more. That is why this is a dial the user sets and not a default we choose.
      */
     private fun applyBypassGuard(builder: Builder, settings: MalachiSettings) {
-        if (settings.bypassGuard == BypassGuard.OFF) return
-
         // With Private DNS on, the "system resolver" is a DoT endpoint reached over TCP. Routing
         // it here would black-hole the device's DNS entirely, so the guard stands down and the
-        // UI says why (see FilterStatus.privateDnsActive).
-        val candidates = buildList {
-            if (!privateDnsActive) addAll(networkDnsServers)
-            if (settings.bypassGuard == BypassGuard.PUBLIC_RESOLVERS) {
-                addAll(PUBLIC_RESOLVERS.mapNotNull { numericAddress(it) })
-            }
-        }
+        // UI says why (see FilterStatus.privateDnsActive). A *named* server stands the whole
+        // guard down, public list included — that name resolves to one of the addresses on it.
+        val candidates = TunnelPolicy.guardCandidates(
+            guard = settings.bypassGuard,
+            networkDnsServers = networkDnsServers,
+            publicResolvers = PUBLIC_RESOLVERS.mapNotNull { numericAddress(it) },
+            privateDnsActive = privateDnsActive,
+            privateDnsHost = privateDnsHost,
+        )
+        if (candidates.isEmpty()) return
 
         // Public addresses only — see TunnelPolicy.routableByGuard. The network's own resolver
         // is usually the router, and a routed router is a router that answers nothing but DNS:
@@ -975,6 +1001,12 @@ class MalachiVpnService : VpnService() {
         val began = SystemClock.elapsedRealtime()
         val deadline = began + UPSTREAM_TIMEOUT_MS
         val generation = networkGeneration
+        // A resolver that replied "I cannot answer that". Kept rather than relayed at once,
+        // because the next resolver on the list very often can — and kept rather than dropped,
+        // because if none of them can then this is the honest answer and the client is owed it
+        // now instead of after its own timeout. See [DnsMessage.isServerFailure].
+        var refusal: ByteArray? = null
+        var refusedBy: InetAddress? = null
 
         candidates.forEachIndexed { index, target ->
             // The network moved while we were waiting. Everything left in this list belongs to
@@ -1019,9 +1051,26 @@ class MalachiVpnService : VpnService() {
                 return@forEachIndexed
             }
             sockets.give(loan)
+            // Answered, but with a refusal. Every stub resolver on the phone would move to the
+            // next server here, and a router that advertises a resolver which SERVFAILs or
+            // REFUSEs everything is common enough that not doing so made whole networks look
+            // broken with the filter on and perfect with it off. The verdict was right, the
+            // lookup left, and what came back said no.
+            if (DnsMessage.isServerFailure(answer) && index < candidates.lastIndex) {
+                refusal = answer
+                refusedBy = target
+                if (tracing()) {
+                    DebugLog.trace(
+                        TAG,
+                        "$name: ${target.hostAddress} refused it (rcode ${DnsMessage.rcode(answer)}), trying the next",
+                    )
+                }
+                noteRefusingUpstream(target, DnsMessage.rcode(answer))
+                return@forEachIndexed
+            }
             // Remembered so the next lookup starts with the one that works rather than paying
-            // the dud's timeout again.
-            lastGoodUpstream = target
+            // the dud's timeout again. A resolver that only ever refuses is not that resolver.
+            if (!DnsMessage.isServerFailure(answer)) lastGoodUpstream = target
             // The elapsed time is measured from the start of the *lookup*, not of this attempt:
             // a name that took four seconds because the first DNS server was silent is a name the
             // app waited four seconds for, and reporting the 80ms the second one took would hide
@@ -1042,6 +1091,20 @@ class MalachiVpnService : VpnService() {
                 )
             }
             writeToTun(IpPacket.buildUdpResponse(request, resolveTruncated(answer, query, target)))
+            return
+        }
+        // Nobody could answer it, but somebody said so. Relaying that beats dropping: the client
+        // finds out now rather than waiting out its own timeout, and it is a real resolver's
+        // words rather than anything of ours.
+        val kept = refusal
+        if (kept != null) {
+            if (tracing()) {
+                DebugLog.trace(TAG, "$name: every resolver refused it; relaying ${refusedBy?.hostAddress}'s answer")
+            }
+            if (traced) {
+                AppTrace.answered(name, type, refusedBy?.hostAddress.orEmpty(), SystemClock.elapsedRealtime() - began)
+            }
+            writeToTun(IpPacket.buildUdpResponse(request, kept))
             return
         }
         if (tracing()) DebugLog.trace(TAG, "$name: NOTHING ANSWERED — ${candidates.size} resolver(s) tried")
@@ -1086,6 +1149,20 @@ class MalachiVpnService : VpnService() {
         if (now - lastSocketTroubleLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
         lastSocketTroubleLogMs = now
         DebugLog.w(TAG, what)
+    }
+
+    /**
+     * Names a resolver that answers with a refusal, at most once a minute.
+     *
+     * Worth a line of its own rather than folding into the silent case: they look identical from
+     * a phone ("nothing loads") and are opposite from here — one is a network that is down, the
+     * other is a network that is up and handing out a DNS server that says no to everything.
+     */
+    private fun noteRefusingUpstream(target: InetAddress, rcode: Int?) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastRefusedUpstreamLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
+        lastRefusedUpstreamLogMs = now
+        DebugLog.w(TAG, "${target.hostAddress} refuses lookups (rcode $rcode); trying the next resolver")
     }
 
     private fun noteSilentUpstream(target: InetAddress) {
@@ -1262,6 +1339,16 @@ class MalachiVpnService : VpnService() {
         val protocol = IpPacket.protocol(packet, length)
         if (protocol == IpPacket.PROTOCOL_ICMP || protocol == IpPacket.PROTOCOL_ICMPV6) {
             IpPacket.parseEcho(packet, length)?.let { return relayPing(it) }
+        }
+        // Refused rather than swallowed. This tunnel carries no TCP, and a dropped SYN is not a
+        // refusal — it is a client waiting out its own connect timeout, which is a minute or more
+        // of an app that looks hung. Two things arrive here: a connection to an address the
+        // bypass guard routes, and the TCP retry of a DNS answer too big for UDP. Both are
+        // better off being told no now. See [IpPacket.buildTcpReset].
+        if (protocol == IpPacket.PROTOCOL_TCP) {
+            IpPacket.parseTcp(packet, length)?.let { segment ->
+                IpPacket.buildTcpReset(segment)?.let { writeToTun(it) }
+            }
         }
         if (protocol in IpPacket.ROUTINE_ON_A_TUN) return
         dropUnroutable(describe(packet, length))
@@ -1464,15 +1551,22 @@ class MalachiVpnService : VpnService() {
         }
 
         val dnsServers = linkProperties.dnsServers.orEmpty()
+        // One read for both questions rather than one each: this is a binder round trip and the
+        // callbacks that reach here arrive several times a minute on a phone in a pocket.
+        val capabilities = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
+        val portal = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
         // Adoption arrives more than once for the same network — onAvailable and then
         // onLinkPropertiesChanged — and it is not free: it closes every pooled socket and
-        // forgets which resolver was answering. Only a real change is worth that.
-        val changed = network != activeNetwork || dnsServers != networkDnsServers
+        // forgets which resolver was answering. Only a real change is worth that. A portal
+        // appearing or being signed in is one: it changes which resolvers we may ask at all.
+        val changed = network != activeNetwork || dnsServers != networkDnsServers || portal != networkPortal
+        val portalMoved = portal != networkPortal
         activeNetwork = network
         networkDnsServers = dnsServers
+        networkPortal = portal
         // Whether this one is worth tying sockets to, which is a different question from whether
         // its resolvers are worth asking. See [networkPinnable].
-        val pinnable = isValidated(network)
+        val pinnable = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         if (pinnable != networkPinnable) {
             networkPinnable = pinnable
             if (!pinnable) {
@@ -1498,6 +1592,19 @@ class MalachiVpnService : VpnService() {
                     dnsServers.joinToString(prefix = "[", postfix = "]") { it.hostAddress.orEmpty() },
             )
             upstreams = resolveUpstreams()
+            // Said out loud in both directions, because from outside it looks like the app
+            // ignoring a setting: behind a portal the chosen DNS server is unreachable by
+            // construction and asking it resolves nothing at all, including the sign-in page.
+            if (portalMoved) {
+                DebugLog.w(
+                    TAG,
+                    if (portal) {
+                        "this network has a captive portal; asking its own DNS servers until it is signed in"
+                    } else {
+                        "the captive portal is signed in; lookups go back to ${upstreamLabel()}"
+                    },
+                )
+            }
             // The resolver that worked belonged to the network that has just gone.
             lastGoodUpstream = null
             // Pooled sockets are bound to the network that existed when they were made.
@@ -1519,11 +1626,19 @@ class MalachiVpnService : VpnService() {
         // minute, forever, to re-state facts that had not moved.
         val privateDnsMoved = privateDnsActive != linkProperties.isPrivateDnsActive ||
             privateDnsHost != linkProperties.privateDnsServerName
+        // The guard's routes are frozen at establish(), and this is the one Private DNS change
+        // that makes them dangerous rather than merely stale: see [TunnelPolicy.guardCandidates].
+        val guardMoved = TunnelPolicy.guardMovedWithPrivateDns(
+            guard = settings.bypassGuard,
+            previousHost = privateDnsHost,
+            nextHost = linkProperties.privateDnsServerName,
+        )
         privateDnsActive = linkProperties.isPrivateDnsActive
         privateDnsHost = linkProperties.privateDnsServerName
         // Deliberately not folded into `changed`: Private DNS is a switch in the system settings
         // and moves without the network or its resolvers moving at all.
         if (privateDnsMoved) VpnStatus.privateDns(privateDnsActive, privateDnsHost)
+        if (guardMoved) rebuildForPrivateDns()
         publishLockdown(force = changed)
         // Only a network the platform vouches for is named as what carries this tunnel. Naming
         // an unvalidated one would advertise a tunnel that reaches nothing; null is not silence,
@@ -1666,6 +1781,24 @@ class MalachiVpnService : VpnService() {
         declareUnderlying(null)
     }
 
+    /**
+     * Rebuilds the tun because the bypass guard's frozen routes have become wrong.
+     *
+     * Off the callback thread: [startTunnel] takes the tunnel lock and waits for the read loop,
+     * and a network callback is not a place to spend seconds. Guarded on there being a tunnel at
+     * all, because the only thing worth interrupting is one whose routes are already out there.
+     */
+    private fun rebuildForPrivateDns() {
+        if (tunnel == null) return
+        scope.launch {
+            synchronized(tunnelLock) {
+                if (tunnel == null) return@synchronized
+                DebugLog.w(TAG, "Private DNS changed; rebuilding so the bypass guard cannot swallow the phone's own DNS")
+                startTunnel(settings)
+            }
+        }
+    }
+
     private fun isVpn(network: Network): Boolean =
         cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
 
@@ -1769,11 +1902,16 @@ class MalachiVpnService : VpnService() {
         customUpstream = settings.customUpstream,
         networkDnsServers = networkDnsServers,
         sentinels = SENTINELS,
+        captivePortal = networkPortal,
         parse = ::numericAddress,
     )
 
-    private fun upstreamLabel(): String = when (settings.upstream) {
-        UpstreamDns.SYSTEM -> getString(R.string.upstream_system)
+    private fun upstreamLabel(): String = when {
+        // Said plainly, because otherwise the settings screen names one DNS server and the home
+        // screen another, and the app looks like it is ignoring the choice rather than working
+        // around a network that would refuse it.
+        networkPortal && networkDnsServers.isNotEmpty() -> getString(R.string.upstream_portal)
+        settings.upstream == UpstreamDns.SYSTEM -> getString(R.string.upstream_system)
         else -> upstreams.firstOrNull()?.hostAddress ?: getString(R.string.upstream_system)
     }
 
@@ -2069,7 +2207,8 @@ class MalachiVpnService : VpnService() {
             TAG,
             "network=${networkLabel.ifEmpty { "unknown" }} (adopted $adoptedAgo) " +
                 "dns=${networkDnsServers.joinToString { it.hostAddress.orEmpty() }} " +
-                "private=${privateDnsHost ?: if (privateDnsActive) "automatic" else "off"}",
+                "private=${privateDnsHost ?: if (privateDnsActive) "automatic" else "off"} " +
+                "portal=${if (networkPortal) "yes, asking its own DNS servers" else "no"}",
         )
         // Whether the queries are leaving by the network their resolvers came from or merely by
         // whatever the default route happens to be. The whole question of 0.9.2 through 0.9.10,

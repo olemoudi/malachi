@@ -1,6 +1,7 @@
 package dev.malachi.net
 
 import dev.malachi.data.AppScopeMode
+import dev.malachi.data.BypassGuard
 import dev.malachi.data.MalachiSettings
 import dev.malachi.data.UpstreamDns
 import java.net.InetAddress
@@ -168,16 +169,75 @@ object TunnelPolicy {
         customUpstream: String,
         networkDnsServers: List<InetAddress>,
         sentinels: Set<String>,
+        captivePortal: Boolean = false,
         parse: (String) -> InetAddress?,
     ): List<InetAddress> {
-        val configured = when (upstream) {
-            UpstreamDns.SYSTEM -> networkDnsServers
-            UpstreamDns.CUSTOM -> customUpstream.split(',', ' ').mapNotNull { parse(it.trim()) }
-            else -> upstream.addresses.mapNotNull { parse(it) }
+        val chosen = when {
+            // Behind a captive portal the only DNS server that answers is the portal's own, and
+            // that is not a preference — it is the whole of what the network will carry until
+            // somebody signs in. A hotel, an airport, a coffee shop: the portal drops port 53 to
+            // anywhere else, so a phone whose upstream is set to Cloudflare resolves *nothing*,
+            // including the page it is being asked to sign in on. Worse than the sum of it: the
+            // tunnel is itself a network the platform validates by resolving a name through it,
+            // so every app on the phone is told there is no internet at all.
+            //
+            // Deliberately keyed on the platform's own answer (NET_CAPABILITY_CAPTIVE_PORTAL)
+            // rather than on lookups failing: it is set the moment Android's probe finds a
+            // portal, cleared the moment the portal is signed in, and needs no probing of ours.
+            captivePortal && networkDnsServers.isNotEmpty() -> networkDnsServers
+            else -> when (upstream) {
+                UpstreamDns.SYSTEM -> networkDnsServers
+                UpstreamDns.CUSTOM -> customUpstream.split(',', ' ').mapNotNull { parse(it.trim()) }
+                else -> upstream.addresses.mapNotNull { parse(it) }
+            }
         }.filterNot { it.hostAddress.orEmpty() in sentinels }
 
-        return configured.ifEmpty { UpstreamDns.CLOUDFLARE.addresses.mapNotNull { parse(it) } }
+        return chosen.ifEmpty { UpstreamDns.CLOUDFLARE.addresses.mapNotNull { parse(it) } }
     }
+
+    /**
+     * What the bypass guard may consider routing into the tun, before the public-address filter
+     * in [routableByGuard].
+     *
+     * **A named Private DNS server stands the whole guard down, and that is not caution.** With
+     * a hostname configured, every lookup the phone makes leaves as DoT over TCP to whatever
+     * that name resolves to — and the names people configure are `dns.google`,
+     * `one.one.one.one`, `dns.quad9.net`: the very addresses in [publicResolvers]. Routing one
+     * of them into a tun that answers UDP 53 and nothing else black-holes the only DNS path the
+     * device has, in strict mode with no fallback, so the phone stops resolving anything at all.
+     * Nothing is lost by standing down either: with DoT in force there is no plaintext lookup
+     * for the guard to catch, which is exactly what the screen already tells the user.
+     *
+     * Automatic Private DNS is a different thing and only excuses the *network's* own resolvers
+     * (see [dev.malachi.net.MalachiVpnService]): plaintext still flows, so the guard still works.
+     */
+    fun guardCandidates(
+        guard: BypassGuard,
+        networkDnsServers: List<InetAddress>,
+        publicResolvers: List<InetAddress>,
+        privateDnsActive: Boolean,
+        privateDnsHost: String?,
+    ): List<InetAddress> = when {
+        guard == BypassGuard.OFF -> emptyList()
+        privateDnsHost != null -> emptyList()
+        else -> buildList {
+            if (!privateDnsActive) addAll(networkDnsServers)
+            if (guard == BypassGuard.PUBLIC_RESOLVERS) addAll(publicResolvers)
+        }
+    }
+
+    /**
+     * Whether a Private DNS change has made the tun's frozen routes wrong.
+     *
+     * The routes are baked in at `establish()` and everything else about Private DNS is read per
+     * lookup, so this is the one case that has to cost a rebuild: switching Private DNS on to a
+     * named server while the filter is running leaves the guard holding a route to the address
+     * that server lives at, and the phone loses DNS until something else rebuilds the tunnel.
+     * Rare enough to be worth the blink — it is a switch a person throws by hand, in a screen
+     * this app links to — and the alternative is a device that resolves nothing.
+     */
+    fun guardMovedWithPrivateDns(guard: BypassGuard, previousHost: String?, nextHost: String?): Boolean =
+        guard != BypassGuard.OFF && (previousHost == null) != (nextHost == null)
 
     /**
      * Whether the bypass guard may route [address] into the tun.

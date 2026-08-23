@@ -39,6 +39,28 @@ class IcmpEcho(
 )
 
 /**
+ * A TCP segment addressed to something this tunnel routes, reduced to what refusing it needs.
+ *
+ * Refusing is the point. Every address routed into this tun is routed for DNS, and this tunnel
+ * carries no TCP at all — so a connection to one of them used to be swallowed, and a swallowed
+ * SYN is not a refusal, it is a wait: the client retries for a minute or more before giving up.
+ * That is how the bypass guard turned "this app cannot reach 8.8.8.8" into "this app hangs", and
+ * how a DNS answer too big for UDP — the client's next move is the same lookup over TCP — turned
+ * into a lookup that never finished. A reset says no in one packet.
+ */
+class TcpSegment(
+    val ipVersion: Int,
+    val sourceAddress: ByteArray,
+    val destinationAddress: ByteArray,
+    val sourcePort: Int,
+    val destinationPort: Int,
+    val sequence: Long,
+    val acknowledgement: Long,
+    val flags: Int,
+    val dataLength: Int,
+)
+
+/**
  * IPv4 and IPv6 packet reading and writing, for UDP and for ICMP echo.
  *
  * IPv6 is not optional politeness here: a phone on a mobile network is routinely IPv6-only, and
@@ -48,12 +70,19 @@ class IcmpEcho(
 object IpPacket {
 
     const val PROTOCOL_UDP = 17
+    const val PROTOCOL_TCP = 6
     const val PROTOCOL_ICMP = 1
     const val PROTOCOL_ICMPV6 = 58
 
     private const val IPV4_HEADER_BYTES = 20
     private const val IPV6_HEADER_BYTES = 40
     private const val UDP_HEADER_BYTES = 8
+    private const val TCP_HEADER_BYTES = 20
+
+    private const val TCP_FIN = 0x01
+    private const val TCP_SYN = 0x02
+    private const val TCP_RST = 0x04
+    private const val TCP_ACK = 0x10
     private const val ICMP_HEADER_BYTES = 8
     private const val DEFAULT_HOP_LIMIT = 64
 
@@ -164,6 +193,121 @@ object IpPacket {
         } else {
             buildIpv6(request.destinationAddress, request.sourceAddress, request.destinationPort, request.sourcePort, payload)
         }
+
+    /** Reads a TCP segment out of [packet], or null when it isn't one we can refuse. */
+    fun parseTcp(packet: ByteArray, length: Int): TcpSegment? {
+        if (length < 1) return null
+        return when ((packet[0].toInt() and 0xF0) shr 4) {
+            4 -> parseTcpV4(packet, length)
+            6 -> parseTcpV6(packet, length)
+            else -> null
+        }
+    }
+
+    private fun parseTcpV4(packet: ByteArray, length: Int): TcpSegment? {
+        if (length < IPV4_HEADER_BYTES) return null
+        val headerBytes = (packet[0].toInt() and 0x0F) * 4
+        if (headerBytes < IPV4_HEADER_BYTES || length < headerBytes + TCP_HEADER_BYTES) return null
+        if (packet[9].toInt() and 0xFF != PROTOCOL_TCP) return null
+        // A fragment carries part of a segment, so its header may not even be here.
+        if (readShort(packet, 6) and 0x1FFF != 0) return null
+        val total = minOf(length, readShort(packet, 2))
+        return tcpAt(
+            packet, total, headerBytes, ipVersion = 4,
+            source = packet.copyOfRange(12, 16),
+            destination = packet.copyOfRange(16, 20),
+        )
+    }
+
+    private fun parseTcpV6(packet: ByteArray, length: Int): TcpSegment? {
+        if (length < IPV6_HEADER_BYTES + TCP_HEADER_BYTES) return null
+        // Extension headers are not walked, for the same reason they are not walked for UDP:
+        // nothing generates them here, and declining is safe where guessing is not.
+        if (packet[6].toInt() and 0xFF != PROTOCOL_TCP) return null
+        val total = minOf(length, IPV6_HEADER_BYTES + readShort(packet, 4))
+        return tcpAt(
+            packet, total, IPV6_HEADER_BYTES, ipVersion = 6,
+            source = packet.copyOfRange(8, 24),
+            destination = packet.copyOfRange(24, 40),
+        )
+    }
+
+    private fun tcpAt(
+        packet: ByteArray,
+        length: Int,
+        headerBytes: Int,
+        ipVersion: Int,
+        source: ByteArray,
+        destination: ByteArray,
+    ): TcpSegment? {
+        val dataOffset = ((packet[headerBytes + 12].toInt() and 0xF0) shr 4) * 4
+        if (dataOffset < TCP_HEADER_BYTES || length < headerBytes + dataOffset) return null
+        return TcpSegment(
+            ipVersion = ipVersion,
+            sourceAddress = source,
+            destinationAddress = destination,
+            sourcePort = readShort(packet, headerBytes),
+            destinationPort = readShort(packet, headerBytes + 2),
+            sequence = readInt(packet, headerBytes + 4),
+            acknowledgement = readInt(packet, headerBytes + 8),
+            flags = packet[headerBytes + 13].toInt() and 0xFF,
+            dataLength = length - headerBytes - dataOffset,
+        )
+    }
+
+    /**
+     * The reset that refuses [segment], addressed back the way it came — or null when there is
+     * nothing to refuse.
+     *
+     * Follows RFC 793 §3.4 exactly, because a client that reads the sequence numbers and finds
+     * them wrong ignores the reset and goes back to waiting, which is the outcome this exists to
+     * avoid: an acknowledged segment is answered with its own acknowledgement number and no ACK
+     * flag, anything else with sequence zero and an acknowledgement covering what arrived — a SYN
+     * and a FIN each counting as one byte. A reset is never answered with a reset.
+     */
+    fun buildTcpReset(segment: TcpSegment): ByteArray? {
+        if (segment.flags and TCP_RST != 0) return null
+        val acknowledged = segment.flags and TCP_ACK != 0
+        val sequence = if (acknowledged) segment.acknowledgement else 0L
+        val acknowledgement = if (acknowledged) {
+            0L
+        } else {
+            val counted = segment.dataLength +
+                (if (segment.flags and TCP_SYN != 0) 1 else 0) +
+                (if (segment.flags and TCP_FIN != 0) 1 else 0)
+            (segment.sequence + counted) and 0xFFFFFFFFL
+        }
+        val flags = if (acknowledged) TCP_RST else TCP_RST or TCP_ACK
+        val ipHeaderBytes = if (segment.ipVersion == 4) IPV4_HEADER_BYTES else IPV6_HEADER_BYTES
+        val out = ByteArray(ipHeaderBytes + TCP_HEADER_BYTES)
+        // Source and destination swapped: this has to look like the host that was addressed.
+        val source = segment.destinationAddress
+        val destination = segment.sourceAddress
+        if (segment.ipVersion == 4) {
+            writeIpv4Header(out, source, destination, PROTOCOL_TCP)
+        } else {
+            writeIpv6Header(out, source, destination, PROTOCOL_TCP, TCP_HEADER_BYTES)
+        }
+        writeShort(out, ipHeaderBytes, segment.destinationPort)
+        writeShort(out, ipHeaderBytes + 2, segment.sourcePort)
+        writeInt(out, ipHeaderBytes + 4, sequence)
+        writeInt(out, ipHeaderBytes + 8, acknowledgement)
+        out[ipHeaderBytes + 12] = 0x50 // five words of header, no options
+        out[ipHeaderBytes + 13] = flags.toByte()
+        // Window zero: there is nothing to receive, and this connection is over.
+        writeShort(out, ipHeaderBytes + 16, tcpChecksum(out, source, destination, ipHeaderBytes))
+        return out
+    }
+
+    /** TCP checksum over the IP pseudo-header plus the header itself; no payload to cover. */
+    private fun tcpChecksum(packet: ByteArray, source: ByteArray, destination: ByteArray, tcpStart: Int): Int {
+        val total = sum(source, 0, source.size) +
+            sum(destination, 0, destination.size) +
+            PROTOCOL_TCP.toLong() +
+            TCP_HEADER_BYTES.toLong() +
+            sum(packet, tcpStart, TCP_HEADER_BYTES)
+        return onesComplement(total)
+    }
 
     /**
      * Reads an ICMP or ICMPv6 echo request out of [packet], or null when it is anything else.
@@ -366,6 +510,19 @@ object IpPacket {
         var folded = sum
         while (folded shr 16 != 0L) folded = (folded and 0xFFFF) + (folded shr 16)
         return (folded.inv() and 0xFFFF).toInt()
+    }
+
+    private fun readInt(data: ByteArray, at: Int): Long =
+        ((data[at].toLong() and 0xFF) shl 24) or
+            ((data[at + 1].toLong() and 0xFF) shl 16) or
+            ((data[at + 2].toLong() and 0xFF) shl 8) or
+            (data[at + 3].toLong() and 0xFF)
+
+    private fun writeInt(data: ByteArray, at: Int, value: Long) {
+        data[at] = ((value ushr 24) and 0xFF).toByte()
+        data[at + 1] = ((value ushr 16) and 0xFF).toByte()
+        data[at + 2] = ((value ushr 8) and 0xFF).toByte()
+        data[at + 3] = (value and 0xFF).toByte()
     }
 
     private fun readShort(data: ByteArray, at: Int): Int =
