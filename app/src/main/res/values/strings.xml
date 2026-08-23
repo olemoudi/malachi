@@ -336,7 +336,7 @@
     <string name="channel_warn_confirm">Use testing builds</string>
     <string name="channel_waiting">You are on a build newer than the stable channel (%1$s). You will rejoin it at the next stable release.</string>
     <string name="channel_waiting_manual">To return now, save a backup and reinstall the stable version by hand.</string>
-    <string name="notes_title">What\'s new in %1$s</string>
+    <string name="notes_title">What\'s new</string>
     <string name="notes_dismiss">Got it</string>
     <string name="settings_diagnostics_title">Diagnostics</string>
     <string name="settings_trace">Diagnostic tracing</string>

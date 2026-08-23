@@ -335,7 +335,7 @@
     <string name="channel_warn_confirm">Usar versiones de pruebas</string>
     <string name="channel_waiting">Estás en una versión más nueva que el canal estable (%1$s). Volverás a él con la próxima versión estable.</string>
     <string name="channel_waiting_manual">Para volver ya, guarda una copia de seguridad y reinstala la versión estable a mano.</string>
-    <string name="notes_title">Novedades de %1$s</string>
+    <string name="notes_title">Novedades</string>
     <string name="notes_dismiss">Entendido</string>
     <string name="settings_diagnostics_title">Diagnóstico</string>
     <string name="settings_trace">Trazas de diagnóstico</string>
