@@ -1108,14 +1108,27 @@ the one path every revival has in common.
   tag that lands on it produces no Release run at all, silently: no failure, no run, nothing to
   look at. Cut the tag on a commit of your own (an empty `chore: cut vX.Y.Z` will do) and check
   that the Release workflow actually started.
-- **And never write that marker into a commit message, not even to explain it.** GitHub reads the
-  *whole* message of the push's head commit, body included, so quoting it in prose skips
+- **And never write that marker into a commit that needs a run, not even to explain it.** GitHub
+  reads the *whole* message of the push's head commit, body included, so quoting it in prose skips
   everything that commit is the head of — the Release the tag was for, and the CI of the push
   that carried it. Done exactly once, by a `chore: cut v1.5.1-beta` whose body quoted the rule
   directly above this one: three pushes, no runs, no failures, nothing on the Actions tab to read.
   The tell is a commit whose check suites are empty while the push before and after it have four
   each — `gh api repos/olemoudi/malachi/commits/<sha>/check-suites` says so in one line, and it is
-  the first thing to ask when a tag produces no run. Describe the marker, never spell it.
+  the first thing to ask when a tag produces no run. In a cut commit, describe the marker rather
+  than spelling it; the one place it belongs is the subject of a manifest or badge commit, which
+  is exactly what CI writes and what a hand-written repair of one should carry too.
+- **The commit a tag is cut on has to be on `main`.** Not for tidiness: the last step of the
+  release checks out the *tag*, commits the channel manifest on top of it and replays that onto
+  `main` before pushing. A tag cut on a detached commit therefore asks git to rebase the whole
+  tagged state onto main, which conflicts with every file that has moved since — five add/add
+  conflicts here, then four more attempts refusing to start because the first rebase was still
+  open. What that leaves behind is the worst-shaped failure this pipeline has: a **published
+  release nobody's channel points at**, a red run whose APK is perfectly good, and a fleet that
+  goes on being offered the version before it. Done while re-cutting a tag whose first commit had
+  tripped the rule above and whose tree main had already moved past — the fix was to hand-write
+  the manifest CI had built (the release existed by then, so the rule against hand-committing one
+  did not apply) and to keep the next cut on main.
 - **Never mark a `-beta` release as a pre-release on GitHub.** The whole distribution model hangs
   off `…/releases/latest/download/…`, and that path skips pre-releases: marking the stable one
   would 404 the install QR in the README *and* the `version.json` every pre-channel install polls,
