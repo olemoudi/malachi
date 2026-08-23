@@ -1108,6 +1108,14 @@ the one path every revival has in common.
   tag that lands on it produces no Release run at all, silently: no failure, no run, nothing to
   look at. Cut the tag on a commit of your own (an empty `chore: cut vX.Y.Z` will do) and check
   that the Release workflow actually started.
+- **And never write that marker into a commit message, not even to explain it.** GitHub reads the
+  *whole* message of the push's head commit, body included, so quoting it in prose skips
+  everything that commit is the head of — the Release the tag was for, and the CI of the push
+  that carried it. Done exactly once, by a `chore: cut v1.5.1-beta` whose body quoted the rule
+  directly above this one: three pushes, no runs, no failures, nothing on the Actions tab to read.
+  The tell is a commit whose check suites are empty while the push before and after it have four
+  each — `gh api repos/olemoudi/malachi/commits/<sha>/check-suites` says so in one line, and it is
+  the first thing to ask when a tag produces no run. Describe the marker, never spell it.
 - **Never mark a `-beta` release as a pre-release on GitHub.** The whole distribution model hangs
   off `…/releases/latest/download/…`, and that path skips pre-releases: marking the stable one
   would 404 the install QR in the README *and* the `version.json` every pre-channel install polls,
