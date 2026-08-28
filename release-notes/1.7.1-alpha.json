@@ -1,0 +1,4 @@
+{
+  "en": "The diagnostics window now says what Malachi has cost the phone.\n\n• One new line in the diagnostics header: how much processor time Malachi has used since it started, as a share of the time it has been running, with counts of how often the network changed under it and how much traffic it handled. It is the number to look at when a battery panel points somewhere and you want to know whether Malachi is the reason.",
+  "es": "La ventana de diagnóstico ahora dice lo que Malachi le ha costado al móvil.\n\n• Una línea nueva en la cabecera de diagnóstico: cuánto procesador ha usado Malachi desde que arrancó, como porcentaje del tiempo que lleva en marcha, con cuántas veces ha cambiado la red por debajo y cuánto tráfico ha manejado. Es el dato que hay que mirar cuando el panel de batería señala a alguien y quieres saber si Malachi es la causa."
+}
