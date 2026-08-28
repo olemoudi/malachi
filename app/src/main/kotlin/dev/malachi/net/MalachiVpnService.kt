@@ -242,6 +242,10 @@ class MalachiVpnService : VpnService() {
     /** When a network we are *not* using last made us go and decide again; see the callback. */
     @Volatile private var lastUnderlyingRecheckMs = 0L
 
+    /** What this process has cost so far, read into the diagnostics header. See [TunnelCounters]. */
+    private val counters = TunnelCounters()
+    private var serviceStartedMs = 0L
+
     /** UID → package name. Stable for the life of an install, and asked for on every lookup. */
     private val uidPackages = ConcurrentHashMap<Int, String>()
 
@@ -312,10 +316,12 @@ class MalachiVpnService : VpnService() {
          * that network, with every lookup timing out and nothing anywhere saying why.
          */
         override fun onAvailable(network: Network) {
+            counters.events++
             runCatching { cm.getLinkProperties(network) }.getOrNull()?.let { adoptNetwork(network, it) }
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            counters.events++
             adoptNetwork(network, linkProperties)
         }
 
@@ -331,6 +337,7 @@ class MalachiVpnService : VpnService() {
          * blocks outside resolvers, it is not even working DNS.
          */
         override fun onLost(network: Network) {
+            counters.events++
             if (network != activeNetwork) return
             activeNetwork = null
             // The replacement is usually already up: this is a handover, not an outage. Adopting
@@ -369,10 +376,15 @@ class MalachiVpnService : VpnService() {
      * how this app once ended up adopting the resolvers of a network it was sending nothing over.
      */
     private val underlyingCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = adoptUnderlying(network.takeIf { platformPicksBest })
-
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
+        override fun onAvailable(network: Network) {
+            counters.events++
             adoptUnderlying(network.takeIf { platformPicksBest })
+        }
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            counters.events++
+            adoptUnderlying(network.takeIf { platformPicksBest })
+        }
 
         /**
          * Capabilities move constantly and almost none of it matters here.
@@ -391,6 +403,8 @@ class MalachiVpnService : VpnService() {
          * per tick is not.
          */
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            counters.events++
+            counters.capabilityEvents++
             if (network != activeNetwork) {
                 // On Android 12+ the platform reports only its best match, so this really is a
                 // prompt to move and is acted on at once. Below that *every* matching network
@@ -423,7 +437,10 @@ class MalachiVpnService : VpnService() {
         }
 
         // Whatever went away, the question is the same: which network is under us now.
-        override fun onLost(network: Network) = adoptUnderlying(null)
+        override fun onLost(network: Network) {
+            counters.events++
+            adoptUnderlying(null)
+        }
     }
 
     /**
@@ -441,6 +458,7 @@ class MalachiVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        serviceStartedMs = SystemClock.elapsedRealtime()
         app = application as MalachiApplication
         cm = getSystemService(ConnectivityManager::class.java)
         runCatching { FilterNotifications.ensureChannel(this) }
@@ -637,6 +655,7 @@ class MalachiVpnService : VpnService() {
         retryAttempt = 0
         demote()
         FilterNotifications.cancelProblem(this)
+        counters.tunnels++
         DebugLog.i(TAG, "tunnel up; upstream=${upstreamLabel()} scope=${settings.scopeMode}")
 
         // A dedicated thread rather than a coroutine: the read is a blocking syscall that only
@@ -891,6 +910,7 @@ class MalachiVpnService : VpnService() {
                     DebugLog.w(TAG, "the tunnel reached end of stream")
                     break
                 }
+                counters.packets++
                 runCatching { handle(buffer, length) }
                     .onFailure { DebugLog.w(TAG, "dropped a packet we could not handle", it) }
             }
@@ -974,7 +994,7 @@ class MalachiVpnService : VpnService() {
             if (traced) AppTrace.dropped(name, type, TraceReason.MALFORMED)
             return dropUnroutable("a ${query.size}-byte query")
         }
-        runCatching { forwarders.execute { forward(request, query, name, type, traced) } }
+        runCatching { forwarders.execute { forward(request, query, name, type, traced) }; counters.forwarded++ }
             .onFailure {
                 // The queue is full: the network is not keeping up. Dropping is right — the
                 // client's own resolver retries, and queueing further would only add latency
@@ -1581,6 +1601,7 @@ class MalachiVpnService : VpnService() {
         }
 
         if (changed) {
+            counters.adoptions++
             networkLabel = linkProperties.interfaceName.orEmpty()
             adoptedAtMs = SystemClock.elapsedRealtime()
             // Named, not counted. "Which resolvers did this network actually hand us" is the
@@ -2225,6 +2246,20 @@ class MalachiVpnService : VpnService() {
         // the record — it is the answer, and the one that cannot be stale.
         DebugLog.trace(TAG, "declared as carried by=${declaredUnderlying?.toString() ?: "system default"}")
         DebugLog.trace(TAG, "scope=${settings.scopeMode} bypass=${settings.bypassAllowed} guard=${settings.bypassGuard} lockdown=$lastLockdown")
+        // What the process has cost, against how long it has been alive. A battery report is
+        // the one kind where every other line here is beside the point: the filter can be doing
+        // exactly what it should and still be the drain, and a log of events cannot say so —
+        // a process that is quietly expensive produces no events at all.
+        val now = SystemClock.elapsedRealtime()
+        DebugLog.trace(
+            TAG,
+            counters.describe(
+                cpuMs = Process.getElapsedCpuTime(),
+                processUpMs = now - Process.getStartElapsedRealtime(),
+                serviceUpMs = now - serviceStartedMs,
+                threads = Thread.activeCount(),
+            ),
+        )
     }
 
     /**

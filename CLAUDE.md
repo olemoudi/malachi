@@ -810,6 +810,14 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   version, the upstream *setting*, the resolvers actually in use, what the network handed out,
   Private DNS, scope, bypass guard, lockdown — and then per lookup, which resolver answered, how
   long it took, or that none did. Without the header the rest is unreadable at a distance.
+- **A log of events cannot say what the process cost, and a battery report is the one where that
+  is the whole question.** A filter doing exactly what it should can still be the drain, and it
+  produces no line saying so. The header's `process:` line (`TunnelCounters`) is the CPU time of
+  the process against its uptime, as a percentage, with counts of tunnels built, network events
+  (capability changes separately — the idle path), adoptions, packets and forwards. Read it
+  before the events: 40 minutes of CPU over two days is a bug wherever the events say it was
+  spent; four seconds is not, whatever the phone's battery panel attributes to whom. The panel
+  cannot see inside another app's UID either way — for that, `dumpsys batterystats`.
 - **The traces have their own quota in the buffer, and without it the window was self-defeating.**
   `trace` and `i`/`w`/`e` shared one 500-line ceiling, and they are not evenly matched: one line
   per lookup against one line per event. A quarter of an hour of diagnostics pushed every network
