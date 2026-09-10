@@ -25,10 +25,13 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import dev.malachi.lists.BlocklistCategory
+import dev.malachi.stats.RankingOrder
+import dev.malachi.stats.StatsWindow
 import dev.malachi.ui.screens.AboutScreen
 import dev.malachi.ui.screens.ActivityScreen
 import dev.malachi.ui.screens.AdvancedSettingsScreen
 import dev.malachi.ui.screens.AppDetailScreen
+import dev.malachi.ui.screens.AppRankingScreen
 import dev.malachi.ui.screens.AppsScreen
 import dev.malachi.ui.screens.DebugLogScreen
 import dev.malachi.ui.screens.DiagnoseScreen
@@ -50,6 +53,7 @@ sealed interface Screen {
     data object Lists : Screen
     data class ListCategory(val category: BlocklistCategory) : Screen
     data object Activity : Screen
+    data class AppRanking(val order: RankingOrder, val window: StatsWindow) : Screen
     data object Diagnose : Screen
     data object Rules : Screen
     data object Settings : Screen
@@ -64,12 +68,16 @@ internal const val ARGUMENT_SEPARATOR = ':'
 /**
  * One destination, as something the platform can put in a Bundle and hand back.
  *
- * A screen is a name and at most one argument, so it saves as one string. The argument is
- * whatever follows the *first* separator, so a name that happens to contain one comes back whole.
+ * A screen is a name and its arguments, so it saves as one string. The argument is whatever
+ * follows the *first* separator, so a name that happens to contain one comes back whole. The one
+ * destination with two arguments splits that again itself, which is safe only because both are
+ * enum names and neither can contain the separator.
  */
 internal fun encodeScreen(screen: Screen): String = when (screen) {
     is Screen.AppDetail -> "AppDetail$ARGUMENT_SEPARATOR${screen.packageName}"
     is Screen.ListCategory -> "ListCategory$ARGUMENT_SEPARATOR${screen.category.name}"
+    is Screen.AppRanking ->
+        "AppRanking$ARGUMENT_SEPARATOR${screen.order.name}$ARGUMENT_SEPARATOR${screen.window.name}"
     Screen.Home -> "Home"
     Screen.Apps -> "Apps"
     Screen.Lists -> "Lists"
@@ -97,6 +105,11 @@ internal fun decodeScreen(saved: String): Screen? {
         "AppDetail" -> argument.takeIf { it.isNotEmpty() }?.let { Screen.AppDetail(it) }
         "ListCategory" -> BlocklistCategory.entries.firstOrNull { it.name == argument }
             ?.let { Screen.ListCategory(it) }
+        "AppRanking" -> {
+            val order = RankingOrder.entries.firstOrNull { it.name == argument.substringBefore(ARGUMENT_SEPARATOR) }
+            val window = StatsWindow.entries.firstOrNull { it.name == argument.substringAfter(ARGUMENT_SEPARATOR, "") }
+            if (order != null && window != null) Screen.AppRanking(order, window) else null
+        }
         "Home" -> Screen.Home
         "Apps" -> Screen.Apps
         "Lists" -> Screen.Lists
@@ -281,6 +294,14 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
                         is Screen.ListCategory -> ListCategoryScreen(vm, screen.category, onBack = ::back)
                         Screen.Activity -> ActivityScreen(
                             vm = vm,
+                            onBack = ::back,
+                            onOpenApp = { go(Screen.AppDetail(it)) },
+                            onOpenRanking = { order, window -> go(Screen.AppRanking(order, window)) },
+                        )
+                        is Screen.AppRanking -> AppRankingScreen(
+                            vm = vm,
+                            initialOrder = screen.order,
+                            initialWindow = screen.window,
                             onBack = ::back,
                             onOpenApp = { go(Screen.AppDetail(it)) },
                         )

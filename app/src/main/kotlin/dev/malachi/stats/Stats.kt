@@ -19,6 +19,14 @@ data class Counts(val blocked: Long = 0, val total: Long = 0) {
 /** The four spans the activity screen offers. */
 enum class StatsWindow { TODAY, WEEK, MONTH, ALL }
 
+/**
+ * The two ways apps are ranked: by how many of their lookups were refused, and by what share.
+ *
+ * The names travel in the saved navigation stack, so renaming one drops a screen somebody had
+ * open instead of restoring it.
+ */
+enum class RankingOrder { BY_COUNT, BY_RATE }
+
 /** One day's totals, and the per-app breakdown for that day. */
 @Serializable
 data class DayStats(
@@ -38,8 +46,16 @@ data class WindowStats(
     /** The apps responsible for the most refusals. The headline "who is worst" ranking. */
     fun topByBlocked(limit: Int): List<AppStat> =
         apps.filter { it.counts.blocked > 0 }
-            .sortedByDescending { it.counts.blocked }
+            .sortedWith(MOST_BLOCKED)
             .take(limit)
+
+    /**
+     * Every app in the window, most refusals first: the whole list [topByBlocked] is the head of.
+     *
+     * The apps with nothing refused stay, at the bottom. This is opened to see every app, and one
+     * missing from it would read as an app that was never seen.
+     */
+    fun rankedByBlocked(): List<AppStat> = apps.sortedWith(MOST_BLOCKED)
 
     /**
      * The apps with the highest *proportion* of refused lookups — which is a different and often
@@ -52,11 +68,39 @@ data class WindowStats(
      */
     fun topByRate(limit: Int, minimumLookups: Long = MINIMUM_LOOKUPS_FOR_RATE): List<AppStat> =
         apps.filter { it.counts.total >= minimumLookups && it.counts.blocked > 0 }
-            .sortedWith(compareByDescending<AppStat> { it.counts.blockedPercent }.thenByDescending { it.counts.blocked })
+            .sortedWith(HIGHEST_RATE)
             .take(limit)
+
+    /**
+     * Every app with enough lookups for a rate to mean something, highest first: the whole list
+     * [topByRate] is the head of. The others are in [tooFewForRate] rather than gone — a full list
+     * that quietly lost the quiet apps would not be a full list.
+     */
+    fun rankedByRate(minimumLookups: Long = MINIMUM_LOOKUPS_FOR_RATE): List<AppStat> =
+        apps.filter { it.counts.total >= minimumLookups }.sortedWith(HIGHEST_RATE)
+
+    /**
+     * The apps [rankedByRate] sets aside, ordered by count rather than by rate: a percentage of a
+     * handful of lookups is exactly the noise [MINIMUM_LOOKUPS_FOR_RATE] keeps out of a ranking.
+     */
+    fun tooFewForRate(minimumLookups: Long = MINIMUM_LOOKUPS_FOR_RATE): List<AppStat> =
+        apps.filter { it.counts.total < minimumLookups }.sortedWith(MOST_BLOCKED)
 
     companion object {
         const val MINIMUM_LOOKUPS_FOR_RATE = 20L
+
+        /**
+         * One order for the short rankings and the full ones, down to the last tie-break. The first
+         * rows of the full list have to be the rows the panel showed, and ties left in whatever
+         * order a HashMap produced them could swap two apps between the two screens.
+         */
+        private val MOST_BLOCKED = compareByDescending<AppStat> { it.counts.blocked }
+            .thenByDescending { it.counts.total }
+            .thenBy { it.packageName }
+
+        private val HIGHEST_RATE = compareByDescending<AppStat> { it.counts.blockedPercent }
+            .thenByDescending { it.counts.blocked }
+            .thenBy { it.packageName }
     }
 }
 
@@ -99,6 +143,21 @@ data class StatsData(
             }
         }
         return WindowStats(counts, apps.map { AppStat(it.key, it.value) })
+    }
+
+    /**
+     * Whether [window] may be missing apps because [pruned] dropped them.
+     *
+     * The bound keeps the [MAX_APPS_PER_DAY] apps with the most refusals on each day and
+     * [MAX_ALL_TIME_APPS] for all time, which is what keeps the file small — and what makes a list
+     * of every app a list of every app that was *kept*. A day or table at the bound is the only
+     * trace left that something was cut, and one below it cannot have been. "May", because a day
+     * that happened to have exactly that many apps looks the same as one that was cut to it.
+     */
+    fun mayBeMissingApps(window: StatsWindow, today: LocalDate): Boolean {
+        if (window == StatsWindow.ALL) return allTimeApps.size >= MAX_ALL_TIME_APPS
+        val from = startOf(window, today).toEpochDay()
+        return days.any { it.epochDay >= from && it.apps.size >= MAX_APPS_PER_DAY }
     }
 
     /**

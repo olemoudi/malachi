@@ -1,6 +1,8 @@
 package dev.malachi.ui
 
 import dev.malachi.lists.BlocklistCategory
+import dev.malachi.stats.RankingOrder
+import dev.malachi.stats.StatsWindow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -27,6 +29,7 @@ class ScreenStackSaverTest {
         Screen.Lists,
         Screen.ListCategory(BlocklistCategory.entries.first()),
         Screen.Activity,
+        Screen.AppRanking(RankingOrder.BY_RATE, StatsWindow.MONTH),
         Screen.Diagnose,
         Screen.Rules,
         Screen.Settings,
@@ -102,6 +105,10 @@ class ScreenStackSaverTest {
         assertNull(decodeScreen("ListCategory${ARGUMENT_SEPARATOR}A_CATEGORY_THAT_WENT_AWAY"))
         assertNull(decodeScreen("AppDetail"))
         assertNull(decodeScreen("AppDetail$ARGUMENT_SEPARATOR"))
+        assertNull(decodeScreen("AppRanking"))
+        assertNull(decodeScreen("AppRanking${ARGUMENT_SEPARATOR}BY_RATE"))
+        assertNull(decodeScreen("AppRanking${ARGUMENT_SEPARATOR}SIDEWAYS${ARGUMENT_SEPARATOR}MONTH"))
+        assertNull(decodeScreen("AppRanking${ARGUMENT_SEPARATOR}BY_RATE${ARGUMENT_SEPARATOR}FORTNIGHT"))
         assertNull(decodeScreen("SomeScreenFromTheFuture"))
         assertNull(decodeScreen(""))
     }

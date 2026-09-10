@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,10 +25,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.stats.AppStat
 import dev.malachi.stats.DayStats
+import dev.malachi.stats.RankingOrder
 import dev.malachi.stats.StatsData
 import dev.malachi.stats.StatsWindow
 import dev.malachi.stats.WindowStats
@@ -41,6 +47,7 @@ import dev.malachi.ui.components.ActionChoices
 import dev.malachi.ui.components.AppIcon
 import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.CardGroup
+import dev.malachi.ui.components.CardPosition
 import dev.malachi.ui.components.MalachiFilterChip
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.SectionHeader
@@ -66,35 +73,25 @@ import java.time.format.FormatStyle
  * answer "what has this been doing all month" and not enough to reconstruct anywhere anybody
  * has been.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StatsPanel(vm: MalachiViewModel, onOpenApp: (String) -> Unit) {
+fun StatsPanel(
+    vm: MalachiViewModel,
+    onOpenApp: (String) -> Unit,
+    onSeeAll: (RankingOrder, StatsWindow) -> Unit,
+) {
     val stats by vm.stats.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
-    var window by remember { mutableStateOf(StatsWindow.TODAY) }
+    // Saveable, because both rankings lead off this screen — to an app, or to the full list — and
+    // coming back to "today" from a month's ranking is the screen forgetting the question.
+    // `resetting` deliberately is not: it is a dialog.
+    var window by rememberSaveable { mutableStateOf(StatsWindow.TODAY) }
     var resetting by remember { mutableStateOf(false) }
     val today = remember { LocalDate.now() }
     val computed = remember(stats, window) { stats.window(window, today) }
     val numbers = remember { NumberFormat.getInstance() }
 
     Column(Modifier.fillMaxWidth()) {
-        // Flowing, and every label on one line. Four of these do not fit a narrow phone at a
-        // large font size: as a plain Row the last label wrapped inside its own chip, which made
-        // that one chip twice the height of the three beside it. Scrolling them sideways fixes
-        // the height and hides a chip instead; flowing to a second row hides nothing.
-        FlowRow(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(spacing.xs),
-        ) {
-            StatsWindow.entries.forEach { option ->
-                MalachiFilterChip(
-                    selected = window == option,
-                    onClick = { window = option },
-                    label = { Text(stringResource(windowLabel(option)), maxLines = 1, softWrap = false) },
-                )
-            }
-        }
+        StatsWindowChips(window, onSelect = { window = it })
 
         Spacer(Modifier.height(spacing.sm))
 
@@ -141,10 +138,13 @@ fun StatsPanel(vm: MalachiViewModel, onOpenApp: (String) -> Unit) {
             Ranking(
                 title = stringResource(R.string.stats_by_count),
                 supporting = stringResource(R.string.stats_by_count_hint),
+                order = RankingOrder.BY_COUNT,
                 apps = computed.topByBlocked(RANK_SIZE),
+                appsInWindow = computed.apps.size,
+                numbers = numbers,
                 vm = vm,
                 onOpenApp = onOpenApp,
-                valueOf = { numbers.format(it.counts.blocked) },
+                onSeeAll = { onSeeAll(RankingOrder.BY_COUNT, window) },
             )
             Ranking(
                 title = stringResource(R.string.stats_by_rate),
@@ -152,10 +152,13 @@ fun StatsPanel(vm: MalachiViewModel, onOpenApp: (String) -> Unit) {
                     R.string.stats_by_rate_hint,
                     WindowStats.MINIMUM_LOOKUPS_FOR_RATE,
                 ),
+                order = RankingOrder.BY_RATE,
                 apps = computed.topByRate(RANK_SIZE),
+                appsInWindow = computed.apps.size,
+                numbers = numbers,
                 vm = vm,
                 onOpenApp = onOpenApp,
-                valueOf = { "${it.counts.blockedPercent}%" },
+                onSeeAll = { onSeeAll(RankingOrder.BY_RATE, window) },
             )
         }
 
@@ -174,6 +177,33 @@ fun StatsPanel(vm: MalachiViewModel, onOpenApp: (String) -> Unit) {
                 resetting = false
             },
         )
+    }
+}
+
+/**
+ * The period a set of statistics covers, shared by the panel and the full ranking.
+ *
+ * Flowing, and every label on one line. Four of these do not fit a narrow phone at a large font
+ * size: as a plain Row the last label wrapped inside its own chip, which made that one chip twice
+ * the height of the three beside it. Scrolling them sideways fixes the height and hides a chip
+ * instead; flowing to a second row hides nothing.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun StatsWindowChips(selected: StatsWindow, onSelect: (StatsWindow) -> Unit, modifier: Modifier = Modifier) {
+    val spacing = Tokens.spacing
+    FlowRow(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(spacing.xs),
+    ) {
+        StatsWindow.entries.forEach { option ->
+            MalachiFilterChip(
+                selected = selected == option,
+                onClick = { onSelect(option) },
+                label = { Text(stringResource(windowLabel(option)), maxLines = 1, softWrap = false) },
+            )
+        }
     }
 }
 
@@ -377,10 +407,13 @@ private fun ProportionBar(percent: Int) {
 private fun Ranking(
     title: String,
     supporting: String,
+    order: RankingOrder,
     apps: List<AppStat>,
+    appsInWindow: Int,
+    numbers: NumberFormat,
     vm: MalachiViewModel,
     onOpenApp: (String) -> Unit,
-    valueOf: (AppStat) -> String,
+    onSeeAll: () -> Unit,
 ) {
     val spacing = Tokens.spacing
     SectionHeader(title = title, supporting = supporting)
@@ -391,39 +424,89 @@ private fun Ranking(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(spacing.md),
         )
-        return
     }
+    // Only when the full list holds something this one does not: a "see all" that opens the same
+    // five rows is a dead control.
+    val seeAll = appsInWindow > apps.size
+    val cards = apps.size + if (seeAll) 1 else 0
+    if (cards == 0) return
     CardGroup {
         apps.forEachIndexed { index, stat ->
-            // Naming an app is only half an answer: the next question is always "what is it
-            // asking for", and that is the detail screen. Every card with an app on it opens it.
-            MalachiCard(
-                position = cardPosition(index, apps.size),
-                onClick = { onOpenApp(stat.packageName) },
-            ) {
-                Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                    AppIcon(stat.packageName, vm.inventory, size = 32.dp)
-                    Spacer(Modifier.width(spacing.md))
-                    Column(Modifier.weight(1f)) {
-                        Text(vm.labelFor(stat.packageName), style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            stringResource(
-                                R.string.stats_app_detail,
-                                stat.counts.blocked,
-                                stat.counts.total,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(spacing.sm))
-                    Text(
-                        valueOf(stat),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+            AppStatRow(stat, rankingValue(order, stat, numbers), cardPosition(index, cards), vm, onOpenApp)
+        }
+        if (seeAll) SeeAllCard(appsInWindow, cardPosition(cards - 1, cards), onSeeAll)
+    }
+}
+
+/**
+ * One app's line in a ranking, shared by the panel's top five and the full list so the two cannot
+ * drift into saying the same thing two ways.
+ *
+ * [valueColor] is for a number that belongs on the row but carries a caveat — a rate taken from
+ * too few lookups to mean much — and so should not shout.
+ */
+@Composable
+internal fun AppStatRow(
+    stat: AppStat,
+    value: String,
+    position: CardPosition,
+    vm: MalachiViewModel,
+    onOpenApp: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.primary,
+) {
+    val spacing = Tokens.spacing
+    // Naming an app is only half an answer: the next question is always "what is it
+    // asking for", and that is the detail screen. Every card with an app on it opens it.
+    MalachiCard(
+        modifier = modifier,
+        position = position,
+        onClick = { onOpenApp(stat.packageName) },
+    ) {
+        Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
+            AppIcon(stat.packageName, vm.inventory, size = 32.dp)
+            Spacer(Modifier.width(spacing.md))
+            Column(Modifier.weight(1f)) {
+                Text(vm.labelFor(stat.packageName), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(
+                        R.string.stats_app_detail,
+                        stat.counts.blocked,
+                        stat.counts.total,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            Spacer(Modifier.width(spacing.sm))
+            Text(value, style = MaterialTheme.typography.titleMedium, color = valueColor)
+        }
+    }
+}
+
+/** The number a ranking leads with: refusals by count, or their share as a percentage. */
+internal fun rankingValue(order: RankingOrder, stat: AppStat, numbers: NumberFormat): String = when (order) {
+    RankingOrder.BY_COUNT -> numbers.format(stat.counts.blocked)
+    RankingOrder.BY_RATE -> "${stat.counts.blockedPercent}%"
+}
+
+/** The way from a ranking's first rows to all of them, as the last card of the same group. */
+@Composable
+private fun SeeAllCard(count: Int, position: CardPosition, onClick: () -> Unit) {
+    val spacing = Tokens.spacing
+    MalachiCard(position = position, onClick = onClick) {
+        Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.stats_see_all, count),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }

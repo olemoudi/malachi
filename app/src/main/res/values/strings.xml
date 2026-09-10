@@ -426,6 +426,13 @@
     <string name="stats_reset_scope_month">This month</string>
     <string name="stats_reset_scope_all">Everything</string>
     <string name="stats_apps_seen">%1$d apps looked something up</string>
+    <string name="stats_see_all">See all %1$d apps</string>
+    <string name="stats_ranking_title">App ranking</string>
+    <string name="stats_order_count">Blocked</string>
+    <string name="stats_order_rate">Block rate</string>
+    <string name="stats_too_few_title">Too few lookups for a rate</string>
+    <string name="stats_too_few_hint">Fewer than %1$d lookups in the period, so a percentage would say little. Most refusals first.</string>
+    <string name="stats_ranking_bound">Malachi keeps the %1$d apps with the most blocks for each day, and %2$d for all time, so a quieter app may be missing from this list.</string>
     <string name="activity_live_title">Live log</string>
     <string name="activity_live_hint">The last few hundred lookups. Held in memory only, and gone when the filter stops.</string>
     <string name="activity_tab_live">Live</string>

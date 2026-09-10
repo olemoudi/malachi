@@ -1,6 +1,7 @@
 package dev.malachi.stats
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -136,6 +137,62 @@ class StatsTest {
     }
 
     @Test
+    fun `the full list by count keeps the apps that had nothing blocked, last`() {
+        // Opened to see every app; one missing would read as an app that was never seen at all.
+        val window = WindowStats(
+            counts = Counts(30, 470),
+            apps = listOf(
+                AppStat("com.quiet", Counts(0, 50)),
+                AppStat("com.noisy", Counts(25, 400)),
+                AppStat("com.middling", Counts(5, 20)),
+            ),
+        )
+        assertEquals(
+            listOf("com.noisy", "com.middling", "com.quiet"),
+            window.rankedByBlocked().map { it.packageName },
+        )
+    }
+
+    @Test
+    fun `the full list by rate sets aside the apps with too few lookups instead of dropping them`() {
+        val window = WindowStats(
+            counts = Counts(52, 352),
+            apps = listOf(
+                AppStat("com.tiny", Counts(2, 2)),
+                AppStat("com.clean", Counts(0, 100)),
+                AppStat("com.tracker", Counts(45, 50)),
+                AppStat("com.normal", Counts(5, 200)),
+            ),
+        )
+        assertEquals(
+            listOf("com.tracker", "com.normal", "com.clean"),
+            window.rankedByRate().map { it.packageName },
+        )
+        assertEquals(listOf("com.tiny"), window.tooFewForRate().map { it.packageName })
+    }
+
+    @Test
+    fun `the full lists open with exactly the rows the short rankings showed, ties included`() {
+        // Ties on every sort key the rankings use, so only the final tie-break decides the order.
+        // Two windows over the same apps in opposite orders stand in for the panel and the full
+        // screen, which each build their own window from a HashMap.
+        val apps = listOf(
+            AppStat("com.b", Counts(10, 100)),
+            AppStat("com.a", Counts(10, 100)),
+            AppStat("com.d", Counts(10, 40)),
+            AppStat("com.c", Counts(50, 100)),
+            AppStat("com.e", Counts(0, 100)),
+        )
+        val panel = WindowStats(Counts(80, 440), apps)
+        val screen = WindowStats(Counts(80, 440), apps.reversed())
+
+        assertEquals(panel.topByBlocked(3), screen.rankedByBlocked().take(3))
+        assertEquals(panel.topByRate(3), screen.rankedByRate().take(3))
+        assertEquals(panel.rankedByBlocked(), screen.rankedByBlocked())
+        assertEquals(panel.rankedByRate(), screen.rankedByRate())
+    }
+
+    @Test
     fun `pruning bounds the file whatever happens`() {
         val manyApps = (1..500).associate { "com.app$it" to Counts(it.toLong(), it.toLong() * 2) }
         val data = StatsData(
@@ -162,5 +219,34 @@ class StatsTest {
         val pruned = data.pruned(today)
         assertEquals(pruned.days.map { it.epochDay }.sorted(), pruned.days.map { it.epochDay })
         assertTrue(pruned.days.none { it.epochDay <= today.toEpochDay() - StatsData.RETAINED_DAYS })
+    }
+
+    @Test
+    fun `a ranking is said to be missing apps only where the bound could have cut some`() {
+        // The bound keeps the apps with the most refusals, so a day or a table *at* the bound is
+        // the only trace left that a quieter app was dropped; one below it cannot have been.
+        fun apps(count: Int) = (1..count).associate { "com.app$it" to Counts(it.toLong(), 100) }
+        val atBound = StatsData(days = listOf(DayStats(today.toEpochDay(), apps = apps(StatsData.MAX_APPS_PER_DAY))))
+        val underBound = StatsData(
+            days = listOf(DayStats(today.toEpochDay(), apps = apps(StatsData.MAX_APPS_PER_DAY - 1))),
+        )
+        assertTrue(atBound.mayBeMissingApps(StatsWindow.TODAY, today))
+        assertFalse(underBound.mayBeMissingApps(StatsWindow.TODAY, today))
+
+        // A full day outside the window says nothing about the window.
+        val fullLastMonth = StatsData(
+            days = listOf(
+                DayStats(LocalDate.of(2026, 7, 31).toEpochDay(), apps = apps(StatsData.MAX_APPS_PER_DAY)),
+                DayStats(today.toEpochDay(), apps = apps(3)),
+            ),
+        )
+        assertFalse(fullLastMonth.mayBeMissingApps(StatsWindow.MONTH, today))
+        assertTrue(fullLastMonth.mayBeMissingApps(StatsWindow.MONTH, LocalDate.of(2026, 7, 31)))
+
+        // All time keeps its own table, with its own bound.
+        assertTrue(StatsData(allTimeApps = apps(StatsData.MAX_ALL_TIME_APPS)).mayBeMissingApps(StatsWindow.ALL, today))
+        assertFalse(
+            StatsData(allTimeApps = apps(StatsData.MAX_ALL_TIME_APPS - 1)).mayBeMissingApps(StatsWindow.ALL, today),
+        )
     }
 }

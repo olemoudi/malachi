@@ -44,6 +44,8 @@ import dev.malachi.R
 import dev.malachi.filter.ListCoverage
 import dev.malachi.filter.QueryRecord
 import dev.malachi.filter.RuleSource
+import dev.malachi.stats.RankingOrder
+import dev.malachi.stats.StatsWindow
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.rememberRuleAnnouncer
 import dev.malachi.ui.components.ActionChoices
@@ -97,7 +99,12 @@ private const val TOP_DOMAINS = 5
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String) -> Unit) {
+fun ActivityScreen(
+    vm: MalachiViewModel,
+    onBack: () -> Unit,
+    onOpenApp: (String) -> Unit,
+    onOpenRanking: (RankingOrder, StatsWindow) -> Unit,
+) {
     val log by vm.queryLog.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val engine by vm.engine.collectAsStateWithLifecycle()
@@ -217,7 +224,9 @@ fun ActivityScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenApp: (String)
                             }
                         }
                     }
-                    item { StatsPanel(vm, onOpenApp) }
+                    // Keyed, so the period chosen inside it is found again on the way back from an
+                    // app or the full ranking, even if the domain ranking above appeared meanwhile.
+                    item(key = "stats") { StatsPanel(vm, onOpenApp, onOpenRanking) }
                     return@LazyColumn
                 }
 
