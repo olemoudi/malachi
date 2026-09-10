@@ -1,0 +1,4 @@
+{
+  "en": "The statistics can now show every app, not only the top five.\n\n• Under each ranking on the Statistics tab, \"See all\" opens the full list of apps for that period, ordered by number of blocks or by percentage. Apps with too few lookups for a percentage to mean anything are listed separately instead of being left out.\n• Opening an app from the statistics and coming back no longer resets the period to Today.",
+  "es": "Las estadísticas ya pueden mostrar todas las apps, no solo las cinco primeras.\n\n• Debajo de cada ranking de la pestaña Estadísticas, «Ver las apps» abre la lista completa del periodo, ordenada por número de bloqueos o por porcentaje. Las apps con tan pocas consultas que el porcentaje no significaría nada aparecen aparte en vez de desaparecer.\n• Entrar en una app desde las estadísticas y volver ya no devuelve el periodo a «Hoy»."
+}
