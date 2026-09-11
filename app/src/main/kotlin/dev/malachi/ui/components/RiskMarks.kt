@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -125,7 +123,7 @@ fun RiskMarks(risk: BreakageRisk, modifier: Modifier = Modifier) {
             // placeholder measured in `em` the dots would be drawn over the words beside them.
             Box(Modifier.fillMaxHeight().aspectRatio(1f), contentAlignment = Alignment.Center) {
                 Icon(
-                    Icons.Filled.Circle,
+                    MalachiIcons.Circle,
                     contentDescription = null,
                     tint = tint,
                     modifier = Modifier.fillMaxSize(DOT_SCALE),

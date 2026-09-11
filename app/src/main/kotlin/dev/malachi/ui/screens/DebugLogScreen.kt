@@ -9,9 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.debug.DebugLog
 import dev.malachi.ui.components.MalachiTopBar
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 import java.text.SimpleDateFormat
@@ -51,10 +49,10 @@ fun DebugLogScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.settings_debug_log), onBack) {
             IconButton(onClick = { copyToClipboard(context, DebugLog.format()) }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.action_copy))
+                Icon(MalachiIcons.ContentCopy, contentDescription = stringResource(R.string.action_copy))
             }
             IconButton(onClick = { DebugLog.clear() }) {
-                Icon(Icons.Filled.DeleteSweep, contentDescription = stringResource(R.string.action_clear))
+                Icon(MalachiIcons.DeleteSweep, contentDescription = stringResource(R.string.action_clear))
             }
         }
 

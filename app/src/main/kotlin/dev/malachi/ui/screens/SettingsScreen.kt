@@ -13,13 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Troubleshoot
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +43,7 @@ import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.ValueRow
 import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.components.minutesLeft
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.Tokens
 import dev.malachi.update.ChannelSwitch
 import dev.malachi.update.UpdateUiState
@@ -123,7 +119,7 @@ fun SettingsScreen(
             item {
                 CardGroup {
                     NavRow(
-                        icon = Icons.Filled.Save,
+                        icon = MalachiIcons.Save,
                         title = stringResource(R.string.settings_backup_export),
                         // The state of the copy, in the row that makes one. "Everything saved"
                         // is as much the point as the button: the reminder exists because
@@ -148,7 +144,7 @@ fun SettingsScreen(
                         position = cardPosition(1, if (settings.backupRemindersOff) 4 else 3),
                     )
                     NavRow(
-                        icon = Icons.Filled.Restore,
+                        icon = MalachiIcons.Restore,
                         title = stringResource(R.string.settings_backup_import),
                         subtitle = stringResource(R.string.settings_backup_import_hint),
                         onClick = backup.import,
@@ -230,7 +226,7 @@ fun SettingsScreen(
                 // With what they are set to on the row itself: "what is my DNS server again" is
                 // then answered without opening anything.
                 NavRow(
-                    icon = Icons.Filled.Tune,
+                    icon = MalachiIcons.Tune,
                     title = stringResource(R.string.settings_advanced_row),
                     subtitle = advancedSummary(settings),
                     onClick = onOpenAdvanced,
@@ -244,7 +240,7 @@ fun SettingsScreen(
                     // concrete problem for: an app that hangs, and no way to tell which name it
                     // is hanging on. Everything below it is for reading after the fact.
                     NavRow(
-                        icon = Icons.Filled.Troubleshoot,
+                        icon = MalachiIcons.Troubleshoot,
                         title = stringResource(R.string.nav_diagnose),
                         subtitle = settings.diagnosing()?.let {
                             stringResource(R.string.diagnose_watching_app, vm.labelFor(it))
@@ -270,7 +266,7 @@ fun SettingsScreen(
                         position = cardPosition(1, 4),
                     )
                     NavRow(
-                        icon = Icons.Filled.BugReport,
+                        icon = MalachiIcons.BugReport,
                         title = stringResource(R.string.settings_debug_log),
                         subtitle = stringResource(R.string.settings_debug_log_hint),
                         onClick = onOpenDebugLog,

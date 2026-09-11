@@ -75,7 +75,10 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.material3)
-    implementation(libs.compose.material.icons)
+    // The core set only. The extended set is every Material icon there is, as a class each:
+    // thirty-odd megabytes of dex in what was a 45 MB APK, for twenty-two icons — which now
+    // live in ui/components/MalachiIcons.kt as their path data.
+    implementation(libs.compose.material.icons.core)
 
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.compose)

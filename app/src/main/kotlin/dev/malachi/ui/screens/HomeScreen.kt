@@ -15,13 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Gavel
-import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Timeline
-import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +62,7 @@ import dev.malachi.ui.components.SecondaryAction
 import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.cardPosition
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.NumberCaption
 import dev.malachi.ui.theme.NumberDisplay
 import dev.malachi.ui.theme.Tokens
@@ -322,14 +317,14 @@ fun HomeScreen(
             CardGroup {
                 val rows = 5
                 NavRow(
-                    icon = Icons.Filled.Apps,
+                    icon = MalachiIcons.Apps,
                     title = stringResource(R.string.nav_apps),
                     subtitle = scopeSummary(vm),
                     onClick = { onOpen(Screen.Apps) },
                     position = cardPosition(0, rows),
                 )
                 NavRow(
-                    icon = Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                    icon = MalachiIcons.PlaylistAddCheck,
                     title = stringResource(R.string.nav_lists),
                     subtitle = pluralStringResource(
                         R.plurals.lists_domains_blocked,
@@ -340,7 +335,7 @@ fun HomeScreen(
                     position = cardPosition(1, rows),
                 )
                 NavRow(
-                    icon = Icons.Filled.Timeline,
+                    icon = MalachiIcons.Timeline,
                     title = stringResource(R.string.nav_activity),
                     // Naming today's worst offender rather than describing the screen: it is the
                     // app somebody is most likely to be coming to look at, and it costs nothing —
@@ -353,7 +348,7 @@ fun HomeScreen(
                     position = cardPosition(2, rows),
                 )
                 NavRow(
-                    icon = Icons.Filled.Gavel,
+                    icon = MalachiIcons.Gavel,
                     title = stringResource(R.string.nav_rules),
                     subtitle = pluralStringResource(
                         R.plurals.rules_count,
@@ -475,7 +470,7 @@ private fun PowerCard(
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Filled.Shield,
+                        MalachiIcons.Shield,
                         contentDescription = null,
                         tint = if (active) onHero else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(28.dp),
@@ -645,7 +640,7 @@ private fun Notice(
                         color = onContainer,
                     )
                     else -> Icon(
-                        if (tone == Tone.Problem) Icons.Filled.Warning else Icons.Filled.VerifiedUser,
+                        if (tone == Tone.Problem) Icons.Filled.Warning else MalachiIcons.VerifiedUser,
                         contentDescription = null,
                         tint = onContainer,
                         modifier = Modifier.size(20.dp),

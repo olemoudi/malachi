@@ -20,13 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -78,6 +74,7 @@ import dev.malachi.ui.components.VerdictLine
 import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.components.minutesLeft
 import dev.malachi.ui.components.rememberUndoBar
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.rememberRuleAnnouncer
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
@@ -325,10 +322,10 @@ private fun TraceSession(
         Column(Modifier.fillMaxSize()) {
             MalachiTopBar(label, onBack) {
                 IconButton(onClick = { copyTrace(context, vm.appTraceReport()) }) {
-                    Icon(Icons.Filled.ContentCopy, contentDescription = stringResource(R.string.action_copy))
+                    Icon(MalachiIcons.ContentCopy, contentDescription = stringResource(R.string.action_copy))
                 }
                 IconButton(onClick = vm::clearAppTrace) {
-                    Icon(Icons.Filled.DeleteSweep, contentDescription = stringResource(R.string.action_clear))
+                    Icon(MalachiIcons.DeleteSweep, contentDescription = stringResource(R.string.action_clear))
                 }
             }
 
@@ -925,8 +922,8 @@ private fun EventRow(event: TraceEvent, clock: SimpleDateFormat) {
             Icon(
                 when {
                     !event.outcome.isLookup -> Icons.Filled.Edit
-                    event.outcome == TraceOutcome.BLOCKED -> Icons.Filled.Block
-                    event.outcome.stalled -> Icons.Filled.HourglassEmpty
+                    event.outcome == TraceOutcome.BLOCKED -> MalachiIcons.Block
+                    event.outcome.stalled -> MalachiIcons.HourglassEmpty
                     else -> Icons.Filled.CheckCircle
                 },
                 contentDescription = null,

@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +64,7 @@ import dev.malachi.ui.components.lastSeenLabel
 import dev.malachi.ui.components.relativeTime
 import dev.malachi.ui.components.rememberUndoBar
 import dev.malachi.ui.components.shortDuration
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 
@@ -163,7 +162,7 @@ fun ActivityScreen(
             MalachiTopBar(stringResource(R.string.nav_activity), onBack) {
                 if (tab == ActivityTab.LIVE) {
                     IconButton(onClick = vm::clearQueryLog) {
-                        Icon(Icons.Filled.DeleteSweep, contentDescription = stringResource(R.string.action_clear))
+                        Icon(MalachiIcons.DeleteSweep, contentDescription = stringResource(R.string.action_clear))
                     }
                 }
             }
@@ -503,7 +502,7 @@ private fun QueryRow(record: QueryRecord, vm: MalachiViewModel, nowMs: Long, onC
             }
             Spacer(Modifier.width(spacing.sm))
             Icon(
-                if (record.blocked) Icons.Filled.Block else Icons.Filled.CheckCircle,
+                if (record.blocked) MalachiIcons.Block else Icons.Filled.CheckCircle,
                 contentDescription = null,
                 tint = if (record.blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),

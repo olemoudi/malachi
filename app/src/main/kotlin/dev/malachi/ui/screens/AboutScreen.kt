@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +25,7 @@ import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.NavRow
 import dev.malachi.ui.components.SectionHeader
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.Tokens
 
 /** What this is, what it can't do, and where the code lives. */
@@ -88,7 +87,7 @@ fun AboutScreen(vm: MalachiViewModel, onBack: () -> Unit) {
             item { SectionHeader(stringResource(R.string.about_source_title)) }
             item {
                 NavRow(
-                    icon = Icons.Filled.Code,
+                    icon = MalachiIcons.Code,
                     title = stringResource(R.string.about_repository),
                     subtitle = Distribution.REPO_URL,
                     onClick = {

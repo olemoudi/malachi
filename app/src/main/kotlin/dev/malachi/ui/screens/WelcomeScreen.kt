@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +26,7 @@ import dev.malachi.R
 import dev.malachi.ui.components.MalachiCard
 import dev.malachi.ui.components.PrimaryAction
 import dev.malachi.ui.components.SecondaryAction
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.Tokens
 
 /**
@@ -68,14 +67,14 @@ fun WelcomeScreen(onStart: () -> Unit, onSkip: () -> Unit) {
 
         item {
             Point(
-                icon = Icons.Filled.Block,
+                icon = MalachiIcons.Block,
                 title = stringResource(R.string.welcome_what_title),
                 body = stringResource(R.string.welcome_what_body),
             )
         }
         item {
             Point(
-                icon = Icons.Filled.VpnKey,
+                icon = MalachiIcons.VpnKey,
                 title = stringResource(R.string.welcome_vpn_title),
                 body = stringResource(R.string.welcome_vpn_body),
             )

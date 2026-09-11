@@ -14,14 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +54,7 @@ import dev.malachi.ui.components.riskLabel
 import dev.malachi.ui.components.SwitchRow
 import dev.malachi.ui.components.ValueRow
 import dev.malachi.ui.components.cardPosition
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 import java.text.DateFormat
@@ -444,13 +438,13 @@ private fun riskHint(risk: BreakageRisk) = when (risk) {
 }
 
 private fun categoryIcon(category: BlocklistCategory) = when (category) {
-    BlocklistCategory.ADS -> Icons.Filled.Block
-    BlocklistCategory.PRIVACY -> Icons.Filled.VisibilityOff
-    BlocklistCategory.ANNOYANCES -> Icons.Filled.NotificationsOff
-    BlocklistCategory.SECURITY -> Icons.Filled.Shield
-    BlocklistCategory.NATIVE -> Icons.Filled.PhoneAndroid
-    BlocklistCategory.REGIONAL -> Icons.Filled.Translate
-    BlocklistCategory.OTHER -> Icons.Filled.Tune
+    BlocklistCategory.ADS -> MalachiIcons.Block
+    BlocklistCategory.PRIVACY -> MalachiIcons.VisibilityOff
+    BlocklistCategory.ANNOYANCES -> MalachiIcons.NotificationsOff
+    BlocklistCategory.SECURITY -> MalachiIcons.Shield
+    BlocklistCategory.NATIVE -> MalachiIcons.PhoneAndroid
+    BlocklistCategory.REGIONAL -> MalachiIcons.Translate
+    BlocklistCategory.OTHER -> MalachiIcons.Tune
 }
 
 /**

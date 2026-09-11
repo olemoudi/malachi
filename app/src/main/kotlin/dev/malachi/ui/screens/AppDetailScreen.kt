@@ -16,11 +16,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Troubleshoot
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -67,6 +65,7 @@ import dev.malachi.ui.components.cardPosition
 import dev.malachi.ui.components.lastSeenLabel
 import dev.malachi.ui.components.rememberUndoBar
 import dev.malachi.ui.components.shortDuration
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 
@@ -165,7 +164,7 @@ fun AppDetailScreen(
                         // cannot show — an app that hangs, where the domain that breaks it was
                         // asked for once and is buried under forty the app repeats all day.
                         NavRow(
-                            icon = Icons.Filled.Troubleshoot,
+                            icon = MalachiIcons.Troubleshoot,
                             title = stringResource(R.string.app_detail_diagnose),
                             subtitle = stringResource(R.string.app_detail_diagnose_hint),
                             onClick = onDiagnose,
@@ -234,7 +233,7 @@ fun AppDetailScreen(
                     MalachiCard {
                         Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                if (rule.block) Icons.Filled.Block else Icons.Filled.CheckCircle,
+                                if (rule.block) MalachiIcons.Block else Icons.Filled.CheckCircle,
                                 contentDescription = null,
                                 tint = if (rule.block) {
                                     MaterialTheme.colorScheme.error
@@ -342,7 +341,7 @@ fun AppDetailScreen(
                             }
                             IconButton(onClick = { pending = PendingRule(record.domain, block = true) }) {
                                 Icon(
-                                    Icons.Filled.Block,
+                                    MalachiIcons.Block,
                                     contentDescription = stringResource(R.string.action_block_here),
                                     tint = MaterialTheme.colorScheme.error,
                                 )

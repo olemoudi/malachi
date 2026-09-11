@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
@@ -42,6 +41,7 @@ import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.UndoBarHost
 import dev.malachi.ui.components.rememberUndoBar
+import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
 
@@ -149,7 +149,7 @@ fun RulesScreen(vm: MalachiViewModel, onBack: () -> Unit) {
                     MalachiCard {
                         Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                if (rule.block) Icons.Filled.Block else Icons.Filled.CheckCircle,
+                                if (rule.block) MalachiIcons.Block else Icons.Filled.CheckCircle,
                                 contentDescription = null,
                                 tint = if (rule.block) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp),
@@ -182,7 +182,7 @@ private fun RuleRow(domain: String, blocking: Boolean, onDelete: () -> Unit) {
     MalachiCard {
         Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                if (blocking) Icons.Filled.Block else Icons.Filled.CheckCircle,
+                if (blocking) MalachiIcons.Block else Icons.Filled.CheckCircle,
                 contentDescription = null,
                 tint = if (blocking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp),
