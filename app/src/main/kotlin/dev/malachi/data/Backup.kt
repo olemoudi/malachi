@@ -99,6 +99,10 @@ data class Backup(
         // it in any text editor is part of it being theirs rather than ours.
         private val json = Json {
             ignoreUnknownKeys = true
+            // And unknown enum values, not only unknown keys: a file exported on the testing
+            // channel names a DNS server or a guard level the stable build has no word for, and
+            // without this that one value refused the whole file as "not one of ours".
+            coerceInputValues = true
             encodeDefaults = true
             prettyPrint = true
         }

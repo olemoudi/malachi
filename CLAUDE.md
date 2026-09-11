@@ -1228,6 +1228,12 @@ the one path every revival has in common.
   `ignoreUnknownKeys`, so additive changes need no migration. For a *non-additive* change
   (renaming or repurposing a field), migrate the old JSON in `SettingsStore.decode` — never
   break an existing install.
+- **An unknown enum *value* is not an unknown key, and `ignoreUnknownKeys` does nothing for it.**
+  A DNS server or a guard level added to an enum by a newer build failed the decode of the whole
+  blob on an older one — the settings fell back to the defaults and the next write put them on
+  disk over every rule, and a backup exported on testing was refused on stable as "not one of
+  ours". Both decoders now use `coerceInputValues`, which turns such a value into the field's
+  default. That is only safe because every enum field has a default; keep it that way.
 - **Undoing something a past version wrote into a user's settings does need one**, and it goes in
   `MalachiSettings.migrated` behind `settingsVersion` — not a boolean per correction, which
   accumulates in the stored blob forever. A field default only ever reaches a fresh install.

@@ -48,7 +48,13 @@ class SettingsStore internal constructor(private val store: DataStore<Preference
     constructor(context: Context) : this(context.settingsDataStore)
 
     private val key = stringPreferencesKey("settings_json")
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    // `coerceInputValues` is the half of reading a newer blob that `ignoreUnknownKeys` does not
+    // cover. An unknown *key* is skipped by the latter; an unknown *value* of a known key — a DNS
+    // server or a guard level a newer build added to an enum — failed the decode of the whole
+    // document, and the fallback below is the defaults, which the next write then put on disk
+    // over every rule the user had. Coercing to the field's default is safe only because every
+    // field has one; keep it that way.
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
     private val serializer = MalachiSettings.serializer()
 
     /**

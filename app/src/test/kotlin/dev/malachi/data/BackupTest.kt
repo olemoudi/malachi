@@ -157,6 +157,29 @@ class BackupTest {
     }
 
     @Test
+    fun `a file from a newer version with a value this version has no name for is still read`() {
+        // The other half of the promise above. Unknown keys are dropped; an unknown *value* of
+        // a known key — a DNS server or a guard level added later — used to fail the whole file,
+        // and the screen then told somebody their own backup was not one of ours. Which is the
+        // ordinary case of exporting on the testing channel and restoring on stable.
+        val newer = """
+            {
+              "format": 1,
+              "userBlocked": ["ads.example.com"],
+              "upstream": "MULLVAD",
+              "bypassGuard": "EVERYTHING"
+            }
+        """.trimIndent()
+
+        val backup = Backup.decode(newer).getOrNull()
+
+        assertNotNull(backup)
+        assertEquals(setOf("ads.example.com"), backup!!.userBlocked)
+        assertEquals(UpstreamDns.SYSTEM, backup.upstream, "an unknown value falls back to the field's default")
+        assertEquals(BypassGuard.SYSTEM_RESOLVERS, backup.bypassGuard)
+    }
+
+    @Test
     fun `anything that is not one of our files is refused`() {
         // The realistic wrong pick from a file manager: a photo, a text note, an empty file, or
         // a truncated copy. All of them must fail loudly rather than restore an empty rule set

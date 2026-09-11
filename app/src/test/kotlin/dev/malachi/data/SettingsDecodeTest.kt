@@ -1,5 +1,6 @@
 package dev.malachi.data
 
+import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -55,5 +56,28 @@ class SettingsDecodeTest {
         // The defaults leave filtering off: visibly not running, rather than silently not working.
         val damaged = SettingsStore(FakePreferencesStore())
         assertEquals(false, damaged.current().filteringEnabled)
+    }
+
+    @Test
+    fun `an unknown enum value costs that one field, not the whole document`() = runTest {
+        // A newer build adds a DNS server to the list and writes it; this build reads the blob —
+        // after a restore from a backup, or on the blob itself if a value is ever withdrawn.
+        // `ignoreUnknownKeys` does nothing for this case: it is a known key holding a value this
+        // build has no name for, and it used to fail the decode of everything around it. The
+        // fallback is the defaults, and the next write put those on disk over the rules.
+        val fake = FakePreferencesStore()
+        fake.updateData { prefs ->
+            prefs.toMutablePreferences().apply {
+                this[stringPreferencesKey("settings_json")] =
+                    """{"upstream":"MULLVAD","bypassGuard":"EVERYTHING","userBlocked":["ads.example.com"],"filteringEnabled":true}"""
+            }.toPreferences()
+        }
+
+        val settings = SettingsStore(fake).current()
+
+        assertEquals(setOf("ads.example.com"), settings.userBlocked, "the rules were lost to a value in another field")
+        assertEquals(true, settings.filteringEnabled)
+        assertEquals(UpstreamDns.SYSTEM, settings.upstream, "an unknown value falls back to the field's default")
+        assertEquals(BypassGuard.SYSTEM_RESOLVERS, settings.bypassGuard)
     }
 }
