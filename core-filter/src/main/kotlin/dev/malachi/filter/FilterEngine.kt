@@ -52,7 +52,8 @@ data class CompiledList(
 
 /**
  * Decides whether a DNS lookup is blocked. Pure, deterministic, and called once per query on
- * the tunnel's hot path, so it allocates nothing in the common case.
+ * the tunnel's hot path, so it allocates one small array of suffix hashes per lookup and nothing
+ * else.
  *
  * **Precedence is by authorship first, specificity second.** A rule the user wrote always beats
  * a downloaded list, because the whole point of writing one is that the list got it wrong. Among
@@ -74,13 +75,24 @@ class FilterEngine(
     /** Total domains across every subscribed list, before de-duplication between lists. */
     val listedDomains: Int get() = lists.sumOf { it.block.size }
 
+    /**
+     * The per-app rules with their domains normalised once, here, rather than on every lookup
+     * for every rule. A rule whose domain does not normalise could never match and is dropped.
+     */
+    private val normalizedAppRules: List<AppDomainRule> =
+        appRules.mapNotNull { rule -> DomainIndex.normalizeHost(rule.domain)?.let { rule.copy(domain = it) } }
+
     fun decide(host: String, packageName: String?): Verdict {
         val h = DomainIndex.normalizeHost(host) ?: return Verdict.ALLOWED
 
         appVerdict(h, packageName)?.let { return it }
 
-        val userBlockDepth = userBlock.matchDepth(h)
-        val userAllowDepth = userAllow.matchDepth(h)
+        // Hashed once for every index below. Each used to normalise the name and derive every
+        // suffix hash again for itself: with six lists that was fifteen scans of the host and
+        // sixty hash passes per lookup, all arriving at the same numbers.
+        val suffixes = DomainIndex.suffixHashes(h)
+        val userBlockDepth = userBlock.matchDepth(suffixes)
+        val userAllowDepth = userAllow.matchDepth(suffixes)
         if (userAllowDepth >= 0 && (userBlockDepth < 0 || userAllowDepth <= userBlockDepth)) {
             return Verdict(blocked = false, source = RuleSource.USER_RULE, detail = h)
         }
@@ -90,15 +102,15 @@ class FilterEngine(
 
         // Below the user and above every list: the handful of names the phone itself uses to
         // decide whether a network works. See [CONNECTIVITY_CHECKS].
-        if (connectivityChecks.matches(h)) return Verdict.ALLOWED
+        if (connectivityChecks.matches(suffixes)) return Verdict.ALLOWED
 
         // Among the subscribed lists, an exception anywhere outranks a block anywhere: the lists
         // are curated together and their maintainers publish `@@` rules precisely to repair
         // over-blocking, including over-blocking caused by another list.
         var blockedBy: CompiledList? = null
         for (list in lists) {
-            if (list.allow.matches(h)) return Verdict(blocked = false, source = RuleSource.LIST, detail = list.title)
-            if (blockedBy == null && list.block.matches(h)) blockedBy = list
+            if (list.allow.matches(suffixes)) return Verdict(blocked = false, source = RuleSource.LIST, detail = list.title)
+            if (blockedBy == null && list.block.matches(suffixes)) blockedBy = list
         }
         // Not an early return above: an exception in a later list must still be able to rescue a
         // domain an earlier list blocked, so the scan has to finish before the block is honoured.
@@ -134,12 +146,12 @@ class FilterEngine(
      * would silently apply someone else's rule.
      */
     private fun appVerdict(host: String, packageName: String?): Verdict? {
-        if (packageName == null || appRules.isEmpty()) return null
+        if (packageName == null || normalizedAppRules.isEmpty()) return null
         var best: AppDomainRule? = null
         var bestDepth = Int.MAX_VALUE
-        for (rule in appRules) {
+        for (rule in normalizedAppRules) {
             if (rule.packageName != packageName) continue
-            val depth = matchDepth(host, rule.domain)
+            val depth = suffixDepth(host, rule.domain)
             if (depth < 0) continue
             // Ties go to the exemption: see the class doc.
             if (depth < bestDepth || (depth == bestDepth && !rule.block)) {
@@ -198,8 +210,13 @@ class FilterEngine(
         fun matchDepth(host: String, domain: String): Int {
             val h = DomainIndex.normalizeHost(host) ?: return -1
             val d = DomainIndex.normalizeHost(domain) ?: return -1
+            return suffixDepth(h, d)
+        }
+
+        /** [matchDepth] for two names already normalised, allocating nothing. */
+        private fun suffixDepth(h: String, d: String): Int {
             if (h == d) return 0
-            if (!h.endsWith(".$d")) return -1
+            if (h.length <= d.length || !h.endsWith(d) || h[h.length - d.length - 1] != '.') return -1
             // The dots in the part that was dropped are the labels that were dropped: for
             // `a.b.example.com` against `example.com` the prefix is `a.b.`, so depth 2.
             var depth = 0

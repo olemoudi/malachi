@@ -47,6 +47,32 @@ class DomainIndexTest {
     }
 
     @Test
+    fun `suffix hashes answer exactly what the string path answers`() {
+        // The hot path hashes the name once and hands the hashes to every index; the two ways of
+        // asking must never disagree, or a rule would match on a screen and not in the tunnel.
+        for (host in listOf("ads.example.com", "eu.ads.example.com", "example.com", "nottracker.net", "tracker.net", "a.b.tracker.net")) {
+            val h = DomainIndex.normalizeHost(host)!!
+            assertEquals(index.matchDepth(host), index.matchDepth(DomainIndex.suffixHashes(h)), host)
+            assertEquals(index.matches(host), index.matches(DomainIndex.suffixHashes(h)), host)
+        }
+        assertEquals(3, DomainIndex.suffixHashes("a.b.c").size)
+    }
+
+    @Test
+    fun `a builder sorts in place and can still be added to afterwards`() {
+        val builder = DomainIndex.Builder()
+        listOf("b.example.com", "a.example.com", "b.example.com").forEach { builder.add(it) }
+        assertEquals(2, builder.build().size)
+
+        builder.add("c.example.com")
+        val again = builder.build()
+        assertEquals(3, again.size)
+        assertTrue(again.matches("c.example.com"))
+        assertTrue(again.matches("a.example.com"))
+        assertTrue(again.matches("b.example.com"))
+    }
+
+    @Test
     fun `duplicates collapse`() {
         val built = DomainIndex.of(listOf("a.com", "a.com", "A.COM.", "b.com"))
         assertEquals(2, built.size)

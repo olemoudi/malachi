@@ -52,6 +52,18 @@ class DomainIndex internal constructor(internal val hashes: LongArray) {
         }
     }
 
+    /**
+     * [matchDepth] for a host whose suffix hashes were computed once already — see
+     * [suffixHashes]. The hot path asks five or more indexes about the same name per lookup, and
+     * each used to normalise it and hash every suffix again for itself.
+     */
+    fun matchDepth(suffixes: LongArray): Int {
+        for (depth in suffixes.indices) if (contains(suffixes[depth])) return depth
+        return -1
+    }
+
+    fun matches(suffixes: LongArray): Boolean = matchDepth(suffixes) >= 0
+
     /** True when exactly this domain is an entry (no suffix walking). */
     fun containsExact(domain: String): Boolean {
         val d = normalizeHost(domain) ?: return false
@@ -106,13 +118,17 @@ class DomainIndex internal constructor(internal val hashes: LongArray) {
         }
 
         fun build(): DomainIndex {
-            val sorted = buffer.copyOf(count)
-            sorted.sort()
+            // Sorted and de-duplicated in place, and copied out exactly once. Three copies of a
+            // two-million-entry list — the doubled buffer, a sorted copy, the trimmed result —
+            // were seventy megabytes of transient heap in the process that answers every lookup
+            // on the phone. The builder stays usable afterwards: what it holds is the same set.
+            buffer.sort(0, count)
             var unique = 0
-            for (i in sorted.indices) {
-                if (i == 0 || sorted[i] != sorted[i - 1]) sorted[unique++] = sorted[i]
+            for (i in 0 until count) {
+                if (i == 0 || buffer[i] != buffer[i - 1]) buffer[unique++] = buffer[i]
             }
-            return DomainIndex(sorted.copyOf(unique))
+            count = unique
+            return DomainIndex(buffer.copyOf(unique))
         }
     }
 
@@ -121,6 +137,27 @@ class DomainIndex internal constructor(internal val hashes: LongArray) {
         private const val VERSION = 1
 
         val EMPTY = DomainIndex(LongArray(0))
+
+        /**
+         * The hash of every suffix of an already-normalised host, most specific first: for
+         * `a.b.c`, the hashes of `a.b.c`, `b.c` and `c`. One small array per lookup, so that the
+         * user's two indexes, the connectivity checks and every subscribed list can be asked
+         * without any of them scanning the name again.
+         */
+        fun suffixHashes(normalized: String): LongArray {
+            var labels = 1
+            for (c in normalized) if (c == '.') labels++
+            val out = LongArray(labels)
+            var start = 0
+            var depth = 0
+            while (true) {
+                out[depth] = hash(normalized, start, normalized.length)
+                val dot = normalized.indexOf('.', start)
+                if (dot < 0) return out
+                start = dot + 1
+                depth++
+            }
+        }
 
         fun of(domains: Iterable<String>): DomainIndex {
             val builder = Builder()

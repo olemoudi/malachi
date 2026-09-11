@@ -65,10 +65,16 @@ data class QueryLogState(
     /** Percentage of lookups refused, rounded, or 0 before anything has been seen. */
     val blockedPercent: Int get() = if (total == 0L) 0 else ((blocked * 100) / total).toInt()
 
-    /** Records grouped by app, each group and the groups themselves most-recent first. */
-    fun byApp(): List<Pair<String?, List<QueryRecord>>> =
+    /**
+     * Records grouped by app, each group and the groups themselves most-recent first. With a
+     * [limit], only the groups that survive it are sorted inside: the screen that reads this
+     * wants three apps, and sorting every app's records to hand back three was most of the cost
+     * of a snapshot that lands twice a second.
+     */
+    fun byApp(limit: Int = Int.MAX_VALUE): List<Pair<String?, List<QueryRecord>>> =
         records.groupBy { it.packageName }.entries
             .sortedByDescending { entry -> entry.value.maxOf { it.lastSeenMs } }
+            .take(limit)
             .map { it.key to it.value.sortedByDescending { r -> r.lastSeenMs } }
 
     /**

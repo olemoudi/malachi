@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
+import kotlinx.coroutines.delay
 import dev.malachi.filter.ListCoverage
 import dev.malachi.filter.QueryRecord
 import dev.malachi.filter.RuleSource
@@ -75,6 +77,7 @@ private enum class ActivityFilter { ALL, BLOCKED, ALLOWED }
 private enum class ActivityTab { LIVE, STATS }
 
 /** How many of the apps that spoke most recently get a shortcut of their own. */
+private const val SEARCH_DEBOUNCE_MS = 150L
 private const val RECENT_APPS = 3
 
 /** How many domains the session's blocked ranking names. */
@@ -131,31 +134,51 @@ fun ActivityScreen(
     // rows of one list must not disagree about what "2 min ago" means.
     val now = remember(log) { System.currentTimeMillis() }
 
-    val visible = remember(log, filter, query, vm) {
-        log.records.asSequence()
-            .filter {
-                when (filter) {
-                    ActivityFilter.ALL -> true
-                    ActivityFilter.BLOCKED -> it.blocked
-                    ActivityFilter.ALLOWED -> !it.blocked
+    // The text actually searched trails the box by a moment: each keystroke used to walk twelve
+    // hundred records and a label lookup per record, on the main thread, between two characters.
+    var searched by remember { mutableStateOf(query) }
+    LaunchedEffect(query) {
+        if (query != searched) {
+            delay(SEARCH_DEBOUNCE_MS)
+            searched = query
+        }
+    }
+
+    // Each of these is derived only for the tab that shows it. The log publishes twice a second
+    // while this screen is open, and every publication used to regroup and re-sort the whole
+    // log for the tab that was not on screen as well as for the one that was.
+    val live = tab == ActivityTab.LIVE
+    val visible = remember(log, filter, searched, live, vm) {
+        if (!live) {
+            emptyList()
+        } else {
+            log.records.asSequence()
+                .filter {
+                    when (filter) {
+                        ActivityFilter.ALL -> true
+                        ActivityFilter.BLOCKED -> it.blocked
+                        ActivityFilter.ALLOWED -> !it.blocked
+                    }
                 }
-            }
-            // Searching by app name as well as by domain: "whatsapp" used to match nothing at
-            // all, which is not what anybody expects of a field on a screen full of app names.
-            .filter {
-                query.isBlank() ||
-                    it.domain.contains(query, true) ||
-                    vm.labelFor(it.packageName).contains(query, true)
-            }
-            .toList()
+                // Searching by app name as well as by domain: "whatsapp" used to match nothing
+                // at all, which is not what anybody expects of a field on a screen full of app
+                // names.
+                .filter {
+                    searched.isBlank() ||
+                        it.domain.contains(searched, true) ||
+                        vm.labelFor(it.packageName).contains(searched, true)
+                }
+                .toList()
+        }
     }
 
     // The apps that spoke most recently, which is the closest thing to "the app you just used"
-    // that can be known without asking for usage access. byApp() already orders them that way.
-    val recent = remember(log) {
-        log.byApp().filter { it.first != null }.take(RECENT_APPS)
+    // that can be known without asking for usage access. byApp() already orders them that way;
+    // one group more than is shown, because the unattributed lookups form a group of their own.
+    val recent = remember(log, live) {
+        if (!live) emptyList() else log.byApp(limit = RECENT_APPS + 1).filter { it.first != null }.take(RECENT_APPS)
     }
-    val topBlocked = remember(log) { log.topBlockedDomains(TOP_DOMAINS) }
+    val topBlocked = remember(log, live) { if (live) emptyList() else log.topBlockedDomains(TOP_DOMAINS) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
