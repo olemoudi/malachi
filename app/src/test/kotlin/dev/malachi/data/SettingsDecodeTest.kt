@@ -59,6 +59,22 @@ class SettingsDecodeTest {
     }
 
     @Test
+    fun `the last decode is kept for the first frame, and nothing is kept before one`() = runTest {
+        // The screen draws its first frame from this. Null has to mean "not read yet" and nothing
+        // else, or a cold launch would paint the defaults — which is the welcome screen.
+        val store = SettingsStore(FakePreferencesStore())
+        assertEquals(null, store.cached, "nothing has been read yet")
+
+        store.update { it.copy(userBlocked = setOf("ads.example.com")) }
+        assertSame(store.current(), store.cached)
+
+        // A fresh install has nothing stored, and that is still a completed read.
+        val fresh = SettingsStore(FakePreferencesStore())
+        fresh.current()
+        assertEquals(MalachiSettings(), fresh.cached)
+    }
+
+    @Test
     fun `an unknown enum value costs that one field, not the whole document`() = runTest {
         // A newer build adds a DNS server to the list and writes it; this build reads the blob —
         // after a restore from a backup, or on the blob itself if a value is ever withdrawn.

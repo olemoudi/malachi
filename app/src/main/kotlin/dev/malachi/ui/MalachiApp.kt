@@ -182,6 +182,15 @@ private val screenStackSaver = listSaver<SnapshotStateList<Entry>, String>(
 @Composable
 fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val loaded by vm.settingsLoaded.collectAsStateWithLifecycle()
+
+    // Nothing is drawn from the defaults. A cold process reads the settings in a few
+    // milliseconds, and the whole of that time used to be spent painting the welcome screen —
+    // `welcomeSeen` is false in the defaults — over an install that saw it months ago.
+    if (!loaded) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {}
+        return
+    }
 
     // Before anything else, once. The system's VPN dialog says this app "can monitor all network
     // traffic", which is true of the permission and untrue of what is done with it — and somebody

@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -67,8 +68,18 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     val inventory: AppInventory get() = app.appInventory
 
+    /**
+     * Seeded from the store's last decode, and flagged once a real read has arrived, because the
+     * first frame is drawn from the seed. Started on the defaults, it painted the welcome screen —
+     * `welcomeSeen` is false there — over every cold launch and snapped to Home a moment later.
+     */
+    private val settingsRead = MutableStateFlow(app.settingsStore.cached != null)
     val settings: StateFlow<MalachiSettings> = app.settingsStore.settings
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MalachiSettings())
+        .onEach { settingsRead.value = true }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), app.settingsStore.cached ?: MalachiSettings())
+
+    /** False until the stored settings have been read at least once; nothing is drawn before. */
+    val settingsLoaded: StateFlow<Boolean> = settingsRead.asStateFlow()
 
     val status = VpnStatus.status
 
@@ -118,7 +129,7 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     val listProgress = app.filterRepository.listProgress
     val updateState = UpdateCenter.state
     val themeMode: StateFlow<ThemeMode> = app.themeStore.mode
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.SYSTEM)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), app.themeStore.cached ?: ThemeMode.SYSTEM)
 
     /** Total domains across the compiled lists, for the home screen's one honest number. */
     val listedDomains: StateFlow<Int> = app.filterRepository.engine

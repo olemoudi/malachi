@@ -44,11 +44,19 @@ class ThemeStore internal constructor(private val store: DataStore<Preferences>)
 
     private val key = stringPreferencesKey("mode")
 
+    /**
+     * The mode as last read, or null before any read has completed. The activity draws its first
+     * frame from this rather than from a guess; see [dev.malachi.MainActivity].
+     */
+    @Volatile var cached: ThemeMode? = null
+        private set
+
     /** A damaged file falls back to the default rather than throwing at every reader. */
     val mode: Flow<ThemeMode> = store.data
         .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
         .map { prefs ->
-            prefs[key]?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } } ?: ThemeMode.SYSTEM
+            (prefs[key]?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } } ?: ThemeMode.SYSTEM)
+                .also { cached = it }
         }
 
     suspend fun setMode(mode: ThemeMode) {

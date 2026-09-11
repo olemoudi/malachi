@@ -12,13 +12,18 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import dev.malachi.data.ThemeMode
+import dev.malachi.debug.DebugLog
 import dev.malachi.net.VpnController
 import dev.malachi.ui.MalachiApp
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.theme.MalachiTheme
 import dev.malachi.ui.theme.resolvesToDark
 import dev.malachi.update.UpdateWorker
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -47,8 +52,33 @@ class MainActivity : ComponentActivity() {
 
         val app = application as MalachiApplication
 
+        // The first frame waits for the stored theme rather than guessing it. Drawn on SYSTEM and
+        // corrected a moment later, a phone set to dark on a light system flashed white on every
+        // cold launch. Until the read completes the launch window stays up — on Android 12 and
+        // later that is the system splash, which is what it is for — and on a warm process the
+        // value is already in hand and nothing waits at all.
+        if (app.themeStore.cached != null) {
+            showContent(app)
+        } else {
+            lifecycleScope.launch {
+                try {
+                    app.themeStore.mode.first()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (t: Throwable) {
+                    // Whatever the store's trouble is, it must not be a blank window forever.
+                    DebugLog.w(TAG, "could not read the theme before the first frame", t)
+                }
+                showContent(app)
+            }
+        }
+    }
+
+    private fun showContent(app: MalachiApplication) {
         setContent {
-            val themeMode by app.themeStore.mode.collectAsStateWithLifecycle(initialValue = ThemeMode.SYSTEM)
+            val themeMode by app.themeStore.mode.collectAsStateWithLifecycle(
+                initialValue = app.themeStore.cached ?: ThemeMode.SYSTEM,
+            )
             MalachiTheme(darkTheme = themeMode.resolvesToDark()) {
                 MalachiApp(vm = vm, onRequestVpnConsent = ::requestVpnConsent)
             }
@@ -109,5 +139,9 @@ class MainActivity : ComponentActivity() {
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
         if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private companion object {
+        const val TAG = "MalachiMain"
     }
 }

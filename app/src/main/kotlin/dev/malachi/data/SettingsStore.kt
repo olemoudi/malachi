@@ -109,18 +109,30 @@ class SettingsStore internal constructor(private val store: DataStore<Preference
     @Volatile private var lastDecoded: Pair<String, MalachiSettings>? = null
 
     /**
+     * The settings as last decoded, or null before any read has completed.
+     *
+     * What the first frame is drawn from. The view model's state flow needs a value before its
+     * first emission arrives, and starting it on the defaults painted the welcome screen — where
+     * `welcomeSeen` is false — over every cold launch of an install that had seen it months ago.
+     * On a warm process this is simply the current value; on a cold one the screen waits for it.
+     */
+    @Volatile var cached: MalachiSettings? = null
+        private set
+
+    /**
      * Unreadable settings fall back to the defaults rather than to nothing. The defaults leave
      * filtering *off*, which is the safe direction: a user whose settings were lost gets an app
      * that plainly isn't running, not one that silently blocks their bank.
      */
     private fun decode(raw: String?): MalachiSettings {
-        if (raw == null) return MalachiSettings()
+        if (raw == null) return MalachiSettings().also { cached = it }
         lastDecoded?.let { (text, decoded) -> if (text == raw) return decoded }
         val decoded = runCatching { json.decodeFromString(serializer, raw) }.getOrElse {
             DebugLog.e(TAG, "stored settings are unreadable; falling back to defaults", it)
             MalachiSettings()
         }
         lastDecoded = raw to decoded
+        cached = decoded
         return decoded
     }
 
