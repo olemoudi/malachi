@@ -30,7 +30,12 @@ class TunnelPolicyTest {
 
     /** Only a literal address, exactly like the Android original — never a DNS lookup. */
     private fun parse(text: String): InetAddress? = runCatching {
-        if (text.isBlank()) null else InetAddress.getByAddress(text, literal(text) ?: return null)
+        when {
+            text.isBlank() -> null
+            // An IPv6 literal, which `getByName` parses without a lookup — a name has no colon.
+            ':' in text -> InetAddress.getByName(text)
+            else -> InetAddress.getByAddress(text, literal(text) ?: return null)
+        }
     }.getOrNull()
 
     private fun literal(text: String): ByteArray? {
@@ -274,7 +279,7 @@ class TunnelPolicyTest {
     fun `a network that hands out no resolver still leaves somewhere to ask`() {
         val resolved =
             TunnelPolicy.resolveUpstreams(UpstreamDns.SYSTEM, "", emptyList(), sentinels, parse = ::parse)
-        assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
+        assertEquals(UpstreamDns.CLOUDFLARE.addresses.map { parse(it) }, resolved)
     }
 
     // ---- hotels, airports, coffee shops ------------------------------------------------------
@@ -298,7 +303,7 @@ class TunnelPolicyTest {
         val resolved = TunnelPolicy.resolveUpstreams(
             UpstreamDns.CLOUDFLARE, "", portalDns, sentinels, captivePortal = false, parse = ::parse,
         )
-        assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
+        assertEquals(UpstreamDns.CLOUDFLARE.addresses.map { parse(it) }, resolved)
     }
 
     @Test
@@ -306,7 +311,7 @@ class TunnelPolicyTest {
         val resolved = TunnelPolicy.resolveUpstreams(
             UpstreamDns.QUAD9, "", emptyList(), sentinels, captivePortal = true, parse = ::parse,
         )
-        assertEquals(UpstreamDns.QUAD9.addresses, resolved.map { it.hostAddress })
+        assertEquals(UpstreamDns.QUAD9.addresses.map { parse(it) }, resolved)
     }
 
     // ---- what the bypass guard may route -----------------------------------------------------
@@ -526,7 +531,7 @@ class TunnelPolicyTest {
     @Test
     fun `a custom resolver typed wrong falls back instead of black-holing DNS`() {
         val resolved = TunnelPolicy.resolveUpstreams(UpstreamDns.CUSTOM, "not an address", emptyList(), sentinels, parse = ::parse)
-        assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
+        assertEquals(UpstreamDns.CLOUDFLARE.addresses.map { parse(it) }, resolved)
     }
 
     @Test
@@ -541,7 +546,7 @@ class TunnelPolicyTest {
         val resolved = TunnelPolicy.resolveUpstreams(
             UpstreamDns.SYSTEM, "", listOf(parse("10.111.222.2")!!), sentinels, parse = ::parse,
         )
-        assertEquals(UpstreamDns.CLOUDFLARE.addresses, resolved.map { it.hostAddress })
+        assertEquals(UpstreamDns.CLOUDFLARE.addresses.map { parse(it) }, resolved)
         assertFalse(resolved.any { it.hostAddress in sentinels })
     }
 

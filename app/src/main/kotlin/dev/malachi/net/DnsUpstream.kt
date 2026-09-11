@@ -127,7 +127,14 @@ object DnsRelay {
                 if (reply.length >= DnsMessage.HEADER_BYTES &&
                     DnsMessage.transactionId(buffer) == transactionId
                 ) {
-                    answer = buffer.copyOf(reply.length)
+                    // A datagram larger than the buffer is cut by the socket without a word, and
+                    // the cut is no signal: the id still matches and the rest parses as a message
+                    // that ends mid-record. Said as a truncation instead; see [DnsMessage.truncated].
+                    answer = if (reply.length >= buffer.size) {
+                        DnsMessage.truncated(buffer, reply.length)
+                    } else {
+                        buffer.copyOf(reply.length)
+                    }
                 }
             }
             answer

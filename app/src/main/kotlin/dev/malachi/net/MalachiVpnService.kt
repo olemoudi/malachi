@@ -995,7 +995,14 @@ class MalachiVpnService : VpnService() {
 
     private fun handle(packet: ByteArray, length: Int) {
         val udp = IpPacket.parseUdp(packet, length) ?: return notUdp(packet, length)
-        if (udp.destinationPort != DNS_PORT) return dropUnroutable("UDP port ${udp.destinationPort}")
+        if (udp.destinationPort != DNS_PORT) {
+            // Refused rather than swallowed, exactly as a TCP connection is. Everything routed
+            // here is routed for DNS, and a datagram to any other port — DNS over QUIC or HTTP/3
+            // to a resolver the guard routes — used to vanish, and the client waited out its
+            // whole timeout before trying anything else. See [IpPacket.buildPortUnreachable].
+            IpPacket.buildPortUnreachable(packet, length)?.let { writeToTun(it) }
+            return dropUnroutable("UDP port ${udp.destinationPort}")
+        }
 
         // The only copy taken per lookup, and only of the DNS message — never of the packet.
         val payload = udp.payload(packet)
@@ -1341,16 +1348,19 @@ class MalachiVpnService : VpnService() {
                 out.write(byteArrayOf((query.size ushr 8).toByte(), query.size.toByte()))
                 out.write(query)
                 out.flush()
-                val input = socket.getInputStream()
+                val input = java.io.DataInputStream(socket.getInputStream())
                 val header = ByteArray(2)
-                if (input.read(header) != 2) return@runCatching null
+                // Both bytes however they arrive: a length prefix split across two reads used to
+                // read as a failure, and the answer relayed instead still carried TC — so the
+                // client retried over TCP against this tunnel, which refuses TCP.
+                input.readFully(header)
                 val size = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
                 if (size !in 1..UPSTREAM_BUFFER) return@runCatching null
                 val body = ByteArray(size)
                 var read = 0
                 while (read < size) {
                     if (left() <= 0) return@runCatching null
-                    socket.soTimeout = left()
+                    socket.soTimeout = left().coerceAtLeast(1)
                     val n = input.read(body, read, size - read)
                     if (n < 0) return@runCatching null
                     read += n

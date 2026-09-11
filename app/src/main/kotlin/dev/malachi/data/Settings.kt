@@ -25,13 +25,21 @@ enum class BlockAnswerMode {
     }
 }
 
-/** Where allowed lookups are sent. [SYSTEM] follows whatever the current network hands out. */
+/**
+ * Where allowed lookups are sent. [SYSTEM] follows whatever the current network hands out.
+ *
+ * Each preset carries both families. With only the IPv4 pair, a phone on an IPv6-only network
+ * with no NAT64 could reach none of them — no socket to any, every lookup dropped, a phone with
+ * no DNS while the filter reported itself as working — and the service's own list of public
+ * resolvers had the IPv6 addresses all along. The family the query arrived in is tried first
+ * (see `TunnelPolicy.orderUpstreams`), so nothing changes for a phone that has both.
+ */
 enum class UpstreamDns(val addresses: List<String>) {
     SYSTEM(emptyList()),
-    CLOUDFLARE(listOf("1.1.1.1", "1.0.0.1")),
-    GOOGLE(listOf("8.8.8.8", "8.8.4.4")),
-    QUAD9(listOf("9.9.9.9", "149.112.112.112")),
-    ADGUARD(listOf("94.140.14.140", "94.140.14.141")),
+    CLOUDFLARE(listOf("1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001")),
+    GOOGLE(listOf("8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844")),
+    QUAD9(listOf("9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9")),
+    ADGUARD(listOf("94.140.14.140", "94.140.14.141", "2a10:50c0::1:ff", "2a10:50c0::2:ff")),
     CUSTOM(emptyList()),
 }
 

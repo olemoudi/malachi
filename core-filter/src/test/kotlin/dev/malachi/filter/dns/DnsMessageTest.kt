@@ -143,6 +143,34 @@ class DnsMessageTest {
     // ---- a resolver that answers "no" ------------------------------------------------------
 
     @Test
+    fun `a message cut by the socket becomes a truncation with its question intact`() {
+        // DatagramSocket.receive drops what does not fit its buffer and says nothing: the id
+        // still matches and the rest parses as a message that ends mid-record, which the client
+        // discards and then waits on. Said as a truncation, the client asks again over TCP.
+        val response = query("example.com").also { it[2] = 0x81.toByte(); it[7] = 5 }
+        val cut = response.copyOf(response.size + 200)
+
+        val truncated = DnsMessage.truncated(cut, cut.size)
+
+        assertEquals(0x1234, DnsMessage.transactionId(truncated))
+        assertTrue(truncated[2].toInt() and 0x02 != 0, "TC was not set")
+        assertEquals(response.size, truncated.size, "the question section was not kept whole")
+        assertEquals(1, shortAt(truncated, 4))
+        assertEquals(0, shortAt(truncated, 6))
+        assertEquals(0, shortAt(truncated, 8))
+        assertEquals(0, shortAt(truncated, 10))
+    }
+
+    @Test
+    fun `a cut message whose question cannot be read is still a well-formed truncation`() {
+        val cut = query("example.com").copyOf(15).also { it[2] = 0x81.toByte() }
+        val truncated = DnsMessage.truncated(cut, cut.size)
+        assertEquals(DnsMessage.HEADER_BYTES, truncated.size)
+        assertEquals(0, shortAt(truncated, 4))
+        assertTrue(truncated[2].toInt() and 0x02 != 0)
+    }
+
+    @Test
     fun `SERVFAIL and REFUSED are a resolver declining, not an answer`() {
         // The whole reason this exists: a router that advertises a DNS server which refuses
         // everything looks like a healthy network with the filter off — Android's own resolver

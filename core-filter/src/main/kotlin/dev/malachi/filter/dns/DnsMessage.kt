@@ -122,6 +122,44 @@ object DnsMessage {
         )
     }
 
+    /**
+     * [response] cut down to a truncation: its header with TC set, every section but the question
+     * emptied, and the question itself when it can still be read.
+     *
+     * For an answer that arrived larger than the socket buffer that received it. The socket cuts
+     * such a datagram without a word — the length reads as the buffer's, the id still matches, and
+     * what is left parses as a message that ends mid-record, which the client discards and then
+     * waits on. A truncation is what the resolver would have said had it known the limit, and the
+     * client answers it by asking again over TCP.
+     */
+    fun truncated(response: ByteArray, length: Int): ByteArray {
+        val questionEnd = questionEnd(response, length)
+        val out = response.copyOf(questionEnd ?: HEADER_BYTES)
+        out[2] = (out[2].toInt() or 0x02).toByte()
+        writeShort(out, 4, if (questionEnd != null) 1 else 0)
+        writeShort(out, 6, 0)
+        writeShort(out, 8, 0)
+        writeShort(out, 10, 0)
+        return out
+    }
+
+    /** Where the first question of [data] ends, or null when it cannot be walked within [length]. */
+    private fun questionEnd(data: ByteArray, length: Int): Int? {
+        if (length < HEADER_BYTES || readShort(data, 4) < 1) return null
+        var i = HEADER_BYTES
+        while (true) {
+            if (i >= length) return null
+            val len = data[i].toInt() and 0xFF
+            if (len == 0) {
+                i++
+                break
+            }
+            if (len and 0xC0 != 0) return null
+            i += 1 + len
+        }
+        return if (i + 4 <= length) i + 4 else null
+    }
+
     /** The response to send for a name we refuse, in the shape the user asked for. */
     fun blockedResponse(query: ByteArray, question: DnsQuestion, answer: BlockAnswer): ByteArray =
         when (answer) {

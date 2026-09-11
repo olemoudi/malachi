@@ -412,6 +412,17 @@ Every DNS query is parsed, attributed to the app that sent it, and either answer
   arrived, and a reset is never answered with a reset. Get the numbers wrong and the client
   ignores the reset and goes back to waiting, which is the outcome it exists to prevent. Same
   reasoning as answering pings: a routed address that says nothing reads as a broken network.
+- **The same silence for UDP, and the same answer.** A datagram to a routed address on any port
+  but 53 — DNS over QUIC or HTTP/3 to `1.1.1.1:443` at the guard's top setting — was dropped, and
+  the client waited out its whole timeout before trying anything else. `IpPacket.buildPortUnreachable`
+  answers with ICMP port unreachable (v4 type 3/3, v6 type 1/4), which the kernel turns into a
+  refusal on the sending socket, exactly as the reset does for TCP.
+- **`DatagramSocket.receive` cuts a datagram larger than its buffer and says nothing.** The length
+  reads as the buffer's, the transaction id still matches, and what is left parses as an answer
+  that ends mid-record — which the client discards and then waits on, with no TC bit to tell it to
+  retry. `DnsRelay` turns such a reply into a proper truncation (`DnsMessage.truncated`), which is
+  what the resolver would have said had it known the limit. It fails fast and honestly rather than
+  delivering the answer: nothing over 4032 bytes fits this tun anyway.
 - **A VPN is metered unless it says otherwise, and that belief spreads to the whole phone.**
   Without `Builder.setMetered(false)` the tunnel's capabilities come back without `NOT_METERED`
   while the Wi-Fi underneath it has it — measured with `dumpsys connectivity`, before and after.

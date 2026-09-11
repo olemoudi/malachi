@@ -89,6 +89,37 @@ class DnsUpstreamTest {
     }
 
     @Test
+    fun `an answer larger than the buffer is relayed as a truncation, not cut mid-record`() {
+        // DatagramSocket.receive drops everything past its buffer and reports the buffer's own
+        // length; the transaction id still matches, so the cut message used to be relayed as if
+        // it were complete — and the client discarded it and waited.
+        val resolver = socket()
+        val big = ByteArray(300).also { query(0x1234).copyInto(it); it[2] = 0x81.toByte(); it[7] = 9 }
+        val serving = Thread {
+            val incoming = DatagramPacket(ByteArray(512), 512)
+            resolver.receive(incoming)
+            resolver.send(DatagramPacket(big, big.size, incoming.address, incoming.port))
+        }.also { it.isDaemon = true; it.start() }
+
+        val relayed = DnsRelay.exchange(
+            socket = clientTo(resolver),
+            query = query(0x1234),
+            target = loopback,
+            port = resolver.localPort,
+            deadlineMs = System.currentTimeMillis() + 2_000,
+            bufferSize = 100,
+            nowMs = System::currentTimeMillis,
+        )!!
+        serving.join(2_000)
+
+        assertEquals(0x1234, DnsMessage.transactionId(relayed))
+        assertTrue(relayed[2].toInt() and 0x02 != 0, "TC was not set on a cut answer")
+        assertTrue(relayed.size < 100, "the cut message was relayed as it came")
+        assertEquals(1, ((relayed[4].toInt() and 0xFF) shl 8) or (relayed[5].toInt() and 0xFF), "the question was lost")
+        assertEquals(0, ((relayed[6].toInt() and 0xFF) shl 8) or (relayed[7].toInt() and 0xFF), "records were claimed that are not there")
+    }
+
+    @Test
     fun `a late answer to an earlier query is not relayed as the answer to this one`() {
         // Exactly what a pooled socket makes possible: the resolver answers a question we have
         // stopped waiting for, and then the real one. Only the second is ours.

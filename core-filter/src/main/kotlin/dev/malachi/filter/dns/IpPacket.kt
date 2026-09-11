@@ -90,6 +90,13 @@ object IpPacket {
     private const val ICMP_ECHO_REPLY = 0
     private const val ICMPV6_ECHO_REQUEST = 128
     private const val ICMPV6_ECHO_REPLY = 129
+    private const val ICMP_UNREACHABLE = 3
+    private const val ICMP_PORT_UNREACHABLE = 3
+    private const val ICMPV6_UNREACHABLE = 1
+    private const val ICMPV6_PORT_UNREACHABLE = 4
+
+    /** RFC 4443 §2.4: an error quotes as much of the packet as fits in the minimum IPv6 MTU. */
+    private const val ICMPV6_ERROR_QUOTE_MAX = 1280 - IPV6_HEADER_BYTES - ICMP_HEADER_BYTES
 
     /**
      * The protocol carried by [packet] — IPv4's protocol field or IPv6's next header — or null
@@ -193,6 +200,50 @@ object IpPacket {
         } else {
             buildIpv6(request.destinationAddress, request.sourceAddress, request.destinationPort, request.sourcePort, payload)
         }
+
+    /**
+     * The "port unreachable" that refuses the UDP datagram in [packet], addressed back the way it
+     * came — or null when [packet] is not a whole, unfragmented UDP datagram.
+     *
+     * The UDP twin of [buildTcpReset], for the same reason. Every address routed into this tun is
+     * routed for DNS, and a datagram to any other port on one of them used to vanish — DNS over
+     * QUIC and HTTP/3 to `1.1.1.1:443` at the guard's top setting — and the client waited out its
+     * whole timeout before trying anything else. A port unreachable is what the host would have
+     * said; the kernel turns it into a refusal on the socket that sent the datagram, and the
+     * client moves on at once. RFC 792 for v4, quoting the header and the first eight bytes of the
+     * datagram, which is exactly the ports; RFC 4443 for v6, quoting as much of the packet as fits
+     * in the minimum MTU.
+     */
+    fun buildPortUnreachable(packet: ByteArray, length: Int): ByteArray? {
+        val datagram = parseUdp(packet, length) ?: return null
+        // Addresses reversed: this has to look as though it came from the host that was addressed.
+        val source = datagram.destinationAddress
+        val destination = datagram.sourceAddress
+        return if (datagram.ipVersion == 4) {
+            val ipHeaderBytes = (packet[0].toInt() and 0x0F) * 4
+            val quoted = minOf(length, ipHeaderBytes + 8)
+            val message = ByteArray(ICMP_HEADER_BYTES + quoted)
+            message[0] = ICMP_UNREACHABLE.toByte()
+            message[1] = ICMP_PORT_UNREACHABLE.toByte()
+            packet.copyInto(message, ICMP_HEADER_BYTES, 0, quoted)
+            writeShort(message, 2, onesComplement(sum(message, 0, message.size)))
+            val out = ByteArray(IPV4_HEADER_BYTES + message.size)
+            writeIpv4Header(out, source, destination, PROTOCOL_ICMP)
+            message.copyInto(out, IPV4_HEADER_BYTES)
+            out
+        } else {
+            val quoted = minOf(length, ICMPV6_ERROR_QUOTE_MAX)
+            val message = ByteArray(ICMP_HEADER_BYTES + quoted)
+            message[0] = ICMPV6_UNREACHABLE.toByte()
+            message[1] = ICMPV6_PORT_UNREACHABLE.toByte()
+            packet.copyInto(message, ICMP_HEADER_BYTES, 0, quoted)
+            writeShort(message, 2, icmpv6Checksum(message, source, destination))
+            val out = ByteArray(IPV6_HEADER_BYTES + message.size)
+            writeIpv6Header(out, source, destination, PROTOCOL_ICMPV6, message.size)
+            message.copyInto(out, IPV6_HEADER_BYTES)
+            out
+        }
+    }
 
     /** Reads a TCP segment out of [packet], or null when it isn't one we can refuse. */
     fun parseTcp(packet: ByteArray, length: Int): TcpSegment? {

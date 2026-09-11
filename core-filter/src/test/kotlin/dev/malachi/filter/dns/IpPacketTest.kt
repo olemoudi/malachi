@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class IpPacketTest {
@@ -360,6 +361,48 @@ class IpPacketTest {
         org.junit.jupiter.api.Assertions.assertTrue(condition, message)
 
     // ---- refusing TCP instead of swallowing it -----------------------------------------------
+
+    @Test
+    fun `a UDP datagram to a port this tunnel does not serve is refused with port unreachable`() {
+        // The UDP twin of the reset below: QUIC to a routed resolver used to be swallowed, and
+        // the client waited out its timeout. The kernel turns this into a refusal on the socket.
+        val quic = ipv4Udp(destinationPort = 443)
+        val refusal = IpPacket.buildPortUnreachable(quic, quic.size)!!
+
+        assertEquals(IpPacket.PROTOCOL_ICMP, IpPacket.protocol(refusal, refusal.size))
+        assertArrayEquals(v4Server, refusal.copyOfRange(12, 16))
+        assertArrayEquals(v4Client, refusal.copyOfRange(16, 20))
+        assertEquals(3, refusal[20].toInt(), "type: destination unreachable")
+        assertEquals(3, refusal[21].toInt(), "code: port unreachable")
+        // The offending header and the first eight bytes of the datagram, which are its ports.
+        assertArrayEquals(quic.copyOfRange(0, 28), refusal.copyOfRange(28, 56))
+        assertEquals(56, refusal.size)
+        assertTrue(sumIsValid(refusal, 20, refusal.size - 20), "the ICMP checksum does not verify")
+        assertTrue(sumIsValid(refusal, 0, 20), "the IP checksum does not verify")
+    }
+
+    @Test
+    fun `an IPv6 datagram gets the same refusal, with the pseudo-header checksum`() {
+        val quic = ipv6Udp()
+        val refusal = IpPacket.buildPortUnreachable(quic, quic.size)!!
+
+        assertEquals(IpPacket.PROTOCOL_ICMPV6, IpPacket.protocol(refusal, refusal.size))
+        assertArrayEquals(v6Server, refusal.copyOfRange(8, 24))
+        assertArrayEquals(v6Client, refusal.copyOfRange(24, 40))
+        assertEquals(1, refusal[40].toInt(), "type: destination unreachable")
+        assertEquals(4, refusal[41].toInt(), "code: port unreachable")
+        assertArrayEquals(quic, refusal.copyOfRange(48, refusal.size), "the whole packet fits and is quoted")
+        val pseudo = pseudoHeaderSum(v6Server, v6Client, refusal.size - 40) - IpPacket.PROTOCOL_UDP + IpPacket.PROTOCOL_ICMPV6
+        assertTrue(sumIsValid(refusal, 40, refusal.size - 40, extra = pseudo), "the ICMPv6 checksum does not verify")
+    }
+
+    @Test
+    fun `only a whole UDP datagram is refused with port unreachable`() {
+        val tcp = ipv4Udp(protocol = IpPacket.PROTOCOL_TCP)
+        assertNull(IpPacket.buildPortUnreachable(tcp, tcp.size))
+        val fragment = ipv4Udp(fragmentOffset = 3)
+        assertNull(IpPacket.buildPortUnreachable(fragment, fragment.size))
+    }
 
     @Test
     fun `a SYN to something this tunnel routes is refused, not left waiting`() {
