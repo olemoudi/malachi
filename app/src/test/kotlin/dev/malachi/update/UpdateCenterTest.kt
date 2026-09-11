@@ -56,6 +56,26 @@ class UpdateCenterTest {
     }
 
     @Test
+    fun `a check cancelled mid-flight stops claiming to be in flight`() {
+        // Its scope torn down under it — leaving the screen used to be enough — the line said
+        // "downloading" for the life of the process, and every later refusal deferred to it.
+        UpdateCenter.report(UpdateUiState.Downloading(offer))
+        UpdateCenter.reportAbandoned()
+        assertEquals(UpdateUiState.Idle, UpdateCenter.state.value)
+
+        UpdateCenter.report(UpdateUiState.Checking)
+        UpdateCenter.reportAbandoned()
+        assertEquals(UpdateUiState.Idle, UpdateCenter.state.value)
+    }
+
+    @Test
+    fun `but an install already handed to the platform is not ours to un-say`() {
+        UpdateCenter.report(UpdateUiState.PendingConfirmation(offer))
+        UpdateCenter.reportAbandoned()
+        assertEquals(UpdateUiState.PendingConfirmation(offer), UpdateCenter.state.value)
+    }
+
+    @Test
     fun `a finished check is replaceable by a refusal`() {
         UpdateCenter.report(UpdateUiState.UpToDate(48))
 

@@ -77,4 +77,33 @@ object UpdatePolicy {
         channelVersionCode == installedVersionCode -> ChannelSwitch.AlreadyOnIt
         else -> ChannelSwitch.WaitsForNextRelease(channelVersionName)
     }
+
+    /**
+     * Whether the APK an earlier check left behind can stand in for downloading what the channel
+     * offers now.
+     *
+     * Everything [rejectionReason] asks of a fresh download, and one thing more: the *exact*
+     * version on offer, not merely one newer than what is installed. A copy of last month's
+     * release is still an upgrade, and reusing it would install the wrong build and then fetch
+     * the right one on the check after.
+     */
+    fun reusableDownload(
+        archivePackage: String?,
+        archiveVersionCode: Int?,
+        archiveVersionName: String?,
+        expectedPackage: String,
+        offeredVersionCode: Int,
+        installedVersionCode: Int,
+        channel: UpdateChannel,
+    ): Boolean {
+        val rejected = rejectionReason(
+            archivePackage = archivePackage,
+            archiveVersionCode = archiveVersionCode,
+            expectedPackage = expectedPackage,
+            installedVersionCode = installedVersionCode,
+            archiveVersionName = archiveVersionName,
+            expectedChannel = channel,
+        )
+        return rejected == null && archiveVersionCode == offeredVersionCode
+    }
 }

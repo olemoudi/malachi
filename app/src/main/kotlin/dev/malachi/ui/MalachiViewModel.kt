@@ -746,8 +746,14 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     }
 
     /** The manual "check for updates" button: forced, so Wi-Fi-only doesn't silently skip it. */
+    /**
+     * On the application's scope rather than this view model's: a download somebody asked for
+     * should finish whether or not they stay on the screen to watch it, and `viewModelScope` is
+     * cancelled the moment the activity goes. [Updater.checkAndUpdate] catches everything but
+     * cancellation itself, and the application scope has a handler for the rest.
+     */
     fun checkForUpdate() {
-        launchSafely("checking for an update") { Updater(app).checkAndUpdate(force = true) }
+        app.scope.launch { Updater(app).checkAndUpdate(force = true) }
     }
 
     /**

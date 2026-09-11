@@ -3,6 +3,7 @@ package dev.malachi.update
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.os.Build
 import androidx.core.app.PendingIntentCompat
@@ -42,9 +43,10 @@ enum class UpdateCheckOutcome {
  *
  * An app distributed outside a store has no one to push it a fix, so it has to fetch its own:
  * CI publishes an APK and a version.json beside it, and this compares version codes and
- * installs. The install is requested without user action, which Android grants once Malachi is
- * its own installer of record; when the system insists on confirming, [InstallReceiver] turns
- * that into a notification so the update isn't lost because the check ran in the background.
+ * installs. The install is requested without user action, which Android grants to an app
+ * updating itself that declares `UPDATE_PACKAGES_WITHOUT_USER_ACTION`; when the system insists on
+ * confirming anyway, [InstallReceiver] turns that into a notification so the update isn't lost
+ * because the check ran in the background.
  */
 class Updater(
     private val context: Context,
@@ -101,7 +103,11 @@ class Updater(
             return UpdateCheckOutcome.NOT_ATTEMPTED
         }
         try {
-            return doCheckAndUpdate()
+            return doCheckAndUpdate(force)
+        } catch (cancellation: CancellationException) {
+            // The scope was torn down under the check: whatever it said it was doing, it is not.
+            UpdateCenter.reportAbandoned()
+            throw cancellation
         } finally {
             updateMutex.unlock()
         }
@@ -142,7 +148,7 @@ class Updater(
         return runCatching { cm.isActiveNetworkMetered }.getOrDefault(false)
     }
 
-    private suspend fun doCheckAndUpdate(): UpdateCheckOutcome = withContext(Dispatchers.IO) {
+    private suspend fun doCheckAndUpdate(force: Boolean): UpdateCheckOutcome = withContext(Dispatchers.IO) {
         val channel = channelOverride ?: readChannel()
         val manifest = versionJsonUrl ?: Distribution.manifestUrl(channel)
         DebugLog.i(TAG, "checking for an update on the ${channel.name.lowercase()} channel")
@@ -163,34 +169,54 @@ class Updater(
             UpdateCenter.report(UpdateUiState.UpToDate(current))
             return@withContext UpdateCheckOutcome.UP_TO_DATE
         }
+        // The copy an earlier check left behind, when it is exactly the build on offer. A
+        // download that ended in "tap to install" left the file here and a committed session
+        // waiting on the user — and every check after that, twelve-hourly plus each return to
+        // the app, fetched the same forty-odd megabytes again, abandoned the waiting session and
+        // opened another. Hundreds of megabytes of somebody's data allowance for one ignored
+        // notification. The copy is reused, and a background check leaves the waiting session
+        // alone; a check the user asked for still recommits it, which is what brings the
+        // system's dialog back once its notification has been swiped away.
+        val cached = cachedApk(expected = info, installed = current, channel = channel)
+        if (cached != null && !force && installPending()) {
+            DebugLog.i(TAG, "${info.versionCode} is downloaded and waiting for the user; nothing to do")
+            UpdateCenter.report(UpdateUiState.PendingConfirmation(info))
+            return@withContext UpdateCheckOutcome.INSTALL_STARTED
+        }
         // Announced as soon as it is found, not when it finishes: the download and install can
         // fail, and "there is a new version" is true either way. Guarded because a notification
         // that cannot be posted — a revoked permission, an OEM's own rules — must not be the
         // reason an update does not happen.
         runCatching {
-            UpdateNotifications.notifyUpdateFound(context, info.versionName.ifBlank { info.versionCode.toString() })
+            UpdateNotifications.notifyUpdateFound(
+                context,
+                info.versionCode,
+                info.versionName.ifBlank { info.versionCode.toString() },
+            )
         }.onFailure { DebugLog.w(TAG, "could not post the update notification", it) }
         if (!trustedApkUrl(info.apk)) {
             DebugLog.e(TAG, "refusing an APK url outside the release host: ${info.apk}")
             UpdateCenter.report(UpdateUiState.Failed("untrusted url"))
             return@withContext UpdateCheckOutcome.INSTALL_FAILURE
         }
-        // Unreadable free space is not a reason to refuse; only a definite shortage is.
-        val free = runCatching { context.cacheDir.usableSpace }.getOrDefault(Long.MAX_VALUE)
-        if (free < REQUIRED_FREE_BYTES) {
-            DebugLog.w(TAG, "not enough free space to download the update ($free bytes)")
-            UpdateCenter.report(UpdateUiState.Failed("no space"))
-            return@withContext UpdateCheckOutcome.TRANSIENT_FAILURE
+        val apk = cached ?: run {
+            // Unreadable free space is not a reason to refuse; only a definite shortage is.
+            val free = runCatching { context.cacheDir.usableSpace }.getOrDefault(Long.MAX_VALUE)
+            if (free < REQUIRED_FREE_BYTES) {
+                DebugLog.w(TAG, "not enough free space to download the update ($free bytes)")
+                UpdateCenter.report(UpdateUiState.Failed("no space"))
+                return@withContext UpdateCheckOutcome.TRANSIENT_FAILURE
+            }
+            UpdateCenter.report(UpdateUiState.Downloading(info))
+            retrying("downloading the APK") { download(info.apk) }
         }
-        UpdateCenter.report(UpdateUiState.Downloading(info))
-        val apk = retrying("downloading the APK") { download(info.apk) }
         if (apk == null) {
             UpdateCenter.report(UpdateUiState.Failed("download"))
             return@withContext UpdateCheckOutcome.TRANSIENT_FAILURE
         }
         // What arrived is not necessarily what was asked for. Checked before a session is opened,
         // because the installer failing is a worse way to learn this than not starting.
-        val rejection = rejectionReason(apk, expected = info, installed = current, channel = channel)
+        val rejection = rejectionReason(archiveOf(apk), expected = info, installed = current, channel = channel)
         if (rejection != null) {
             DebugLog.e(TAG, "refusing the downloaded file: $rejection")
             runCatching { apk.delete() }
@@ -263,7 +289,7 @@ class Updater(
      */
     private fun download(url: String): File? {
         val target = File(context.cacheDir, APK_FILE)
-        val tmp = File(context.cacheDir, "$APK_FILE.part")
+        val tmp = File(context.cacheDir, PART_FILE)
         runCatching { tmp.delete() }
         client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
@@ -298,25 +324,56 @@ class Updater(
         return target
     }
 
+    /** The platform's own parse of [apk], or null when it is not one. */
+    private fun archiveOf(apk: File): PackageInfo? =
+        runCatching { context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0) }.getOrNull()
+
+    private fun versionCodeOf(archive: PackageInfo): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            archive.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION") archive.versionCode
+        }
+
     /**
-     * Why [apk] must not be installed, or null when it may be. The platform's own parse of the
-     * file answers all three questions at once: whether it is an APK, whose it is, and which
+     * The APK an earlier check left in the cache, when it is exactly the build [expected] names;
+     * null when there is none, or it is some other build. See [UpdatePolicy.reusableDownload].
+     */
+    private fun cachedApk(expected: UpdateInfo, installed: Int, channel: UpdateChannel): File? {
+        val file = File(context.cacheDir, APK_FILE)
+        if (!file.exists()) return null
+        val archive = archiveOf(file)
+        val reusable = UpdatePolicy.reusableDownload(
+            archivePackage = archive?.packageName,
+            archiveVersionCode = archive?.let(::versionCodeOf),
+            archiveVersionName = archive?.versionName,
+            expectedPackage = context.packageName,
+            offeredVersionCode = expected.versionCode,
+            installedVersionCode = installed,
+            channel = channel,
+        )
+        if (!reusable) return null
+        DebugLog.i(TAG, "reusing the downloaded copy of ${expected.versionCode} (${file.length()} bytes)")
+        return file
+    }
+
+    /** True while a session of ours is committed and not finished — waiting for the user, in practice. */
+    private fun installPending(): Boolean =
+        runCatching { context.packageManager.packageInstaller.mySessions.any { it.isCommitted } }
+            .getOrDefault(false)
+
+    /**
+     * Why [archive] must not be installed, or null when it may be. The platform's own parse of
+     * the file answers all three questions at once: whether it is an APK, whose it is, and which
      * version — see [dev.malachi.update.rejectionReason].
      */
     private fun rejectionReason(
-        apk: File,
+        archive: PackageInfo?,
         expected: UpdateInfo,
         installed: Int,
         channel: UpdateChannel,
     ): String? {
-        val archive = runCatching {
-            context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
-        }.getOrNull()
-        val archiveVersion = archive?.let {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode.toInt() else {
-                @Suppress("DEPRECATION") it.versionCode
-            }
-        }
+        val archiveVersion = archive?.let(::versionCodeOf)
         val reason = rejectionReason(
             archivePackage = archive?.packageName,
             archiveVersionCode = archiveVersion,
@@ -386,6 +443,9 @@ class Updater(
 
         /** The downloaded APK, deleted once the install reaches a terminal state. */
         const val APK_FILE = "update.apk"
+
+        /** Where a download lands before it is complete; swept with [APK_FILE] when stale. */
+        const val PART_FILE = "$APK_FILE.part"
 
         /**
          * Drops the downloaded APK, wherever an install has reached its end.

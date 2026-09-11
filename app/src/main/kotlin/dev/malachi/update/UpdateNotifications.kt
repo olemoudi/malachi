@@ -13,7 +13,15 @@ import dev.malachi.R
 object UpdateNotifications {
 
     private const val CHANNEL = "malachi_updates"
-    private const val NOTIF_ID = 43
+
+    // Two ids, because the two notifications are not the same news. Sharing one let the next
+    // check's "a new version is available" overwrite "tap to install" — the only one of the two
+    // whose tap could finish the install — and if that check then failed, nothing brought it back.
+    private const val FOUND_ID = 43
+    private const val CONFIRM_ID = 44
+
+    /** The version last announced, so a check every twelve hours does not re-post the same news. */
+    @Volatile private var announcedVersionCode = 0
 
     /**
      * Says that a newer release exists, at the moment it is found.
@@ -24,7 +32,11 @@ object UpdateNotifications {
      * user who never opens Malachi still learns their filter is about to change — and, when the
      * automatic install cannot proceed, that there is something waiting for them.
      */
-    fun notifyUpdateFound(context: Context, versionName: String) {
+    fun notifyUpdateFound(context: Context, versionCode: Int, versionName: String) {
+        // Once per version per process: re-posted on every check, the same announcement kept
+        // coming back after being swiped away.
+        if (versionCode == announcedVersionCode) return
+        announcedVersionCode = versionCode
         ensureChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_shield)
@@ -35,7 +47,7 @@ object UpdateNotifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(NOTIF_ID, notification) }
+        runCatching { NotificationManagerCompat.from(context).notify(FOUND_ID, notification) }
     }
 
     private fun ensureChannel(context: Context) {
@@ -70,10 +82,20 @@ object UpdateNotifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(NOTIF_ID, notification) }
+        runCatching {
+            val manager = NotificationManagerCompat.from(context)
+            // "Installing it now" stopped being true the moment the system asked; one
+            // notification, saying the thing that is actually needed.
+            manager.cancel(FOUND_ID)
+            manager.notify(CONFIRM_ID, notification)
+        }
     }
 
     fun cancel(context: Context) {
-        runCatching { NotificationManagerCompat.from(context).cancel(NOTIF_ID) }
+        runCatching {
+            val manager = NotificationManagerCompat.from(context)
+            manager.cancel(FOUND_ID)
+            manager.cancel(CONFIRM_ID)
+        }
     }
 }

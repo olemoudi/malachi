@@ -67,6 +67,20 @@ object UpdateCenter {
         }
     }
 
+    /**
+     * A check cancelled mid-flight — its scope torn down under it, which leaving the screen used
+     * to be enough for — is no longer checking or downloading anything, and a line that went on
+     * saying so was stuck for the life of the process, with every later refusal deferring to it.
+     * An install already handed to the platform is not ours to un-say: that one finishes on its
+     * own and is reported by [InstallReceiver].
+     */
+    internal fun reportAbandoned() {
+        when (mutable.value) {
+            UpdateUiState.Checking, is UpdateUiState.Downloading -> mutable.value = UpdateUiState.Idle
+            else -> Unit
+        }
+    }
+
     internal fun channelOffers(info: UpdateInfo) {
         offered.value = info
     }

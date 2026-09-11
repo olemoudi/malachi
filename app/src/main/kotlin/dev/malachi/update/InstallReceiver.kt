@@ -36,7 +36,9 @@ class InstallReceiver : BroadcastReceiver() {
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java) ?: return
-                UpdateCenter.report(UpdateUiState.PendingConfirmation(target = null))
+                // Named when the check that committed this session ran in this process; after a
+                // process death the offer is unknown and the row says so without a version.
+                UpdateCenter.report(UpdateUiState.PendingConfirmation(target = UpdateCenter.channelOffer.value))
                 // Guarded, and the order matters: this used to be able to throw — a channel the
                 // system would not create, a notification an OEM's own rules refused — and take
                 // the direct launch below with it. The two are alternatives, not a sequence:

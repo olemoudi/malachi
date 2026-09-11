@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Sideloaded distribution: the app installs its own updates (see update/Updater). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- And installs them without asking, on Android 12 and later. Without this the request
+         for a silent update (USER_ACTION_NOT_REQUIRED) is simply ignored — the platform checks
+         for the permission before it considers who the installer of record is — so every update
+         ended in a "tap to install" notification and the silent path was never taken once. An
+         app updating itself qualifies without being installer of record; this is the difference. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- allowBackup off: the settings hold the user's own rules and the list of apps they have
          exempted, which is a fairly precise description of what they use their phone for.

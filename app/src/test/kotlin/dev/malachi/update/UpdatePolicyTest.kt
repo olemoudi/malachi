@@ -121,6 +121,30 @@ class UpdatePolicyTest {
     }
 
     @Test
+    fun `a downloaded copy is reused only for exactly the build on offer`() {
+        // The shape that used to cost hundreds of megabytes: a copy waiting on the user, and
+        // every later check downloading it again. Exactly that build, though — a copy of last
+        // month's release is still "newer than installed" and must not be installed in place of
+        // this month's.
+        fun reusable(archiveVersion: Int?, name: String?, offered: Int, channel: UpdateChannel = UpdateChannel.TESTING) =
+            UpdatePolicy.reusableDownload(
+                archivePackage = if (archiveVersion == null) null else "dev.malachi",
+                archiveVersionCode = archiveVersion,
+                archiveVersionName = name,
+                expectedPackage = "dev.malachi",
+                offeredVersionCode = offered,
+                installedVersionCode = 59,
+                channel = channel,
+            )
+
+        assertTrue(reusable(60, "1.9.0-alpha", offered = 60))
+        assertFalse(reusable(60, "1.9.0-alpha", offered = 61), "an older copy stood in for a newer offer")
+        assertFalse(reusable(59, "1.8.0-alpha", offered = 59), "not an upgrade at all")
+        assertFalse(reusable(60, "1.9.0-alpha", offered = 60, channel = UpdateChannel.STABLE), "the other lineage's build")
+        assertFalse(reusable(null, null, offered = 60), "not a readable APK")
+    }
+
+    @Test
     fun `a caller that names no channel is unchanged`() {
         // The pre-channel signature still has to mean what it meant, or every existing test of
         // it is testing something else.

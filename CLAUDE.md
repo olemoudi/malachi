@@ -1203,6 +1203,20 @@ the one path every revival has in common.
   replaces the process, and without it every update would silently leave the filter off.
 
 ### The updater is the one thing that cannot be fixed remotely
+- **`USER_ACTION_NOT_REQUIRED` is ignored without `UPDATE_PACKAGES_WITHOUT_USER_ACTION` in the
+  manifest.** The platform checks for that permission before it so much as considers who the
+  installer of record is, so until 1.8.1 every update this app ever made ended in the "tap to
+  install" notification and the silent path was never taken once. An app updating *itself*
+  qualifies without being installer of record, so the permission is the whole difference. The
+  release that adds it still prompts — the package's permissions changed — and the ones after it
+  should not; verify on a phone with Android 12+, not on the emulator.
+- **A pending confirmation is a downloaded APK and a committed session, and both outlive the
+  check.** `InstallReceiver` deletes the APK only on a terminal status, and "waiting for the user"
+  is not one — so every check while a notification sat ignored (twelve-hourly, plus each return
+  to the app) downloaded the same forty-odd megabytes again, abandoned the waiting session and
+  opened another. `cachedApk` reuses the copy when it is *exactly* the build on offer, and a
+  background check leaves a waiting session alone; only a check the user asks for recommits it,
+  which is also how the dialog is brought back after its notification was swiped away.
 - **An unhandled throw in `Updater` does not cost one update, it costs every future one.** There
   is no store to push a fix through, so the whole check is wrapped: anything unexpected becomes a
   logged `TRANSIENT_FAILURE`, never an exception crossing into a worker. `CancellationException`

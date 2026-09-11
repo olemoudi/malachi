@@ -107,11 +107,16 @@ class MalachiApplication : Application() {
     private fun pruneStorage() {
         scope.launch(Dispatchers.IO) {
             runCatching {
-                val apk = java.io.File(cacheDir, Updater.APK_FILE)
-                val age = System.currentTimeMillis() - apk.lastModified()
-                if (apk.exists() && age > STALE_APK_MILLIS) {
-                    DebugLog.i(TAG, "removing a stale update download (${apk.length()} bytes)")
-                    apk.delete()
+                // The finished download and the half of one a killed process leaves behind. The
+                // latter had no bound at all: it was only ever cleared by the next download, which
+                // never comes for a phone that is by then up to date.
+                for (name in listOf(Updater.APK_FILE, Updater.PART_FILE)) {
+                    val file = java.io.File(cacheDir, name)
+                    val age = System.currentTimeMillis() - file.lastModified()
+                    if (file.exists() && age > STALE_APK_MILLIS) {
+                        DebugLog.i(TAG, "removing a stale update download ($name, ${file.length()} bytes)")
+                        file.delete()
+                    }
                 }
             }.onFailure { DebugLog.w(TAG, "could not prune the cache", it) }
         }
