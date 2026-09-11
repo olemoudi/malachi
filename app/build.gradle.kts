@@ -31,7 +31,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Shrunk but never obfuscated — see proguard-rules.pro for why the names stay.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
         debug {

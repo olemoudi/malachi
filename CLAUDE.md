@@ -1128,6 +1128,15 @@ the one path every revival has in common.
 
 ### Distribution & releases
 - GitHub remote: `https://github.com/olemoudi/malachi.git`.
+- **The release is shrunk by R8 and never obfuscated.** `-dontobfuscate` in `app/proguard-rules.pro`,
+  because the debug log's stack traces are the only diagnostic that comes back from a phone and
+  renamed frames would make them worthless. Shrinking alone took the APK from 45.7 MB to 4.2 MB —
+  after the extended Material icon set had gone first: every icon there is, as a class each, was
+  thirty megabytes of dex for the twenty-two this app draws, which now live in `MalachiIcons` as
+  path data. Nothing in the app reaches a class by name at runtime (no `Class.forName`, no
+  `getIdentifier`, every serializer passed explicitly); if that ever changes it needs a keep rule,
+  and the place a missing one shows up is a release build on the emulator — the instrumented tests
+  run the debug build, which is not shrunk.
 - This is a sideloaded personal app (not Play Store).
 - **Release signing uses a stable, committed keystore** (`malachi-release.jks`, password
   `malachi`) so in-place auto-updates chain across releases. CI can override with
