@@ -273,6 +273,7 @@
     <string name="upstream_custom">Custom</string>
     <string name="upstream_custom_hint">Type the addresses of the DNS servers you want to use.</string>
     <string name="upstream_custom_label">Addresses</string>
+    <string name="upstream_custom_invalid">Only IP addresses, like 9.9.9.9 or 2620:fe::fe.</string>
     <string name="upstream_custom_dialog_hint">IP addresses only, separated by commas. Names are not accepted — looking one up would need the very server you are setting.</string>
 
     <!-- Settings: bypass guard -->
@@ -458,6 +459,7 @@
     <string name="rule_added_blocked">Blocking %1$s</string>
     <string name="rule_added_allowed">Allowing %1$s</string>
     <string name="rule_added_blocked_in">Blocking %1$s in %2$s</string>
+    <string name="rule_removed">Rule for %1$s removed</string>
     <string name="rule_added_allowed_in">Allowing %1$s in %2$s</string>
 
     <!-- Diagnosing one app -->

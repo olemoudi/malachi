@@ -1,5 +1,6 @@
 package dev.malachi.ui.screens
 
+import android.net.InetAddresses
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,7 @@ import dev.malachi.data.BlockAnswerMode
 import dev.malachi.data.BypassGuard
 import dev.malachi.data.MalachiSettings
 import dev.malachi.data.UpstreamDns
+import dev.malachi.data.UpstreamInput
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.ChoiceRow
@@ -186,6 +188,11 @@ private fun blockAnswerShort(mode: BlockAnswerMode) = when (mode) {
 @Composable
 private fun CustomUpstreamDialog(initial: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var value by remember { mutableStateOf(initial) }
+    // Checked with the rule the tunnel applies, so what the dialog accepts is what will be asked.
+    // It used to accept anything: a name typed in was saved, shown as the DNS server on two
+    // screens, and silently dropped by the policy, which fell back to Cloudflare.
+    val addresses = remember(value) { UpstreamInput.parse(value, InetAddresses::isNumericAddress) }
+    val invalid = value.isNotBlank() && addresses == null
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.upstream_custom)) },
@@ -201,11 +208,22 @@ private fun CustomUpstreamDialog(initial: String, onDismiss: () -> Unit, onConfi
                     onValueChange = { value = it },
                     modifier = Modifier.fillMaxWidth().padding(top = Tokens.spacing.sm),
                     singleLine = true,
+                    isError = invalid,
                     label = { Text(stringResource(R.string.upstream_custom_label)) },
+                    supportingText = if (invalid) {
+                        { Text(stringResource(R.string.upstream_custom_invalid)) }
+                    } else {
+                        null
+                    },
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(value) }) { Text(stringResource(R.string.action_ok)) } },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(addresses.orEmpty().joinToString(", ")) },
+                enabled = addresses != null,
+            ) { Text(stringResource(R.string.action_ok)) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }

@@ -119,7 +119,9 @@ fun AppDetailScreen(
     }
     val now = remember(log) { System.currentTimeMillis() }
 
-    var draft by remember { mutableStateOf("") }
+    // Saveable: typed text, which survives a rotation like every search box does. `pending` is
+    // a dialog and deliberately does not.
+    var draft by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<PendingRule?>(null) }
     val undo = rememberUndoBar()
@@ -244,7 +246,7 @@ fun AppDetailScreen(
                             )
                             Spacer(Modifier.width(spacing.md))
                             Text(rule.domain, style = MonoSmall, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { vm.removeAppRule(rule.domain, packageName) }) {
+                            IconButton(onClick = { announcer.announceRemoved(vm.removeAppRule(rule.domain, packageName)) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete))
                             }
                         }

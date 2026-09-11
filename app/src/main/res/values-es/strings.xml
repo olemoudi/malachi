@@ -272,6 +272,7 @@
     <string name="upstream_custom">Personalizado</string>
     <string name="upstream_custom_hint">Escribe las direcciones de los servidores DNS que quieras usar.</string>
     <string name="upstream_custom_label">Direcciones</string>
+    <string name="upstream_custom_invalid">Solo direcciones IP, como 9.9.9.9 o 2620:fe::fe.</string>
     <string name="upstream_custom_dialog_hint">Solo direcciones IP, separadas por comas. No se aceptan nombres: para resolver uno haría falta el propio servidor que estás configurando.</string>
 
     <!-- Ajustes: evasión -->
@@ -457,6 +458,7 @@
     <string name="rule_added_blocked">Bloqueando %1$s</string>
     <string name="rule_added_allowed">Permitiendo %1$s</string>
     <string name="rule_added_blocked_in">Bloqueando %1$s en %2$s</string>
+    <string name="rule_removed">Regla para %1$s eliminada</string>
     <string name="rule_added_allowed_in">Permitiendo %1$s en %2$s</string>
 
     <!-- Diagnóstico de una app -->

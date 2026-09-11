@@ -489,8 +489,15 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         return RuleEdit(domain) { update { it.withUserRuleFrom(before, domain) } }
     }
 
-    fun removeUserRule(domain: String) = update {
-        it.copy(userBlocked = it.userBlocked - domain, userAllowed = it.userAllowed - domain)
+    /**
+     * Takes a global rule away, and how to put it back. The rules are the one thing this app
+     * cannot rebuild, and the only way to lose one was a bin icon beside every row of a scrolling
+     * list, with no feedback and no way back.
+     */
+    fun removeUserRule(domain: String): RuleEdit {
+        val before = settings.value
+        update { it.copy(userBlocked = it.userBlocked - domain, userAllowed = it.userAllowed - domain) }
+        return RuleEdit(domain) { update { it.withUserRuleFrom(before, domain) } }
     }
 
     /** Adds or replaces a rule scoped to one app. */
@@ -505,11 +512,18 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         }
     }
 
-    fun removeAppRule(domain: String, packageName: String) {
+    fun removeAppRule(domain: String, packageName: String): RuleEdit {
+        val before = settings.value
         update { settings ->
             settings.copy(appRules = settings.appRules.filterNot { it.domain == domain && it.packageName == packageName })
         }
         noteInTrace(domain, packageName, TraceOutcome.RULE_REMOVED)
+        return RuleEdit(domain) {
+            update { it.withAppRuleFrom(before, domain, packageName) }
+            before.appRules.firstOrNull { it.domain == domain && it.packageName == packageName }?.let { restored ->
+                noteInTrace(domain, packageName, if (restored.block) TraceOutcome.RULE_BLOCKED else TraceOutcome.RULE_ALLOWED)
+            }
+        }
     }
 
     /**
@@ -541,7 +555,10 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
             noteInTrace(it, packageName, if (allowed) TraceOutcome.RULE_ALLOWED else TraceOutcome.RULE_REMOVED)
         }
         return RuleEdit(parsed.first()) {
-            update { it.copy(appRules = before.appRules) }
+            // Each domain put back as it was and nothing else touched. Restoring the whole list
+            // from the snapshot also threw away any rule written in the seconds the bar was up —
+            // a switch flipped on the same screen, a rule typed on another.
+            update { current -> parsed.fold(current) { acc, domain -> acc.withAppRuleFrom(before, domain, packageName) } }
             // Each domain put back as it was, and said as it was: a bulk undo that announced
             // "removed" for a domain the user had deliberately blocked would be describing an
             // edit that did not happen.

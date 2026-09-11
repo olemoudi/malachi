@@ -23,7 +23,13 @@ class RuleAnnouncer internal constructor(
     private val allowedEverywhere: String,
     private val blockedInApp: String,
     private val allowedInApp: String,
+    private val removed: String,
 ) {
+    /** A rule taken away, with the offer to put it back. */
+    fun announceRemoved(edit: MalachiViewModel.RuleEdit) {
+        bar.show(String.format(removed, edit.domain), edit.undo)
+    }
+
     /**
      * [edit] is null when the text was not a domain, which is the caller's error to show in its
      * own field — there is nothing to announce and nothing to undo.
@@ -46,7 +52,8 @@ fun rememberRuleAnnouncer(bar: UndoBar): RuleAnnouncer {
     val allowedEverywhere = stringResource(R.string.rule_added_allowed)
     val blockedInApp = stringResource(R.string.rule_added_blocked_in)
     val allowedInApp = stringResource(R.string.rule_added_allowed_in)
-    return remember(bar, blockedEverywhere, allowedEverywhere, blockedInApp, allowedInApp) {
-        RuleAnnouncer(bar, blockedEverywhere, allowedEverywhere, blockedInApp, allowedInApp)
+    val removed = stringResource(R.string.rule_removed)
+    return remember(bar, blockedEverywhere, allowedEverywhere, blockedInApp, allowedInApp, removed) {
+        RuleAnnouncer(bar, blockedEverywhere, allowedEverywhere, blockedInApp, allowedInApp, removed)
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +58,8 @@ fun RulesScreen(vm: MalachiViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
-    var draft by remember { mutableStateOf("") }
+    // Saveable: this is text somebody typed, and every search box in the app survives a rotation.
+    var draft by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     val undo = rememberUndoBar()
     val announcer = rememberRuleAnnouncer(undo)
@@ -124,7 +126,7 @@ fun RulesScreen(vm: MalachiViewModel, onBack: () -> Unit) {
                 }
                 if (blocked.isEmpty()) item { EmptyNote(stringResource(R.string.rules_blocked_empty)) }
                 items(blocked, key = { "b-$it" }) { domain ->
-                    RuleRow(domain, blocking = true) { vm.removeUserRule(domain) }
+                    RuleRow(domain, blocking = true) { announcer.announceRemoved(vm.removeUserRule(domain)) }
                 }
 
                 item {
@@ -135,7 +137,7 @@ fun RulesScreen(vm: MalachiViewModel, onBack: () -> Unit) {
                 }
                 if (allowed.isEmpty()) item { EmptyNote(stringResource(R.string.rules_allowed_empty)) }
                 items(allowed, key = { "a-$it" }) { domain ->
-                    RuleRow(domain, blocking = false) { vm.removeUserRule(domain) }
+                    RuleRow(domain, blocking = false) { announcer.announceRemoved(vm.removeUserRule(domain)) }
                 }
 
                 item {
@@ -163,7 +165,7 @@ fun RulesScreen(vm: MalachiViewModel, onBack: () -> Unit) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            IconButton(onClick = { vm.removeAppRule(rule.domain, rule.packageName) }) {
+                            IconButton(onClick = { announcer.announceRemoved(vm.removeAppRule(rule.domain, rule.packageName)) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete))
                             }
                         }
