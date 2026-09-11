@@ -15,7 +15,7 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.SystemClock
@@ -64,6 +64,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The filter itself: a local VPN that exists only to see DNS.
@@ -147,6 +148,29 @@ class MalachiVpnService : VpnService() {
     private val tunnelLock = Any()
 
     /**
+     * Guards everything an adoption reads and writes: the active network, its resolvers, the
+     * portal and validation flags, the upstream list, and what is declared to the platform.
+     *
+     * Three threads used to reach [adoptNetwork] with no exclusion at all — the default-network
+     * callback, the underlying-network callback and the re-check a failed lookup launches on the
+     * IO dispatcher — and two adoptions interleaved on a handover could leave the resolvers of one
+     * network beside the reference of another, or declare to the platform a network the phone
+     * had just left. Never held while waiting on anything, and never taken by a thread that holds
+     * [tunnelLock]'s opposite: [applySettings] takes the tunnel lock first and this one inside it,
+     * and nothing under this lock takes the tunnel lock (a rebuild is launched, not awaited).
+     */
+    private val adoptLock = Any()
+
+    /**
+     * Where the network callbacks are delivered. The one that needs a handler used to be given
+     * the main looper, which put six to ten binder round trips per event on the UI thread —
+     * several times a minute on a moving phone, in the process the UI shares. One parked thread
+     * costs nothing, and having both callbacks on it means their adoptions never race each other.
+     */
+    private val callbackThread = HandlerThread("malachi-net").apply { start() }
+    private val callbackHandler = Handler(callbackThread.looper)
+
+    /**
      * Whether anything still needs to know *which* app asked. Attribution is a binder round trip
      * into the system server on every single lookup, and it buys nothing when the query log is
      * off and no per-app rule exists — which is the default configuration.
@@ -204,7 +228,7 @@ class MalachiVpnService : VpnService() {
      */
     @Volatile private var networkLabel: String = ""
     @Volatile private var adoptedAtMs = 0L
-    @Volatile private var lastResolverRecheckMs = 0L
+    private val lastResolverRecheckMs = AtomicLong(0)
 
     /**
      * Bumped whenever the resolvers change under us, so a lookup already in flight can tell.
@@ -315,15 +339,16 @@ class MalachiVpnService : VpnService() {
          * not a missing log line — it is a phone asking a network's resolvers hours after leaving
          * that network, with every lookup timing out and nothing anywhere saying why.
          */
-        override fun onAvailable(network: Network) {
+        override fun onAvailable(network: Network) = guarded("onAvailable") {
             counters.events++
             runCatching { cm.getLinkProperties(network) }.getOrNull()?.let { adoptNetwork(network, it) }
         }
 
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            counters.events++
-            adoptNetwork(network, linkProperties)
-        }
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
+            guarded("onLinkPropertiesChanged") {
+                counters.events++
+                adoptNetwork(network, linkProperties)
+            }
 
         /**
          * Only the network we are actually asking matters here.
@@ -336,34 +361,39 @@ class MalachiVpnService : VpnService() {
          * happened to change. On a network with names of its own — a router, a NAS — or one that
          * blocks outside resolvers, it is not even working DNS.
          */
-        override fun onLost(network: Network) {
+        override fun onLost(network: Network) = guarded("onLost") {
             counters.events++
-            if (network != activeNetwork) return
-            activeNetwork = null
-            // The replacement is usually already up: this is a handover, not an outage. Adopting
-            // it here rather than waiting means the gap is one callback long instead of however
-            // long the new network takes to mention its link properties.
-            val replacement = runCatching { cm.activeNetwork }.getOrNull()?.let { realNetwork(it) }
-            val linkProperties = replacement?.let { runCatching { cm.getLinkProperties(it) }.getOrNull() }
-            if (replacement != null && linkProperties != null) {
-                adoptNetwork(replacement, linkProperties)
-                return
-            }
-            networkDnsServers = emptyList()
-            networkPinnable = false
-            // Whatever the network we have lost was behind, we are not behind it any more.
-            networkPortal = false
-            upstreams = resolveUpstreams()
-            // The network we were naming to the platform has gone with it.
-            followSystemDefault()
-            // Never silent: this is the moment the phone stops asking the resolvers it was given
-            // and starts asking the fallback.
-            DebugLog.w(
-                TAG,
-                "the network we were asking has gone and nothing replaced it yet; falling back to " +
-                    upstreams.joinToString { it.hostAddress.orEmpty() },
-            )
+            synchronized(adoptLock) { lostActiveNetwork(network) }
         }
+    }
+
+    /** The body of [networkCallback]'s `onLost`; only ever under [adoptLock]. */
+    private fun lostActiveNetwork(network: Network) {
+        if (network != activeNetwork) return
+        activeNetwork = null
+        // The replacement is usually already up: this is a handover, not an outage. Adopting
+        // it here rather than waiting means the gap is one callback long instead of however
+        // long the new network takes to mention its link properties.
+        val replacement = runCatching { cm.activeNetwork }.getOrNull()?.let { realNetwork(it) }
+        val linkProperties = replacement?.let { runCatching { cm.getLinkProperties(it) }.getOrNull() }
+        if (replacement != null && linkProperties != null) {
+            adoptNetwork(replacement, linkProperties)
+            return
+        }
+        networkDnsServers = emptyList()
+        networkPinnable = false
+        // Whatever the network we have lost was behind, we are not behind it any more.
+        networkPortal = false
+        upstreams = resolveUpstreams()
+        // The network we were naming to the platform has gone with it.
+        followSystemDefault()
+        // Never silent: this is the moment the phone stops asking the resolvers it was given
+        // and starts asking the fallback.
+        DebugLog.w(
+            TAG,
+            "the network we were asking has gone and nothing replaced it yet; falling back to " +
+                upstreams.joinToString { it.hostAddress.orEmpty() },
+        )
     }
 
     /**
@@ -376,15 +406,16 @@ class MalachiVpnService : VpnService() {
      * how this app once ended up adopting the resolvers of a network it was sending nothing over.
      */
     private val underlyingCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
+        override fun onAvailable(network: Network) = guarded("onAvailable") {
             counters.events++
             adoptUnderlying(network.takeIf { platformPicksBest })
         }
 
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            counters.events++
-            adoptUnderlying(network.takeIf { platformPicksBest })
-        }
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
+            guarded("onLinkPropertiesChanged") {
+                counters.events++
+                adoptUnderlying(network.takeIf { platformPicksBest })
+            }
 
         /**
          * Capabilities move constantly and almost none of it matters here.
@@ -402,44 +433,63 @@ class MalachiVpnService : VpnService() {
          * this app sends them to, and one binder call a minute for that is affordable where one
          * per tick is not.
          */
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            counters.events++
-            counters.capabilityEvents++
-            if (network != activeNetwork) {
-                // On Android 12+ the platform reports only its best match, so this really is a
-                // prompt to move and is acted on at once. Below that *every* matching network
-                // reports itself — and a capability is a signal strength and a bandwidth
-                // estimate, which move constantly on a phone in a pocket. Re-deciding on each of
-                // those means `allNetworks`, a capability read per network, a link-properties
-                // read and two more binder calls in the adoption, several times a minute, to
-                // arrive at the answer we already had. The events that genuinely need to be
-                // prompt arrive as onAvailable, onLost and onLinkPropertiesChanged, none of which
-                // is throttled, and a failing lookup re-asks within five seconds regardless.
-                if (platformPicksBest) return adoptUnderlying(network)
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastUnderlyingRecheckMs < UNDERLYING_RECHECK_INTERVAL_MS) return
-                lastUnderlyingRecheckMs = now
-                return adoptUnderlying(null)
-            }
-            // The network we are already asking, so its resolvers cannot have moved — but two of
-            // these capabilities decide *whether we may ask them at all*, and neither arrives any
-            // other way. A captive portal appearing, and a portal being signed in, are both a
-            // capability change on a network that stays exactly where it is; without this the
-            // filter would go on asking the portal's DNS server for the rest of the trip.
-            // Free unless something moved: the capabilities are already in hand.
-            val moved = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) != networkPinnable ||
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) != networkPortal
-            if (moved) {
-                val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull()
-                if (linkProperties != null) return adoptNetwork(network, linkProperties)
-            }
-            publishLockdown()
-        }
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+            guarded("onCapabilitiesChanged") { underlyingCapabilitiesChanged(network, caps) }
 
         // Whatever went away, the question is the same: which network is under us now.
-        override fun onLost(network: Network) {
+        override fun onLost(network: Network) = guarded("onLost") {
             counters.events++
             adoptUnderlying(null)
+        }
+    }
+
+    /** The body of [underlyingCallback]'s `onCapabilitiesChanged`. */
+    private fun underlyingCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+        counters.events++
+        counters.capabilityEvents++
+        if (network != activeNetwork) {
+            // On Android 12+ the platform reports only its best match, so this really is a
+            // prompt to move and is acted on at once. Below that *every* matching network
+            // reports itself — and a capability is a signal strength and a bandwidth
+            // estimate, which move constantly on a phone in a pocket. Re-deciding on each of
+            // those means `allNetworks`, a capability read per network, a link-properties
+            // read and two more binder calls in the adoption, several times a minute, to
+            // arrive at the answer we already had. The events that genuinely need to be
+            // prompt arrive as onAvailable, onLost and onLinkPropertiesChanged, none of which
+            // is throttled, and a failing lookup re-asks within five seconds regardless.
+            if (platformPicksBest) return adoptUnderlying(network)
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastUnderlyingRecheckMs < UNDERLYING_RECHECK_INTERVAL_MS) return
+            lastUnderlyingRecheckMs = now
+            return adoptUnderlying(null)
+        }
+        // The network we are already asking, so its resolvers cannot have moved — but two of
+        // these capabilities decide *whether we may ask them at all*, and neither arrives any
+        // other way. A captive portal appearing, and a portal being signed in, are both a
+        // capability change on a network that stays exactly where it is; without this the
+        // filter would go on asking the portal's DNS server for the rest of the trip.
+        // Free unless something moved: the capabilities are already in hand.
+        val moved = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) != networkPinnable ||
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) != networkPortal
+        if (moved) {
+            val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull()
+            if (linkProperties != null) return adoptNetwork(network, linkProperties)
+        }
+        publishLockdown()
+    }
+
+    /**
+     * Every entry into this service from another thread — a network callback, a forwarder — goes
+     * through here. An exception out of one reaches the thread's default handler and takes the
+     * filter's process with it, and none of these bodies used to be guarded: a resource that
+     * would not resolve or a log line that threw was a dead filter with nothing anywhere saying
+     * why. Logged and survived, like the collector bodies.
+     */
+    private inline fun guarded(what: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (t: Throwable) {
+            DebugLog.e(TAG, "$what failed", t)
         }
     }
 
@@ -994,7 +1044,10 @@ class MalachiVpnService : VpnService() {
             if (traced) AppTrace.dropped(name, type, TraceReason.MALFORMED)
             return dropUnroutable("a ${query.size}-byte query")
         }
-        runCatching { forwarders.execute { forward(request, query, name, type, traced) }; counters.forwarded++ }
+        runCatching {
+            forwarders.execute { guarded("forwarding a lookup") { forward(request, query, name, type, traced) } }
+            counters.forwarded++
+        }
             .onFailure {
                 // The queue is full: the network is not keeping up. Dropping is right — the
                 // client's own resolver retries, and queueing further would only add latency
@@ -1147,14 +1200,6 @@ class MalachiVpnService : VpnService() {
     }
 
     /**
-     * Names a resolver that went quiet, at most once a minute.
-     *
-     * Rate-limited because this is the hot path and a network whose resolver is down produces one
-     * of these per lookup — but worth saying at all, because "which resolver stopped answering"
-     * is the single fact that explains a phone that resolves nothing on one Wi-Fi and is fine on
-     * every other network.
-     */
-    /**
      * Says a socket went wrong, at most once a minute and never with a stack trace.
      *
      * Learned from a real report: a per-socket failure logged with its throwable is fifteen lines
@@ -1185,6 +1230,14 @@ class MalachiVpnService : VpnService() {
         DebugLog.w(TAG, "${target.hostAddress} refuses lookups (rcode $rcode); trying the next resolver")
     }
 
+    /**
+     * Names a resolver that went quiet, at most once a minute.
+     *
+     * Rate-limited because this is the hot path and a network whose resolver is down produces one
+     * of these per lookup — but worth saying at all, because "which resolver stopped answering"
+     * is the single fact that explains a phone that resolves nothing on one Wi-Fi and is fine on
+     * every other network.
+     */
     private fun noteSilentUpstream(target: InetAddress) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastSilentUpstreamLogMs < SILENT_UPSTREAM_LOG_INTERVAL_MS) return
@@ -1493,7 +1546,7 @@ class MalachiVpnService : VpnService() {
      * here is the real one underneath it.
      */
     private fun registerNetworkCallback() {
-        runCatching { cm.registerDefaultNetworkCallback(networkCallback) }
+        runCatching { cm.registerDefaultNetworkCallback(networkCallback, callbackHandler) }
             .onFailure { DebugLog.w(TAG, "cannot watch the underlying network", it) }
 
         // And a second one that asks for what the first stops saying. Measured on a phone over
@@ -1530,12 +1583,12 @@ class MalachiVpnService : VpnService() {
                 // Android 12 and up will name its *best* match and nothing else, which is the
                 // question being asked — our protected sockets leave by the platform's choice,
                 // not by ours, so its answer beats any ranking of our own.
-                cm.registerBestMatchingNetworkCallback(request, underlyingCallback, Handler(Looper.getMainLooper()))
+                cm.registerBestMatchingNetworkCallback(request, underlyingCallback, callbackHandler)
             } else {
                 // Below that, every matching network reports itself and the last one to speak
                 // would win — the bug this app already paid for once. So these events are only a
                 // signal to go and decide again; see [bestUnderlyingNetwork].
-                cm.registerNetworkCallback(request, underlyingCallback)
+                cm.registerNetworkCallback(request, underlyingCallback, callbackHandler)
             }
         }.onFailure {
             // Never quietly: this is the only thing that notices a hand-off once the tunnel is
@@ -1556,7 +1609,11 @@ class MalachiVpnService : VpnService() {
         }.onFailure { DebugLog.w(TAG, "cannot watch package changes", it) }
     }
 
-    private fun adoptNetwork(reported: Network, reportedLinkProperties: LinkProperties) {
+    private fun adoptNetwork(reported: Network, reportedLinkProperties: LinkProperties) =
+        synchronized(adoptLock) { adoptNetworkLocked(reported, reportedLinkProperties) }
+
+    /** The body of [adoptNetwork]; only ever under [adoptLock]. */
+    private fun adoptNetworkLocked(reported: Network, reportedLinkProperties: LinkProperties) {
         // Our own tunnel is a network too, and adopting it would point the filter at its own
         // sentinel — a loop with no exit. This used to `return` here, and that silence cost a
         // phone eleven hours of DNS: once the tunnel is up the default network reported to this
@@ -1782,7 +1839,7 @@ class MalachiVpnService : VpnService() {
      * system default rather than left naming a network that has gone, which is what made this
      * tunnel advertise the capabilities of a network the phone had left.
      */
-    private fun adoptUnderlying(named: Network?) {
+    private fun adoptUnderlying(named: Network?) = synchronized(adoptLock) {
         val network = named?.takeIf { isValidated(it) } ?: bestUnderlyingNetwork() ?: return followSystemDefault()
         val linkProperties = runCatching { cm.getLinkProperties(network) }.getOrNull() ?: return followSystemDefault()
         adoptNetwork(network, linkProperties)
@@ -1851,9 +1908,11 @@ class MalachiVpnService : VpnService() {
      * where everything has already failed.
      */
     private fun recheckResolvers() {
+        // Check-then-set as one step: four forwarders arrive here in the same millisecond when
+        // a network dies, and each used to win the throttle and launch a re-check of its own.
         val now = SystemClock.elapsedRealtime()
-        if (now - lastResolverRecheckMs < RESOLVER_RECHECK_INTERVAL_MS) return
-        lastResolverRecheckMs = now
+        val last = lastResolverRecheckMs.get()
+        if (now - last < RESOLVER_RECHECK_INTERVAL_MS || !lastResolverRecheckMs.compareAndSet(last, now)) return
         scope.launch {
             val reported = runCatching { cm.activeNetwork }.getOrNull() ?: return@launch
             val network = realNetwork(reported) ?: return@launch
@@ -1904,7 +1963,7 @@ class MalachiVpnService : VpnService() {
      * answers is one we are no longer asking, and a lookup already in flight is spending its
      * budget on a list the user has just replaced.
      */
-    private fun adoptUpstreams() {
+    private fun adoptUpstreams() = synchronized(adoptLock) {
         upstreams = resolveUpstreams()
         lastGoodUpstream = null
         sockets.closeAll()
@@ -2099,6 +2158,7 @@ class MalachiVpnService : VpnService() {
         AppTrace.stop()
         runCatching { cm.unregisterNetworkCallback(networkCallback) }
         runCatching { cm.unregisterNetworkCallback(underlyingCallback) }
+        callbackThread.quitSafely()
         runCatching { unregisterReceiver(packageChanges) }
         scope.cancel()
         forwarders.shutdownNow()
@@ -2262,19 +2322,6 @@ class MalachiVpnService : VpnService() {
         )
     }
 
-    /**
-     * **Do not bind these sockets to a network.** It was tried, in 0.9.2, on the theory that
-     * `protect()` exempts a socket from the tunnel without choosing a way out of the phone.
-     * `Network.bindSocket` refused with `EPERM` on every socket on a Pixel 8 Pro — and it does
-     * not refuse cleanly: it duplicates the descriptor before it throws, and the socket that
-     * comes back is broken. The signature in the trace is unmistakable, a resolver "not
-     * answering" in one millisecond where it had answered in eighty a second earlier, and four
-     * resolvers exhausted in three milliseconds.
-     *
-     * `protect()` is what this tunnel needs and all it needs: the queries it sends do leave, and
-     * the traces show them answered. If a resolver is ever genuinely unreachable for want of an
-     * interface, the answer is to find out why rather than to reach for this again.
-     */
     /**
      * Notes whether the platform is dropping everything that does not leave through this tunnel.
      *
