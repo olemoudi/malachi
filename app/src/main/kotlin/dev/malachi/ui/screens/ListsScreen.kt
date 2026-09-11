@@ -29,8 +29,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -82,9 +86,18 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
     // Above everything, because this is the screen somebody opens when an app has just broken —
     // and the answer to that is nearly always the list they turned on last. It is absent for
     // anybody who has never turned one on, so it costs the other case nothing.
-    val recent = remember(settings.listChoices, settings.listEnabledAtMs) {
+    val recentlyOn = remember(settings.listChoices, settings.listEnabledAtMs) {
         BlocklistCatalog.recentlyEnabled(settings.listChoices, settings.listEnabledAtMs, RECENT_SHOWN)
     }
+    // A row switched off stays for the rest of the visit, unchecked and where it was. The hint
+    // above these rows invites exactly that tap, and a row that vanished on it left no sign the
+    // tap had worked and no way back short of finding the list again in its category. Saveable,
+    // so a rotation mid-experiment does not tidy it away either. Anything turned on during the
+    // visit joins at the top, which is where "newest first" puts it.
+    var shown by rememberSaveable { mutableStateOf(ArrayList<String>()) }
+    val recentIds = remember(recentlyOn, shown) { recentlyOn.map { it.id }.filterNot { it in shown } + shown }
+    LaunchedEffect(recentIds) { if (recentIds != shown) shown = ArrayList(recentIds) }
+    val recent = remember(recentIds) { recentIds.mapNotNull { BlocklistCatalog.byId(it) } }
 
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.nav_lists), onBack) {
@@ -116,10 +129,15 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
                 item {
                     CardGroup {
                         recent.forEachIndexed { index, source ->
+                            val on = BlocklistCatalog.isEnabled(source.id, settings.listChoices)
                             SwitchRow(
                                 title = source.title,
-                                subtitle = turnedOn(settings.listEnabledAtMs[source.id]),
-                                checked = true,
+                                subtitle = if (on) {
+                                    turnedOn(settings.listEnabledAtMs[source.id])
+                                } else {
+                                    stringResource(R.string.lists_recent_switched_off)
+                                },
+                                checked = on,
                                 onCheckedChange = { vm.setListEnabled(source.id, it) },
                                 position = cardPosition(index, recent.size),
                                 leading = {

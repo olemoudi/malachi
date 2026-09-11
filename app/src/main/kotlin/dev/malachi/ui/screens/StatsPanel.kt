@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.stats.AppStat
@@ -86,8 +87,14 @@ fun StatsPanel(
     // `resetting` deliberately is not: it is a dialog.
     var window by rememberSaveable { mutableStateOf(StatsWindow.TODAY) }
     var resetting by remember { mutableStateOf(false) }
-    val today = remember { LocalDate.now() }
-    val computed = remember(stats, window) { stats.window(window, today) }
+    // Re-read on every resume: this panel lives in a screen that stays alive across midnight,
+    // and a date taken once left "Today" describing yesterday.
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    LifecycleResumeEffect(Unit) {
+        today = LocalDate.now()
+        onPauseOrDispose { }
+    }
+    val computed = remember(stats, window, today) { stats.window(window, today) }
     val numbers = remember { NumberFormat.getInstance() }
 
     Column(Modifier.fillMaxWidth()) {

@@ -151,12 +151,26 @@ object VpnStatus {
      * switch would spring back with no explanation, which is indistinguishable from the app
      * being broken — and was.
      */
-    fun consentRefused() {
-        _status.value = FilterStatus(tunnelUp = false, problem = TunnelProblem.NO_CONSENT)
-    }
+    fun consentRefused() = needsUser(TunnelProblem.NO_CONSENT)
 
-    fun alwaysOnElsewhere() {
-        _status.value = FilterStatus(tunnelUp = false, problem = TunnelProblem.ALWAYS_ON_ELSEWHERE)
+    fun alwaysOnElsewhere() = needsUser(TunnelProblem.ALWAYS_ON_ELSEWHERE)
+
+    /**
+     * A problem only the user can clear, written over what is known rather than in place of it.
+     *
+     * Lockdown and Private DNS describe the phone's settings, not this attempt to start, and both
+     * used to be erased here the way [up] once erased lockdown: cancel the consent dialog on a
+     * phone with "block connections without VPN" on, and the one card explaining why nothing on
+     * it could connect vanished at exactly the moment somebody was toggling the filter to find out.
+     */
+    private fun needsUser(problem: TunnelProblem) {
+        _status.value = _status.value.copy(
+            tunnelUp = false,
+            problem = problem,
+            detail = "",
+            retrying = false,
+            upstream = "",
+        )
     }
 
     /** Clears a stale problem when the user asks for the filter again. */

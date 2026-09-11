@@ -3,6 +3,7 @@ package dev.malachi.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,6 +76,7 @@ import dev.malachi.ui.components.SectionHeader
 import dev.malachi.ui.components.UndoBarHost
 import dev.malachi.ui.components.VerdictLine
 import dev.malachi.ui.components.cardPosition
+import dev.malachi.ui.components.minutesLeft
 import dev.malachi.ui.components.rememberUndoBar
 import dev.malachi.ui.rememberRuleAnnouncer
 import dev.malachi.ui.theme.MonoSmall
@@ -121,7 +123,11 @@ fun DiagnoseScreen(vm: MalachiViewModel, onBack: () -> Unit) {
     // the tunnel attributing every lookup — so what the timeline belongs to has to be read from
     // the timeline itself, or a session would vanish at the moment it expired, evidence and all.
     val subject = settings.diagnoseApp.ifEmpty { trace.packageName.orEmpty() }.ifEmpty { null }
-    var picking by remember { mutableStateOf(false) }
+    // Saveable, and with back handling of its own: the picker is a mode of this screen rather
+    // than a screen of its own, and the system's back used to pop the whole destination — the
+    // session being looked at with it — where the arrow in the top bar merely closed the picker.
+    var picking by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = picking) { picking = false }
 
     if (subject == null || picking) {
         AppPicker(
@@ -545,12 +551,13 @@ private fun SessionCard(
                 Spacer(Modifier.width(spacing.md))
                 Column(Modifier.weight(1f)) {
                     Text(label, style = MaterialTheme.typography.titleMedium)
+                    // The window is a deadline on the wall clock and this counts it down; the
+                    // service does clear the setting when it lapses, but the minutes in between
+                    // used to be the ones the card was born with.
+                    val watchMinutesLeft = if (watching) minutesLeft(untilMs) else null
                     Text(
-                        if (watching) {
-                            stringResource(
-                                R.string.diagnose_watching,
-                                ((untilMs - System.currentTimeMillis()) / 60_000L + 1).toInt(),
-                            )
+                        if (watchMinutesLeft != null) {
+                            stringResource(R.string.diagnose_watching, watchMinutesLeft)
                         } else {
                             stringResource(R.string.diagnose_window_closed)
                         },

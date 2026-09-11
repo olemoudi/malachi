@@ -1,5 +1,6 @@
 package dev.malachi.net
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -71,6 +72,29 @@ class PrivateDnsStatusTest {
 
         VpnStatus.lockdown(false)
         assertFalse(VpnStatus.status.value.lockdown, "the warning outstayed the setting")
+    }
+
+    @Test
+    fun `a refused consent keeps what is known about the phone`() {
+        // The same mistake as above, made twice more: both of these built a fresh status. With
+        // lockdown on, cancelling the consent dialog is exactly when somebody is looking for the
+        // card that explains a phone with no connection — and it vanished on the cancel.
+        VpnStatus.lockdown(true)
+        VpnStatus.privateDns(active = true, host = "dns.google")
+
+        VpnStatus.consentRefused()
+        assertTrue(VpnStatus.status.value.lockdown, "a refused consent erased the lockdown warning")
+        assertTrue(VpnStatus.status.value.privateDnsStrict, "a refused consent erased the Private DNS warning")
+        assertEquals(TunnelProblem.NO_CONSENT, VpnStatus.status.value.problem)
+
+        VpnStatus.alwaysOnElsewhere()
+        assertTrue(VpnStatus.status.value.lockdown)
+        assertEquals(TunnelProblem.ALWAYS_ON_ELSEWHERE, VpnStatus.status.value.problem)
+
+        // Left as it was found: the status is process-wide.
+        VpnStatus.lockdown(false)
+        VpnStatus.privateDns(active = false, host = null)
+        VpnStatus.down()
     }
 
     @Test

@@ -93,8 +93,11 @@ fun HomeScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
     val stats by vm.stats.collectAsStateWithLifecycle()
-    val today = remember { LocalDate.now() }
-    val todayCounts = remember(stats) { stats.window(StatsWindow.TODAY, today).counts }
+    // Re-read on every resume rather than remembered once: an activity lives across midnight
+    // routinely, and a date taken at composition left "Today" describing yesterday for as long
+    // as the screen stayed alive, with its numbers quietly standing still.
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    val todayCounts = remember(stats, today) { stats.window(StatsWindow.TODAY, today).counts }
 
     // The statistics are read when somebody looks, never published per lookup — the tunnel must
     // not pay to keep a screen that is usually closed up to date.
@@ -105,6 +108,7 @@ fun HomeScreen(
     // from before the trip. LifecycleResumeEffect runs on every resume, and immediately if the
     // screen is composed while already resumed.
     LifecycleResumeEffect(Unit) {
+        today = LocalDate.now()
         vm.refreshStats()
         onPauseOrDispose { }
     }

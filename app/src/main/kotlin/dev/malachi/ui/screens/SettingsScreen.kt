@@ -47,6 +47,7 @@ import dev.malachi.ui.components.SwitchRow
 import dev.malachi.ui.components.MalachiTopBar
 import dev.malachi.ui.components.ValueRow
 import dev.malachi.ui.components.cardPosition
+import dev.malachi.ui.components.minutesLeft
 import dev.malachi.ui.theme.Tokens
 import dev.malachi.update.ChannelSwitch
 import dev.malachi.update.UpdateUiState
@@ -254,17 +255,17 @@ fun SettingsScreen(
                     // Its own row above the log, because it is what makes the log worth reading
                     // when an app misbehaves: without it the tunnel says almost nothing per
                     // lookup, on purpose.
+                    // Counted down, not read once: the deadline is a moment on the wall clock
+                    // that nothing writes back to the settings when it passes. See [minutesLeft].
+                    val tracingMinutesLeft = minutesLeft(settings.diagnosticsUntilMs)
                     SwitchRow(
                         title = stringResource(R.string.settings_trace),
-                        subtitle = if (settings.isDiagnosing()) {
-                            stringResource(
-                                R.string.settings_trace_running,
-                                ((settings.diagnosticsUntilMs - System.currentTimeMillis()) / 60_000L + 1).toInt(),
-                            )
+                        subtitle = if (tracingMinutesLeft != null) {
+                            stringResource(R.string.settings_trace_running, tracingMinutesLeft)
                         } else {
                             stringResource(R.string.settings_trace_hint, MalachiVpnService.DIAGNOSTICS_MINUTES)
                         },
-                        checked = settings.isDiagnosing(),
+                        checked = tracingMinutesLeft != null,
                         onCheckedChange = vm::setDiagnostics,
                         position = cardPosition(1, 4),
                     )

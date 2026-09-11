@@ -160,6 +160,7 @@
     <string name="lists_recent_title">Recently turned on</string>
     <string name="lists_recent_hint">Newest first. If an app stopped working, it is usually one of these — switch it off here and try again.</string>
     <string name="lists_enabled_when">Turned on %1$s</string>
+    <string name="lists_recent_switched_off">Switched off. Turn it back on here if that was not the one.</string>
     <string name="lists_catalogue_title">Catalogue</string>
     <string name="lists_catalogue_hint">Every list is off unless you turn it on. Add one at a time and give it a day.</string>
     <string name="lists_category_enabled">Enabled: %1$d of %2$d</string>

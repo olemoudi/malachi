@@ -58,7 +58,10 @@ fun AppRankingScreen(
 
     // The same refresh as the panel that leads here: coming back from an app, or from another app
     // entirely, is exactly when these numbers have moved and nothing has recomposed.
+    var today by remember { mutableStateOf(LocalDate.now()) }
     LifecycleResumeEffect(Unit) {
+        // The date as well as the counts: both go stale the same way.
+        today = LocalDate.now()
         vm.refreshStats()
         onPauseOrDispose { }
     }
@@ -67,8 +70,7 @@ fun AppRankingScreen(
     // destination only says where to start.
     var order by rememberSaveable { mutableStateOf(initialOrder) }
     var window by rememberSaveable { mutableStateOf(initialWindow) }
-    val today = remember { LocalDate.now() }
-    val computed = remember(stats, window) { stats.window(window, today) }
+    val computed = remember(stats, window, today) { stats.window(window, today) }
     val ranked = remember(computed, order) {
         when (order) {
             RankingOrder.BY_COUNT -> computed.rankedByBlocked()
@@ -78,7 +80,7 @@ fun AppRankingScreen(
     val tooFew = remember(computed, order) {
         if (order == RankingOrder.BY_RATE) computed.tooFewForRate() else emptyList()
     }
-    val mayBeMissing = remember(stats, window) { stats.mayBeMissingApps(window, today) }
+    val mayBeMissing = remember(stats, window, today) { stats.mayBeMissingApps(window, today) }
     val numbers = remember { NumberFormat.getInstance() }
 
     Column(Modifier.fillMaxSize()) {
