@@ -159,7 +159,9 @@ class FilterRepository(
         // Cheap, and the only thing that clears the files of a list that has been switched off.
         blocklistStore.prune(sources)
         val states = blocklistStore.states()
-        val missing = sources.filter { states[it.id]?.isDownloaded != true }
+        // Missing on disk counts as missing, whatever the record says: the state file can call a
+        // list downloaded over an index that has since been thrown away as corrupt.
+        val missing = sources.filter { states[it.id]?.isDownloaded != true || !blocklistStore.hasIndex(it.id) }
         if (missing.isEmpty()) {
             _listStates.value = states
             return

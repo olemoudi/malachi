@@ -159,6 +159,7 @@
     <string name="lists_recent_title">Activadas recientemente</string>
     <string name="lists_recent_hint">Las más recientes primero. Si una app ha dejado de funcionar, casi siempre es una de estas: desactívala aquí y vuelve a probar.</string>
     <string name="lists_enabled_when">Activada %1$s</string>
+    <string name="lists_refresh_waiting">Actualización solicitada. Se hará en cuanto haya conexión.</string>
     <string name="lists_recent_switched_off">Desactivada. Vuelve a activarla aquí si no era esta.</string>
     <string name="lists_catalogue_title">Catálogo</string>
     <string name="lists_catalogue_hint">Cada lista está desactivada salvo que tú la actives. Añádelas de una en una y dales un día.</string>

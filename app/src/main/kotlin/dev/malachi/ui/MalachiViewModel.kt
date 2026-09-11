@@ -125,6 +125,13 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     val listStates = app.filterRepository.listStates
     val refreshingLists = app.filterRepository.refreshing
 
+    /**
+     * A manual refresh that has been asked for and has not started: the tap used to be a no-op
+     * with no connection — the work waits for one, silently — so the button read as dead.
+     */
+    val listRefreshQueued: StateFlow<Boolean> = ListUpdateWorker.queued(app)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** How far along a blocklist download is; see [dev.malachi.filter.FilterRepository.listProgress]. */
     val listProgress = app.filterRepository.listProgress
     val updateState = UpdateCenter.state
@@ -573,7 +580,12 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun setListUpdateWifiOnly(wifiOnly: Boolean) = update { it.copy(listUpdateWifiOnly = wifiOnly) }
 
-    fun refreshLists() = ListUpdateWorker.runNow(app, force = true)
+    /**
+     * Conditional, like the scheduled one. The button used to force a full download of every
+     * subscribed list — twenty megabytes for a default install, on whatever connection was there
+     * — where a 304 is the right answer to "check for updates".
+     */
+    fun refreshLists() = ListUpdateWorker.runNow(app)
 
     // ---- resolution --------------------------------------------------------------------
 

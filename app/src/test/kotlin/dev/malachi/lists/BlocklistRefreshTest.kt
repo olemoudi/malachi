@@ -127,6 +127,69 @@ class BlocklistRefreshTest {
     }
 
     @Test
+    fun `a list whose index is gone is fetched again in full, whatever the state file says`() = runBlocking {
+        // The index is thrown away as corrupt, or the directory is cleared; the state file goes on
+        // saying "150 entries, downloaded". The screen believed the file, the filter read the
+        // directory, and nothing fetched the list again for a day.
+        bodies["/ads.txt"] = hosts(150)
+        etags["/ads.txt"] = "\"v1\""
+        val store = BlocklistStore(directory)
+        val list = listOf(source("ads", "/ads.txt"))
+        assertTrue(store.refresh(list))
+        File(directory, "ads.block").delete()
+
+        assertFalse(store.hasIndex("ads"))
+        assertTrue(store.load(list).isEmpty())
+        assertEquals(null, store.states()["ads"], "a list that is not on disk must not be recorded as downloaded")
+
+        assertTrue(store.refresh(list), "the list was not fetched again")
+        assertEquals(null, requestsTo("/ads.txt").last().getHeader("If-None-Match"), "a validator was sent for a file that was not there")
+        assertTrue(store.hasIndex("ads"))
+        assertEquals(150, store.states()["ads"]?.entries)
+    }
+
+    @Test
+    fun `a lost exceptions index is fetched again rather than answered with a 304 forever`() = runBlocking {
+        bodies["/ads.txt"] = hosts(150) + "\n@@||keep.example.com^"
+        etags["/ads.txt"] = "\"v1\""
+        val store = BlocklistStore(directory)
+        val list = listOf(source("ads", "/ads.txt"))
+        assertTrue(store.refresh(list))
+        File(directory, "ads.allow").delete()
+
+        store.refresh(list)
+
+        assertEquals(null, requestsTo("/ads.txt").last().getHeader("If-None-Match"))
+        assertTrue(File(directory, "ads.allow").exists())
+        assertTrue(store.load(list).single().allow.matches("keep.example.com"))
+    }
+
+    @Test
+    fun `each list's state is recorded as it lands, not once at the end`() = runBlocking {
+        // A first run is minutes of downloading, and a process killed partway used to lose the
+        // state of every list already compiled — each then read as never downloaded, and the
+        // next run fetched them all again with no validator to send.
+        bodies["/fast.txt"] = hosts(150, prefix = "fast")
+        bodies["/slow.txt"] = hosts(150, prefix = "slow")
+        slowPaths["/slow.txt"] = 1_500
+        val store = BlocklistStore(directory)
+        val fast = source("fast", "/fast.txt")
+        val slow = source("slow", "/slow.txt")
+
+        var fastRecordedMidway = false
+        coroutineScope {
+            val refresh = launch(Dispatchers.IO) { store.refresh(listOf(fast, slow)) }
+            // The fast one is done and the slow one's body is still being held.
+            delay(500)
+            fastRecordedMidway = BlocklistStore(directory).states()["fast"]?.isDownloaded == true
+            refresh.join()
+        }
+
+        assertTrue(fastRecordedMidway, "the first list's state was not on disk while the second was still downloading")
+        assertTrue(store.states()["slow"]?.isDownloaded == true)
+    }
+
+    @Test
     fun `a forced refresh ignores the validators it stored`() = runBlocking {
         bodies["/ads.txt"] = hosts(150)
         etags["/ads.txt"] = "\"v1\""

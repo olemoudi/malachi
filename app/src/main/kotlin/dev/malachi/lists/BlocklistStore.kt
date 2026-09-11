@@ -70,12 +70,21 @@ class BlocklistStore(private val dir: File) {
     }
 
     /**
+     * Whether the compiled index for [id] is actually on disk, which is a different question from
+     * what the state file says. The two drift: [readIndex] throws a corrupt index away, a
+     * directory can be cleared under us, and `prune` only ever removes. A state entry saying
+     * "160,000 entries" over a file that is not there was a list the screen called downloaded
+     * and the filter never read, and nothing fetched it again for a day.
+     */
+    fun hasIndex(id: String): Boolean = blockFile(id).exists() && allowFile(id).exists()
+
+    /**
      * Reads the compiled indexes for [sources] back into memory, skipping any that haven't been
      * downloaded yet. Order is preserved: [dev.malachi.filter.FilterEngine] reports the first
      * list that blocks a domain, and "first" should mean what the catalog says it means.
      */
     suspend fun load(sources: List<BlocklistSource>): List<CompiledList> = withContext(Dispatchers.IO) {
-        sources.mapNotNull { source ->
+        val loaded = sources.mapNotNull { source ->
             val block = readIndex(blockFile(source.id)) ?: return@mapNotNull null
             CompiledList(
                 id = source.id,
@@ -84,6 +93,23 @@ class BlocklistStore(private val dir: File) {
                 allow = readIndex(allowFile(source.id)) ?: DomainIndex.EMPTY,
             )
         }
+        forgetMissing(sources)
+        loaded
+    }
+
+    /**
+     * Drops the recorded state of any list whose index is not on disk — thrown away as corrupt
+     * a moment ago, or lost with the directory — so that the file and the directory agree again
+     * and [dev.malachi.filter.FilterRepository.downloadMissingLists] fetches it. Under the lock
+     * like every other write to the state file, and writing only when something was forgotten.
+     */
+    private suspend fun forgetMissing(sources: List<BlocklistSource>) = refreshLock.withLock {
+        val states = states()
+        val gone = sources.filter { states[it.id]?.isDownloaded == true && !hasIndex(it.id) }
+        if (gone.isEmpty()) return@withLock
+        DebugLog.w(TAG, "${gone.joinToString { it.id }}: recorded as downloaded but not on disk; fetching again")
+        val goneIds = gone.map { it.id }.toSet()
+        writeStates(states.values.filterNot { it.id in goneIds })
     }
 
     /**
@@ -120,10 +146,15 @@ class BlocklistStore(private val dir: File) {
                         previous[source.id] = after
                         // A 304 only moves the timestamp; that isn't a reason to recompile.
                         if (after.entries != before.entries || after.exceptions != before.exceptions) changed = true
+                        // Recorded per list rather than once at the end. A first run fetches
+                        // twenty megabytes over minutes, and a process killed partway used to
+                        // lose the state of every list already compiled: each read as never
+                        // downloaded, and the next run fetched them all again with no validator
+                        // to send. The file is a few kilobytes.
+                        writeStates(previous.values.toList())
                     }
                     onProgress(index + 1, sources.size)
                 }
-                writeStates(previous.values.toList())
                 changed
             }
         }
@@ -191,9 +222,11 @@ class BlocklistStore(private val dir: File) {
     }
 
     private fun refreshOne(source: BlocklistSource, previous: ListState, force: Boolean): ListState {
-        val compiled = blockFile(source.id).exists()
+        val compiled = hasIndex(source.id)
         val request = Request.Builder().url(source.url).apply {
-            // A stored validator is only usable while the file it describes is still there.
+            // A stored validator is only usable while the files it describes are still there —
+            // both of them. With only the block index checked, a lost `.allow` was answered with
+            // a 304 forever and that list's exceptions never came back.
             if (compiled && !force) {
                 if (previous.etag.isNotEmpty()) header("If-None-Match", previous.etag)
                 if (previous.lastModified.isNotEmpty()) header("If-Modified-Since", previous.lastModified)

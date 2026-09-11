@@ -81,6 +81,7 @@ import java.util.Date
 fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (BlocklistCategory) -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val refreshing by vm.refreshingLists.collectAsStateWithLifecycle()
+    val queued by vm.listRefreshQueued.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
 
     // Above everything, because this is the screen somebody opens when an app has just broken —
@@ -101,7 +102,9 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
 
     Column(Modifier.fillMaxSize()) {
         MalachiTopBar(stringResource(R.string.nav_lists), onBack) {
-            if (refreshing) {
+            // Spinning from the tap, not from the moment the work runs: with no connection the
+            // request waits for one, and a button that did nothing visible read as broken.
+            if (refreshing || queued) {
                 CircularProgressIndicator(Modifier.size(20.dp).padding(end = spacing.sm), strokeWidth = 2.dp)
             } else {
                 IconButton(onClick = vm::refreshLists) {
@@ -151,7 +154,12 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
                 }
             }
 
-            item { SectionHeader(stringResource(R.string.lists_schedule_title)) }
+            item {
+                SectionHeader(
+                    title = stringResource(R.string.lists_schedule_title),
+                    supporting = if (queued && !refreshing) stringResource(R.string.lists_refresh_waiting) else null,
+                )
+            }
             item {
                 CardGroup {
                     ValueRow(
