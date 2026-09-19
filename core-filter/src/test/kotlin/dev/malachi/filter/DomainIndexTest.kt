@@ -175,6 +175,40 @@ class DomainIndexTest {
     }
 
     @Test
+    fun `unique counts are what no other index carries, by exact name`() {
+        val a = DomainIndex.of(listOf("shared.com", "only-a.com", "ads.only-a.com", "all.com"))
+        val b = DomainIndex.of(listOf("shared.com", "only-b.com", "all.com"))
+        val c = DomainIndex.of(listOf("all.com", "only-a.com.evil"))
+        assertEquals(listOf(2, 1, 1), DomainIndex.uniqueCounts(listOf(a, b, c)).toList())
+    }
+
+    @Test
+    fun `unique counts treat a covering parent elsewhere as no overlap`() {
+        // A floor on the overlap, never an overstatement: the hashes cannot say that `ads.x.com`
+        // is under `x.com`, so it is reported as the list's own.
+        val child = DomainIndex.of(listOf("ads.x.com"))
+        val parent = DomainIndex.of(listOf("x.com"))
+        assertEquals(listOf(1, 1), DomainIndex.uniqueCounts(listOf(child, parent)).toList())
+    }
+
+    @Test
+    fun `unique counts survive empty and single inputs`() {
+        assertEquals(emptyList<Int>(), DomainIndex.uniqueCounts(emptyList()).toList())
+        assertEquals(listOf(0), DomainIndex.uniqueCounts(listOf(DomainIndex.EMPTY)).toList())
+        val alone = DomainIndex.of(listOf("a.com", "b.com"))
+        assertEquals(listOf(2, 0), DomainIndex.uniqueCounts(listOf(alone, DomainIndex.EMPTY)).toList())
+        // The same list twice owns nothing of its own.
+        assertEquals(listOf(0, 0), DomainIndex.uniqueCounts(listOf(alone, alone)).toList())
+    }
+
+    @Test
+    fun `unique counts agree with a naive count on a large overlap`() {
+        val first = DomainIndex.of((0 until 20_000).map { "h$it.example.com" })
+        val second = DomainIndex.of((10_000 until 35_000).map { "h$it.example.com" })
+        assertEquals(listOf(10_000, 15_000), DomainIndex.uniqueCounts(listOf(first, second)).toList())
+    }
+
+    @Test
     fun `a large index still answers correctly`() {
         val many = (0 until 50_000).map { "host$it.example.com" }
         val big = DomainIndex.of(many)

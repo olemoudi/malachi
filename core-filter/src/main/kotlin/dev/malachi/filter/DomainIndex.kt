@@ -166,6 +166,47 @@ class DomainIndex internal constructor(internal val hashes: LongArray) {
         }
 
         /**
+         * For each of [indexes], how many of its entries appear in none of the others.
+         *
+         * By exact name, because a hash does not remember its domain: an entry for
+         * `ads.example.com` in one list still counts as its own even when another list blocks the
+         * whole of `example.com`. So this is a floor on the overlap, never an overstatement of it —
+         * a list reported as adding nothing really does add nothing.
+         *
+         * A merge over the sorted arrays rather than a lookup per entry: every value is visited
+         * once per list it is in, so a dozen lists of a quarter of a million entries each is a few
+         * million comparisons and no allocation beyond the answer.
+         */
+        fun uniqueCounts(indexes: List<DomainIndex>): IntArray {
+            val arrays = indexes.map { it.hashes }
+            val position = IntArray(arrays.size)
+            val unique = IntArray(arrays.size)
+            while (true) {
+                var min = 0L
+                var any = false
+                for (i in arrays.indices) {
+                    if (position[i] >= arrays[i].size) continue
+                    val value = arrays[i][position[i]]
+                    if (!any || value < min) {
+                        min = value
+                        any = true
+                    }
+                }
+                if (!any) return unique
+                var holders = 0
+                var holder = -1
+                for (i in arrays.indices) {
+                    if (position[i] < arrays[i].size && arrays[i][position[i]] == min) {
+                        holders++
+                        holder = i
+                        position[i]++
+                    }
+                }
+                if (holders == 1) unique[holder]++
+            }
+        }
+
+        /**
          * The largest index we will read back. Four million domains is an order of magnitude
          * past the biggest list anyone publishes, and the bound is the point: the entry count
          * comes off the disk, and a file damaged in exactly those four bytes would otherwise

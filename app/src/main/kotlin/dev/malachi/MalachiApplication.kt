@@ -1,7 +1,9 @@
 package dev.malachi
 
 import android.app.Application
+import android.os.SystemClock
 import dev.malachi.data.AppInventory
+import dev.malachi.data.FilterStops
 import dev.malachi.data.SettingsStore
 import dev.malachi.data.ThemeStore
 import dev.malachi.debug.DebugLog
@@ -84,8 +86,12 @@ class MalachiApplication : Application() {
         UpdateWorker.schedule(this)
         // Whatever brought this process back — a worker, a broadcast, the launcher — is also
         // the earliest moment we can notice the filter is missing, so we look now rather than
-        // waiting for the periodic check to come round.
-        scope.launch { FilterWatchdogWorker.restoreIfNeeded(this@MalachiApplication) }
+        // waiting for the periodic check to come round. Noting that it *was* missing comes first,
+        // because the restore is about to make it look as though nothing happened.
+        scope.launch {
+            runCatching { noteFilterStop() }.onFailure { DebugLog.w(TAG, "could not record a filter stop", it) }
+            FilterWatchdogWorker.restoreIfNeeded(this@MalachiApplication)
+        }
 
         observeFilterSwitch()
     }
@@ -120,6 +126,29 @@ class MalachiApplication : Application() {
                 }
             }.onFailure { DebugLog.w(TAG, "could not prune the cache", it) }
         }
+    }
+
+    /**
+     * Records a stop if this process start is the evidence of one; see [FilterStops].
+     *
+     * Here and only here: a process start is the one moment that proves the filter was not
+     * running, and every revival passes through this method whatever caused it. A resume of the
+     * activity does not — it would count the moment somebody switched the filter on themselves.
+     */
+    private suspend fun noteFilterStop() {
+        val settings = settingsStore.current()
+        val nowMs = System.currentTimeMillis()
+        val updatedAtMs = runCatching { packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(nowMs)
+        val stopped = FilterStops.isStop(
+            settings = settings,
+            nowMs = nowMs,
+            sinceBootMs = SystemClock.elapsedRealtime(),
+            updatedAtMs = updatedAtMs,
+            hasConsent = VpnController.hasConsent(this),
+        )
+        if (!stopped) return
+        DebugLog.w(TAG, "the filter was not running when this process started; something stopped it")
+        settingsStore.update { FilterStops.recorded(it, nowMs) }
     }
 
     /**

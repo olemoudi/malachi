@@ -307,6 +307,7 @@ class MalachiVpnService : VpnService() {
     private var resumeJob: Job? = null
     private var retryJob: Job? = null
     private var diagnoseJob: Job? = null
+    private var unfilteredJob: Job? = null
     private var retryAttempt = 0
 
     /**
@@ -600,6 +601,7 @@ class MalachiVpnService : VpnService() {
         traceUntilMs = next.diagnosticsUntilMs
         if (!wasTracing && next.isDiagnosing()) traceEnvironment(next)
         applyAppTrace(next)
+        applyUnfilteredExpiry(next)
 
         resumeJob?.cancel()
         cancelPauseAlarm()
@@ -2164,6 +2166,7 @@ class MalachiVpnService : VpnService() {
         }
         cancelRetry()
         diagnoseJob?.cancel()
+        unfilteredJob?.cancel()
         // The buffer lives in this process either way, but nothing is left claiming to record.
         AppTrace.stop()
         runCatching { cm.unregisterNetworkCallback(networkCallback) }
@@ -2254,6 +2257,32 @@ class MalachiVpnService : VpnService() {
             delay((next.diagnoseUntilMs - System.currentTimeMillis()).coerceAtLeast(0))
             app.settingsStore.update {
                 if (it.diagnosing() == null) it.copy(diagnoseApp = "", diagnoseUntilMs = 0) else it
+            }
+        }
+    }
+
+    /**
+     * Tidies away an app's unfiltered window once it has closed.
+     *
+     * Housekeeping only, like the end of a diagnosis: the engine already compares the clock on
+     * every lookup, so the app is filtered again on the second whatever this does. What the tidy-up
+     * buys is attribution — while any entry is in the map every lookup on the phone pays a binder
+     * round trip to learn who asked, and a lapsed entry left behind would keep that up for as long
+     * as nothing else happened to write the settings. A monotonic delay, so a phone that sleeps
+     * through it tidies up late; spending an alarm on housekeeping would be waking the phone to
+     * switch off something that has already stopped.
+     */
+    private fun applyUnfilteredExpiry(next: MalachiSettings) {
+        unfilteredJob?.cancel()
+        var soonest = next.unfilteredApps.values.minOrNull() ?: return
+        unfilteredJob = scope.launch {
+            // A loop rather than one sleep: the delay runs on a different clock from the deadline,
+            // and a wake a millisecond early finds nothing lapsed, writes nothing, and — with no
+            // write — nothing would ever come round to try again.
+            while (true) {
+                delay((soonest - System.currentTimeMillis()).coerceAtLeast(0) + EXPIRY_SLACK_MS)
+                app.settingsStore.update { it.withoutLapsedUnfiltered() }
+                soonest = app.settingsStore.current().unfilteredApps.values.minOrNull() ?: return@launch
             }
         }
     }
@@ -2400,6 +2429,9 @@ class MalachiVpnService : VpnService() {
          */
         const val DIAGNOSE_APP_MINUTES = 30
         const val DIAGNOSE_APP_MILLIS = DIAGNOSE_APP_MINUTES * 60 * 1000L
+
+        /** How long past an unfiltered window's end the tidy-up waits, so it never wakes early. */
+        private const val EXPIRY_SLACK_MS = 1_000L
 
         private const val TAG = "MalachiVpn"
 

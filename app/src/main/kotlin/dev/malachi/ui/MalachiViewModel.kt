@@ -134,6 +134,9 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     /** How far along a blocklist download is; see [dev.malachi.filter.FilterRepository.listProgress]. */
     val listProgress = app.filterRepository.listProgress
+
+    /** Per list, the entries no other subscribed list carries; see the repository. */
+    val listContributions = app.filterRepository.listContributions
     val updateState = UpdateCenter.state
     val themeMode: StateFlow<ThemeMode> = app.themeStore.mode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), app.themeStore.cached ?: ThemeMode.SYSTEM)
@@ -270,6 +273,9 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
     fun stopDiagnosing() = update { it.copy(diagnoseApp = "", diagnoseUntilMs = 0) }
 
     fun clearAppTrace() = AppTrace.clear()
+
+    /** "An ad just got through" — see [AppTrace.mark]. */
+    fun markAdSeen() = AppTrace.mark()
 
     // ---- the guided search ----------------------------------------------------------------
 
@@ -452,6 +458,55 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
 
     fun resume() = update { it.copy(pausedUntilMs = 0) }
 
+    /**
+     * The launcher's "pause for five minutes", which only means something while the filter is on:
+     * a pause stored against a filter that is off would paint the home screen "paused" over a
+     * switch that says off.
+     */
+    fun pauseIfFiltering(minutes: Int) = update {
+        if (it.isFiltering()) it.copy(pausedUntilMs = System.currentTimeMillis() + minutes * 60_000L) else it
+    }
+
+    // ---- where to go when the app is opened from outside it --------------------------------
+
+    /**
+     * A destination asked for by a launcher shortcut, waiting for the screens to take it.
+     *
+     * Held here rather than handed straight to the navigation, because the shortcut arrives in
+     * the activity before there is any composition to navigate, and once taken it is cleared so a
+     * rotation does not open it a second time.
+     */
+    private val _pendingScreen = MutableStateFlow<Screen?>(null)
+    val pendingScreen: StateFlow<Screen?> = _pendingScreen.asStateFlow()
+
+    fun openFromOutside(screen: Screen) { _pendingScreen.value = screen }
+
+    fun consumePendingScreen() { _pendingScreen.value = null }
+
+    // ---- one app let through for a while ------------------------------------------------------
+
+    /**
+     * Lets [packageName] through unfiltered for [minutes], without pausing anything else.
+     *
+     * The honest answer to "this app will not work and I need it now" used to be pausing the whole
+     * phone, or taking the app out of the filter for good — which is what people do and then
+     * forget. This is the first without the second's permanence.
+     */
+    fun unfilterApp(packageName: String, minutes: Int) = update {
+        it.withAppUnfiltered(packageName, System.currentTimeMillis() + minutes * 60_000L)
+    }
+
+    fun refilterApp(packageName: String) = update { it.withoutAppUnfiltered(packageName) }
+
+    // ---- the filter found stopped --------------------------------------------------------
+
+    fun dismissFilterStops() = update { dev.malachi.data.FilterStops.dismissed(it, System.currentTimeMillis()) }
+
+    /** Android's page for Malachi itself, where every vendor keeps its battery and autostart switches. */
+    fun openOwnAppInfo() {
+        VpnController.openAppInfo(app, app.packageName)
+    }
+
     // ---- scope: which apps are filtered ------------------------------------------------
 
     fun setScopeMode(mode: AppScopeMode) = update { it.copy(scopeMode = mode) }
@@ -509,6 +564,42 @@ class MalachiViewModel(private val app: MalachiApplication) : ViewModel() {
         return RuleEdit(parsed) {
             update { it.withAppRuleFrom(before, parsed, packageName) }
             noteInTrace(parsed, packageName, TraceOutcome.RULE_REMOVED)
+        }
+    }
+
+    /**
+     * Blocks or allows every domain of a paste at once, as one write and one undo.
+     *
+     * One write rather than a loop: a hundred rules one by one is a hundred filter rebuilds and a
+     * hundred emissions to every screen. The undo puts each domain back as it was — including a
+     * domain that was already a rule the other way round — and touches nothing else.
+     */
+    fun addUserRules(domains: List<String>, block: Boolean): RuleEdit? {
+        if (domains.isEmpty()) return null
+        val before = settings.value
+        update { current -> domains.fold(current) { acc, domain -> acc.withUserRule(domain, block) } }
+        return RuleEdit(domains.first()) {
+            update { current -> domains.fold(current) { acc, domain -> acc.withUserRuleFrom(before, domain) } }
+        }
+    }
+
+    /**
+     * The social networks blocked inside one app to exactly [networkIds]: the ones newly chosen
+     * written, the ones unchosen taken back. The undo restores this app's rules as they were and
+     * leaves every other app's alone.
+     */
+    fun setSocialBlocked(packageName: String, networkIds: Set<String>): RuleEdit? {
+        val before = settings.value
+        val current = dev.malachi.data.SocialPreset.blockedIn(before, packageName)
+        if (current == networkIds) return null
+        update {
+            val without = dev.malachi.data.SocialPreset.removed(it, packageName, current - networkIds)
+            dev.malachi.data.SocialPreset.applied(without, packageName, networkIds - current)
+        }
+        return RuleEdit(packageName) {
+            update { now ->
+                now.copy(appRules = now.appRules.filterNot { it.packageName == packageName } + before.appRulesFor(packageName))
+            }
         }
     }
 

@@ -542,6 +542,7 @@ internal fun verdictLabel(blocked: Boolean, source: RuleSource, detail: String, 
         blocked && source == RuleSource.APP_RULE -> stringResource(R.string.verdict_blocked_app_rule)
         blocked -> stringResource(R.string.verdict_blocked_your_rule)
         source == RuleSource.APP_RULE -> stringResource(R.string.verdict_allowed_app_rule)
+        source == RuleSource.APP_UNFILTERED -> stringResource(R.string.verdict_allowed_unfiltered)
         source == RuleSource.USER_RULE -> stringResource(R.string.verdict_allowed_your_rule)
         source == RuleSource.LIST -> stringResource(R.string.verdict_allowed_exception, detail)
         else -> stringResource(R.string.verdict_allowed)

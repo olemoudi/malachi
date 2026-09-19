@@ -53,6 +53,8 @@ class EngineInputsTest {
             backupRemindAtMs = 1_700_000_000_000,
             backupFingerprint = "whatever",
             excludedApps = setOf("com.bank.app"),
+            filterStopsAtMs = listOf(1_700_000_000_000),
+            filterStopsSeenAtMs = 1_700_000_000_000,
         )
 
         assertEquals(base.engineInputs(), busy.engineInputs())
@@ -71,6 +73,12 @@ class EngineInputsTest {
         assertNotEquals(
             base.engineInputs(),
             base.copy(appRules = listOf(AppRule("tracker.example.com", "com.example.app", block = false))).engineInputs(),
+        )
+        // An app let through for a few minutes is read by the engine per lookup; without it here
+        // the switch would be written, shown as on, and never consulted.
+        assertNotEquals(
+            base.engineInputs(),
+            base.copy(unfilteredApps = mapOf("com.example.app" to 1_700_000_900_000)).engineInputs(),
         )
     }
 }

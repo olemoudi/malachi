@@ -1,6 +1,7 @@
 package dev.malachi
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +19,7 @@ import dev.malachi.debug.DebugLog
 import dev.malachi.net.VpnController
 import dev.malachi.ui.MalachiApp
 import dev.malachi.ui.MalachiViewModel
+import dev.malachi.ui.Screen
 import dev.malachi.ui.theme.MalachiTheme
 import dev.malachi.ui.theme.resolvesToDark
 import dev.malachi.update.UpdateWorker
@@ -57,6 +59,10 @@ class MainActivity : ComponentActivity() {
         // cold launch. Until the read completes the launch window stays up — on Android 12 and
         // later that is the system splash, which is what it is for — and on a warm process the
         // value is already in hand and nothing waits at all.
+        // Only on a fresh start: a recreated activity carries the same intent, and a rotation must
+        // not pause the filter a second time or reopen a screen the user has since left.
+        if (savedInstanceState == null) handleShortcut(intent)
+
         if (app.themeStore.cached != null) {
             showContent(app)
         } else {
@@ -83,6 +89,30 @@ class MainActivity : ComponentActivity() {
                 MalachiApp(vm = vm, onRequestVpnConsent = ::requestVpnConsent)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShortcut(intent)
+    }
+
+    /**
+     * What a launcher shortcut or the quick-settings tile asked for.
+     *
+     * The tile only ever sends [ACTION_TURN_ON], and only when VPN consent is missing — the one
+     * thing it cannot get from inside the notification shade, because Android shows that dialog
+     * only over an activity. Everything else the tile does itself.
+     */
+    private fun handleShortcut(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_PAUSE -> vm.pauseIfFiltering(SHORTCUT_PAUSE_MINUTES)
+            ACTION_ACTIVITY -> vm.openFromOutside(Screen.Activity)
+            ACTION_DIAGNOSE -> vm.openFromOutside(Screen.Diagnose)
+            ACTION_TURN_ON -> requestVpnConsent()
+            else -> return
+        }
+        // Taken, so a later `onNewIntent`-less return to this activity cannot replay it.
+        intent.action = Intent.ACTION_MAIN
     }
 
     override fun onResume() {
@@ -141,7 +171,18 @@ class MainActivity : ComponentActivity() {
         if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    private companion object {
-        const val TAG = "MalachiMain"
+    companion object {
+        private const val TAG = "MalachiMain"
+
+        /** Launcher shortcut actions; see res/xml/shortcuts.xml, which spells them out again. */
+        const val ACTION_PAUSE = "dev.malachi.action.PAUSE"
+        const val ACTION_ACTIVITY = "dev.malachi.action.ACTIVITY"
+        const val ACTION_DIAGNOSE = "dev.malachi.action.DIAGNOSE"
+
+        /** From the tile, when turning the filter on needs the consent only an activity can ask for. */
+        const val ACTION_TURN_ON = "dev.malachi.action.TURN_ON"
+
+        /** What the shortcut's label promises. */
+        const val SHORTCUT_PAUSE_MINUTES = 5
     }
 }

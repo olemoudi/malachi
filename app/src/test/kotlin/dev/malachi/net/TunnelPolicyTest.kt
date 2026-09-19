@@ -624,6 +624,11 @@ class TunnelPolicyTest {
         assertTrue(
             TunnelPolicy.attributionNeeded(on.copy(queryLogEnabled = false, diagnoseApp = "com.example.game")),
         )
+        // Letting one app through is a decision about one app, and cannot be honoured without
+        // knowing who asked.
+        assertTrue(
+            TunnelPolicy.attributionNeeded(on.copy(queryLogEnabled = false, unfilteredApps = mapOf("com.shop" to 1L))),
+        )
     }
 
     @Test

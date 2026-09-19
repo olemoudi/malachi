@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -82,11 +83,27 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Which events the timeline shows. */
-private enum class TraceFilter { ALL, BLOCKED, FAILED }
+/**
+ * Which events the timeline shows. [ANSWERED] is the other errand this screen runs: not "what did
+ * the filter break" but "what did it let through", which is where an advert that got past it is.
+ */
+private enum class TraceFilter { ALL, BLOCKED, ANSWERED, FAILED }
 
 /** How many blocked domains the shortlist offers. Beyond this it stops being a shortlist. */
 private const val SUSPECT_LIMIT = 12
+
+/**
+ * How far before an "I just saw an ad" mark to look for what delivered it. An ad's lookups come a
+ * few seconds before it is drawn, and getting back to this screen afterwards takes somebody a
+ * minute at most; two is generous without dragging in the whole session.
+ */
+private const val AD_WINDOW_MS = 2 * 60 * 1000L
+
+/** How many answered names the ad shortlist offers. */
+private const val AD_CANDIDATE_LIMIT = 15
+
+/** A rule somebody has asked to write from a row, and not yet chosen the reach of. */
+private data class ScopeRequest(val domain: String, val block: Boolean)
 
 /**
  * One app under a microscope: every lookup it makes, in order, and one switch per name to try
@@ -291,7 +308,7 @@ private fun TraceSession(
     // survive leaving the app to reproduce the fault, which is the whole method here. `scoping`
     // is a sheet and should not reopen itself.
     var filter by rememberSaveable { mutableStateOf(TraceFilter.ALL) }
-    var scoping by remember { mutableStateOf<String?>(null) }
+    var scoping by remember { mutableStateOf<ScopeRequest?>(null) }
 
     val suspects = remember(trace, mine) {
         if (mine) trace.suspects(SUSPECT_LIMIT) else emptyList()
@@ -301,9 +318,21 @@ private fun TraceSession(
             when (filter) {
                 TraceFilter.ALL -> true
                 TraceFilter.BLOCKED -> it.outcome == TraceOutcome.BLOCKED
+                TraceFilter.ANSWERED -> it.outcome == TraceOutcome.ANSWERED
                 TraceFilter.FAILED -> it.outcome.stalled
             }
         }
+    }
+    // The answered names just before the last "I just saw an ad", and which of them this app
+    // already refuses — read from the live filter, so a switch flipped a moment ago shows at once.
+    val adCandidates = remember(trace, mine) {
+        if (mine && trace.markedAtMs > 0) trace.resolvedBefore(trace.markedAtMs, AD_WINDOW_MS, AD_CANDIDATE_LIMIT) else emptyList()
+    }
+    val blockedHere = remember(settings, packageName) {
+        settings.appRulesFor(packageName).filter { it.block }.map { it.domain }.toSet()
+    }
+    val adLiveBlocked = remember(engine, adCandidates, packageName) {
+        adCandidates.associate { it.domain to engine.decide(it.domain, packageName).blocked }
     }
     // The exceptions this app already carries, so the switches read the truth rather than what
     // this screen last did.
@@ -390,6 +419,64 @@ private fun TraceSession(
                 // started would make its most useful instruction unreachable.
                 item { GuideOffer(onStart = { vm.startGuide(packageName) }) }
 
+                // The opposite errand, and the one that brought a report here in the first place:
+                // an ad that gets through. It came by way of a lookup that *succeeded*, seconds
+                // before it was drawn, so the mark is what turns a wall of answered names into a
+                // shortlist nobody has to read a timestamp to find.
+                item {
+                    AdHuntCard(
+                        appLabel = label,
+                        markedAtMs = if (mine) trace.markedAtMs else 0,
+                        clock = clock,
+                        onMark = vm::markAdSeen,
+                    )
+                }
+                if (mine && trace.markedAtMs > 0) {
+                    if (adCandidates.isEmpty()) {
+                        item {
+                            Text(
+                                stringResource(R.string.diagnose_ad_none),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(spacing.lg),
+                            )
+                        }
+                    } else {
+                        item {
+                            CardGroup {
+                                adCandidates.forEachIndexed { index, candidate ->
+                                    AdCandidateRow(
+                                        candidate = candidate,
+                                        blocked = candidate.domain in blockedHere || adLiveBlocked[candidate.domain] == true,
+                                        secondsBefore = ((trace.markedAtMs - candidate.lastAtMs) / 1000).toInt(),
+                                        position = cardPosition(index, adCandidates.size),
+                                        onToggle = { on ->
+                                            if (on) {
+                                                announcer.announce(
+                                                    vm.setAppRule(candidate.domain, packageName, block = true),
+                                                    blocked = true,
+                                                    appLabel = label,
+                                                )
+                                            } else if (candidate.domain in blockedHere) {
+                                                announcer.announceRemoved(vm.removeAppRule(candidate.domain, packageName))
+                                            } else {
+                                                // Refused by something broader — a rule for a parent
+                                                // name, or a list — so "not here" is an exception.
+                                                announcer.announce(
+                                                    vm.setAppRule(candidate.domain, packageName, block = false),
+                                                    blocked = false,
+                                                    appLabel = label,
+                                                )
+                                            }
+                                        },
+                                        onOpenScope = { scoping = ScopeRequest(candidate.domain, block = true) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 item {
                     SectionHeader(
                         title = stringResource(R.string.diagnose_suspects_title),
@@ -455,7 +542,7 @@ private fun TraceSession(
                                                 ?.let { undo.show(removedMessage(1), it.undo) }
                                         }
                                     },
-                                    onOpenScope = { scoping = suspect.domain },
+                                    onOpenScope = { scoping = ScopeRequest(suspect.domain, block = false) },
                                 )
                             }
                         }
@@ -472,7 +559,8 @@ private fun TraceSession(
                 }
 
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                    // Wrapping: four chips do not fit across a narrow phone, and less so in Spanish.
+                    ChipRow {
                         TraceFilter.entries.forEach { option ->
                             MalachiFilterChip(
                                 selected = filter == option,
@@ -505,23 +593,35 @@ private fun TraceSession(
                 ) {
                     item { RiskLegend(Modifier.padding(vertical = spacing.sm)) }
                 }
-                items(visible) { event -> EventRow(event, clock) }
+                items(visible) { event ->
+                    EventRow(
+                        event = event,
+                        clock = clock,
+                        // A row is where somebody reading the timeline decides; making them go and
+                        // find the same name in another list first is how the decision gets lost.
+                        onClick = when {
+                            !event.outcome.isLookup || event.domain.isEmpty() -> null
+                            event.outcome == TraceOutcome.BLOCKED -> { { scoping = ScopeRequest(event.domain, block = false) } }
+                            else -> { { scoping = ScopeRequest(event.domain, block = true) } }
+                        },
+                    )
+                }
             }
         }
 
         UndoBarHost(undo, Modifier.align(Alignment.BottomCenter).padding(spacing.md))
     }
 
-    scoping?.let { domain ->
+    scoping?.let { request ->
         DomainScopeDialog(
-            domain = domain,
+            domain = request.domain,
             appLabel = label,
-            block = false,
+            block = request.block,
             onDismiss = { scoping = null },
             onConfirm = { chosen ->
                 announcer.announce(
-                    vm.setAppRule(chosen, packageName, block = false),
-                    blocked = false,
+                    vm.setAppRule(chosen, packageName, block = request.block),
+                    blocked = request.block,
                     appLabel = label,
                 )
                 scoping = null
@@ -799,6 +899,85 @@ private fun GuideActions(content: @Composable () -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.spacing.sm)) { content() }
 }
 
+/** Filter chips that wrap onto a second line instead of running off the edge. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChipRow(content: @Composable () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.spacing.sm)) { content() }
+}
+
+/**
+ * "I just saw an ad", as one button, and what it caught.
+ *
+ * The method needs nothing from the person but the moment: use the app until the ad appears, come
+ * back, press. Everything that was answered in the two minutes before is then listed below, most
+ * recent first, each with a switch that refuses it in this app alone — so an ad network no list
+ * knows about can be found and blocked without reading a single timestamp.
+ */
+@Composable
+private fun AdHuntCard(appLabel: String, markedAtMs: Long, clock: SimpleDateFormat, onMark: () -> Unit) {
+    val spacing = Tokens.spacing
+    MalachiCard(color = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(Modifier.padding(spacing.lg), verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+            Text(
+                stringResource(R.string.diagnose_ad_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+                if (markedAtMs > 0) {
+                    stringResource(R.string.diagnose_ad_marked, clock.format(Date(markedAtMs)))
+                } else {
+                    stringResource(R.string.diagnose_ad_body, appLabel)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            PrimaryAction(
+                text = stringResource(if (markedAtMs > 0) R.string.diagnose_ad_mark_again else R.string.diagnose_ad_mark),
+                onClick = onMark,
+                onContainer = MaterialTheme.colorScheme.onSecondaryContainer,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+            )
+        }
+    }
+}
+
+/** One name answered just before the ad, and the switch that refuses it here. */
+@Composable
+private fun AdCandidateRow(
+    candidate: TraceSuspect,
+    blocked: Boolean,
+    secondsBefore: Int,
+    position: CardPosition,
+    onToggle: (Boolean) -> Unit,
+    onOpenScope: () -> Unit,
+) {
+    val spacing = Tokens.spacing
+    MalachiCard(position = position, onClick = onOpenScope) {
+        Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    candidate.domain,
+                    style = MonoSmall,
+                    color = if (blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    buildString {
+                        append(pluralStringResource(R.plurals.diagnose_ad_seconds_before, secondsBefore, secondsBefore))
+                        append(" · ")
+                        append(pluralStringResource(R.plurals.diagnose_queries, candidate.queries, candidate.queries))
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(spacing.sm))
+            Switch(checked = blocked, onCheckedChange = onToggle)
+        }
+    }
+}
+
 /** Something that makes the timeline meaningless, and — where there is one — the way out. */
 @Composable
 private fun WarningCard(text: String, action: String? = null, onAction: (() -> Unit)? = null) {
@@ -909,18 +1088,20 @@ private fun SuspectRow(
 }
 
 @Composable
-private fun EventRow(event: TraceEvent, clock: SimpleDateFormat) {
+private fun EventRow(event: TraceEvent, clock: SimpleDateFormat, onClick: (() -> Unit)?) {
     val spacing = Tokens.spacing
     val tint = when {
+        event.outcome == TraceOutcome.MARKED -> MaterialTheme.colorScheme.tertiary
         !event.outcome.isLookup -> MaterialTheme.colorScheme.primary
         event.outcome == TraceOutcome.BLOCKED -> MaterialTheme.colorScheme.error
         event.outcome.stalled -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    MalachiCard {
+    MalachiCard(onClick = onClick) {
         Row(Modifier.padding(spacing.md), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 when {
+                    event.outcome == TraceOutcome.MARKED -> Icons.Filled.Place
                     !event.outcome.isLookup -> Icons.Filled.Edit
                     event.outcome == TraceOutcome.BLOCKED -> MalachiIcons.Block
                     event.outcome.stalled -> MalachiIcons.HourglassEmpty
@@ -939,17 +1120,29 @@ private fun EventRow(event: TraceEvent, clock: SimpleDateFormat) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(spacing.sm))
-                    Text(event.domain, style = MonoSmall, modifier = Modifier.weight(1f))
-                }
-                VerdictLine(
-                    text = outcomeLabel(event),
-                    risk = if (event.outcome == TraceOutcome.BLOCKED && event.source == RuleSource.LIST) {
-                        BlocklistCatalog.riskOfTitle(event.detail)
+                    // A mark has no name of its own; the sentence is what the row is.
+                    if (event.outcome == TraceOutcome.MARKED) {
+                        Text(
+                            outcomeLabel(event),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = tint,
+                            modifier = Modifier.weight(1f),
+                        )
                     } else {
-                        null
-                    },
-                    color = tint,
-                )
+                        Text(event.domain, style = MonoSmall, modifier = Modifier.weight(1f))
+                    }
+                }
+                if (event.outcome != TraceOutcome.MARKED) {
+                    VerdictLine(
+                        text = outcomeLabel(event),
+                        risk = if (event.outcome == TraceOutcome.BLOCKED && event.source == RuleSource.LIST) {
+                            BlocklistCatalog.riskOfTitle(event.detail)
+                        } else {
+                            null
+                        },
+                        color = tint,
+                    )
+                }
             }
         }
     }
@@ -974,6 +1167,7 @@ private fun outcomeLabel(event: TraceEvent): String {
         TraceOutcome.RULE_ALLOWED -> return stringResource(R.string.trace_rule_allowed)
         TraceOutcome.RULE_BLOCKED -> return stringResource(R.string.trace_rule_blocked)
         TraceOutcome.RULE_REMOVED -> return stringResource(R.string.trace_rule_removed)
+        TraceOutcome.MARKED -> return stringResource(R.string.trace_marked)
     }
     return buildString {
         append(what)
@@ -993,6 +1187,7 @@ private fun outcomeLabel(event: TraceEvent): String {
 private fun filterLabel(filter: TraceFilter) = when (filter) {
     TraceFilter.ALL -> R.string.diagnose_filter_all
     TraceFilter.BLOCKED -> R.string.diagnose_filter_blocked
+    TraceFilter.ANSWERED -> R.string.diagnose_filter_answered
     TraceFilter.FAILED -> R.string.diagnose_filter_failed
 }
 

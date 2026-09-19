@@ -287,6 +287,26 @@ data class MalachiSettings(
      * of nine would be worse than no search.
      */
     val guide: GuidedSearch? = null,
+
+    /**
+     * Apps let through unfiltered for a few minutes: package → the wall-clock moment that ends.
+     *
+     * Read per lookup by the engine, never baked into the tun, so letting an app through costs no
+     * rebuild and no blink of unfiltered DNS for everything else. Expired entries are harmless —
+     * the engine compares the clock — but they are swept away (see [withAppUnfiltered] and the
+     * service's housekeeping), because while any entry exists every lookup pays for attribution.
+     * Not in a backup: like a pause, it is something happening now, not a decision.
+     */
+    val unfilteredApps: Map<String, Long> = emptyMap(),
+
+    /**
+     * The moments a process start found the filter dead while it should have been running; see
+     * [FilterStops]. Timestamps only — never an app, never a domain — and bounded by count and age.
+     */
+    val filterStopsAtMs: List<Long> = emptyList(),
+
+    /** When the notice about those stops was last dismissed; stops before it are not news. */
+    val filterStopsSeenAtMs: Long = 0,
 ) {
     /** True while the diagnostics window is open. Checked per lookup, so it stays a comparison. */
     fun isDiagnosing(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < diagnosticsUntilMs
@@ -339,6 +359,29 @@ data class MalachiSettings(
     fun isFiltering(nowMs: Long = System.currentTimeMillis()): Boolean = filteringEnabled && !isPaused(nowMs)
 
     fun appRulesFor(packageName: String): List<AppRule> = appRules.filter { it.packageName == packageName }
+
+    /** When [packageName]'s unfiltered window closes, or null when it is not being let through. */
+    fun unfilteredUntil(packageName: String, nowMs: Long = System.currentTimeMillis()): Long? =
+        unfilteredApps[packageName]?.takeIf { nowMs < it }
+
+    /** The apps being let through right now, soonest to end first. */
+    fun activeUnfiltered(nowMs: Long = System.currentTimeMillis()): List<Pair<String, Long>> =
+        unfilteredApps.filterValues { nowMs < it }.toList().sortedBy { it.second }
+
+    /**
+     * [packageName] let through until [untilMs], with every window that has already closed swept
+     * away in the same write — the map is only ever as long as the apps that are really out.
+     */
+    fun withAppUnfiltered(packageName: String, untilMs: Long, nowMs: Long = System.currentTimeMillis()): MalachiSettings =
+        copy(unfilteredApps = unfilteredApps.filterValues { nowMs < it } + (packageName to untilMs))
+
+    /** [packageName] filtered again, and anything else that has lapsed tidied with it. */
+    fun withoutAppUnfiltered(packageName: String, nowMs: Long = System.currentTimeMillis()): MalachiSettings =
+        copy(unfilteredApps = unfilteredApps.filterValues { nowMs < it } - packageName)
+
+    /** Every closed window removed; the same object when there was nothing to remove. */
+    fun withoutLapsedUnfiltered(nowMs: Long = System.currentTimeMillis()): MalachiSettings =
+        if (unfilteredApps.values.all { nowMs < it }) this else copy(unfilteredApps = unfilteredApps.filterValues { nowMs < it })
 
     /**
      * One global rule written.

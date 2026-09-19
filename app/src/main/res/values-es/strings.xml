@@ -603,4 +603,107 @@
     <string name="welcome_start">Activar el filtrado</string>
     <string name="welcome_later">Mirar primero</string>
 
+    <!-- Mejoras de uso: anuncios que se cuelan, comprobar un dominio, reglas en bloque, redes
+         sociales, una app sin filtro un rato, avisos de filtro detenido y de listas, tile y accesos -->
+    <string name="diagnose_filter_answered">Resueltas</string>
+    <string name="diagnose_ad_title">¿Se ha colado un anuncio?</string>
+    <string name="diagnose_ad_body">Usa %1$s hasta que salga el anuncio, vuelve aquí y pulsa el botón. Malachi te enseñará lo que la app consultó en los dos minutos anteriores, y podrás bloquear cualquiera de esas direcciones solo en esta app.</string>
+    <string name="diagnose_ad_marked">Marcado a las %1$s. Estas son las direcciones resueltas en los dos minutos anteriores, las más recientes primero. Activa una para bloquearla solo en esta app; toca la fila para abarcar un dominio padre.</string>
+    <string name="diagnose_ad_mark">Acabo de ver un anuncio</string>
+    <string name="diagnose_ad_mark_again">Marcar otro</string>
+    <string name="diagnose_ad_none">No se resolvió nada en los dos minutos anteriores a la marca. Pulsa el botón justo después de que salga el próximo anuncio.</string>
+    <plurals name="diagnose_ad_seconds_before">
+        <item quantity="one">%d segundo antes</item>
+        <item quantity="other">%d segundos antes</item>
+    </plurals>
+    <string name="trace_marked">Aquí viste un anuncio</string>
+
+    <string name="action_retry">Reintentar</string>
+    <string name="home_lists_missing">Activadas pero nunca descargadas, así que no bloquean nada: %1$s.</string>
+    <string name="home_lists_stale">Llevan más de tres días sin poder actualizarse: %1$s.</string>
+    <string name="home_filter_stops">Algo detuvo Malachi %1$s, la última vez el %2$s. Cada vez, las apps se quedaron sin filtro hasta que volvió, y así es como se cuela algún anuncio de vez en cuando. %3$s</string>
+    <plurals name="home_filter_stops_count">
+        <item quantity="one">una vez en los últimos siete días</item>
+        <item quantity="other">%d veces en los últimos siete días</item>
+    </plurals>
+    <string name="filter_stops_xiaomi">En Xiaomi, abre los ajustes de la app, activa «Inicio automático», pon «Ahorro de batería» en «Sin restricciones» y bloquea Malachi con el candado en Recientes. Lo que más ayuda es ponerlo como VPN siempre activa.</string>
+    <string name="filter_stops_samsung">En Samsung, abre los ajustes de la app, pon la batería en «Sin restricciones» y comprueba que Malachi no está entre las apps en suspensión. Lo que más ayuda es ponerlo como VPN siempre activa.</string>
+    <string name="filter_stops_huawei">En Huawei y Honor, abre los ajustes de la app y, en «Inicio de aplicaciones», gestiona Malachi manualmente con todo permitido. Lo que más ayuda es ponerlo como VPN siempre activa.</string>
+    <string name="filter_stops_oppo">En OPPO, realme y OnePlus, abre los ajustes de la app, permite la actividad en segundo plano y el inicio automático, y desactiva la optimización de batería. Lo que más ayuda es ponerlo como VPN siempre activa.</string>
+    <string name="filter_stops_vivo">En vivo, abre los ajustes de la app y permite el consumo alto en segundo plano y el inicio automático. Lo que más ayuda es ponerlo como VPN siempre activa.</string>
+    <string name="filter_stops_other">Abre los ajustes de la app y saca Malachi de la optimización de batería. Lo que más ayuda es ponerlo como VPN siempre activa.</string>
+    <string name="action_app_settings">Ajustes de la app</string>
+    <string name="home_app_unfiltered">%1$s va sin filtro hasta las %2$s.</string>
+    <string name="action_filter_again">Volver a filtrar</string>
+
+    <string name="app_detail_unfilter">Dejarla sin filtro un rato</string>
+    <string name="app_detail_unfilter_hint">Unos minutos sin filtro y luego vuelve a filtrarse sola. La forma más rápida de saber si es Malachi lo que la rompe.</string>
+    <string name="app_detail_unfiltered_until">Sin filtro hasta las %1$s</string>
+    <string name="app_detail_unfiltered_hint">Todo lo que consulte esta app se permite hasta entonces.</string>
+    <string name="unfilter_title">¿Cuánto tiempo dejas %1$s sin filtro?</string>
+    <string name="unfilter_body">Se permitirá todo lo que consulte %1$s, y nada más cambia en el móvil. Cuando acabe el tiempo vuelve a filtrarse sola.</string>
+    <string name="app_detail_social">Bloquear redes sociales aquí</string>
+    <string name="app_detail_social_hint">Facebook, X, LinkedIn y otras. Ninguna lista puede bloquearlas sin romperlas para todo el mundo, pero dentro de una sola app no hay problema.</string>
+    <string name="social_title">Redes sociales en %1$s</string>
+    <string name="social_body">Las marcadas se bloquean solo en esta app, como reglas que puedes ver y quitar más abajo. Los inicios de sesión y las publicaciones incrustadas de esas redes dejarán de funcionar aquí.</string>
+    <string name="social_updated">Redes sociales actualizadas en %1$s</string>
+    <string name="action_save">Guardar</string>
+    <string name="verdict_allowed_unfiltered">Permitido: esta app va sin filtro por ahora</string>
+
+    <string name="rules_paste_many">Pegar varias a la vez</string>
+    <plurals name="rules_pasted_blocked">
+        <item quantity="one">%d dominio bloqueado</item>
+        <item quantity="other">%d dominios bloqueados</item>
+    </plurals>
+    <plurals name="rules_pasted_allowed">
+        <item quantity="one">%d dominio permitido</item>
+        <item quantity="other">%d dominios permitidos</item>
+    </plurals>
+    <string name="check_blocked">Bloqueado</string>
+    <string name="check_allowed">Permitido</string>
+    <plurals name="check_lists_blocking">
+        <item quantity="one">En %1$d lista: %2$s</item>
+        <item quantity="other">En %1$d listas: %2$s</item>
+    </plurals>
+    <string name="check_lists_allowing">Con excepción en: %1$s</string>
+    <string name="check_app_rules_title">Reglas para apps concretas</string>
+    <string name="check_app_rule_blocked">Bloqueado en %1$s (regla para %2$s)</string>
+    <string name="check_app_rule_allowed">Permitido en %1$s (regla para %2$s)</string>
+    <string name="check_reason_your_block">Lo bloquea tu regla para %1$s.</string>
+    <string name="check_reason_your_allow">Lo permite tu regla para %1$s.</string>
+    <string name="check_reason_list">Lo bloquea %1$s.</string>
+    <string name="check_reason_exception">%1$s tiene una excepción para él, y una excepción en cualquier lista gana a todos los bloqueos.</string>
+    <string name="check_reason_connectivity">Android usa esta dirección para comprobar que una red funciona, así que ninguna lista puede bloquearla.</string>
+    <string name="check_reason_nothing">Ninguna de tus listas ni de tus reglas globales lo menciona.</string>
+    <string name="paste_title">Pegar varias reglas</string>
+    <string name="paste_hint">Una por línea: dominios, direcciones web, un fichero hosts o reglas de Adblock. Las líneas que no sean un dominio se descartan.</string>
+    <plurals name="paste_domains">
+        <item quantity="one">%d dominio</item>
+        <item quantity="other">%d dominios</item>
+    </plurals>
+    <plurals name="paste_skipped">
+        <item quantity="one">%d línea descartada</item>
+        <item quantity="other">%d líneas descartadas</item>
+    </plurals>
+    <string name="paste_truncated">Solo se guardan los %1$d primeros. Para una lista entera, el sitio adecuado son las listas de bloqueo.</string>
+    <string name="paste_allow_all">Permitir todos</string>
+    <string name="paste_block_all">Bloquear todos</string>
+
+    <string name="lists_memory_total">Entre todas ocupan %1$s de memoria.</string>
+    <string name="lists_memory">%1$s de memoria</string>
+    <string name="lists_unique">%1$s que no tiene ninguna otra de tus listas · %2$s de memoria</string>
+    <string name="lists_unique_none">No aporta nada que no tengan ya tus otras listas · %1$s de memoria</string>
+
+    <string name="tile_on">Activado</string>
+    <string name="tile_off">Desactivado</string>
+    <string name="tile_starting">Arrancando…</string>
+    <string name="tile_paused_until">En pausa hasta las %1$s</string>
+
+    <string name="shortcut_pause_short">Pausar 5 min</string>
+    <string name="shortcut_pause_long">Pausar 5 minutos</string>
+    <string name="shortcut_activity_short">Actividad</string>
+    <string name="shortcut_activity_long">Lo que han consultado las apps</string>
+    <string name="shortcut_diagnose_short">Diagnosticar</string>
+    <string name="shortcut_diagnose_long">Diagnosticar una app</string>
+
 </resources>

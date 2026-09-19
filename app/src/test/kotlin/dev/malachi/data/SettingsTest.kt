@@ -333,4 +333,40 @@ class SettingsTest {
         val after = before.copy(userBlocked = setOf("ads.example.com"))
         assertEquals(before.tunnelShape(), after.tunnelShape())
     }
+
+    // ---- an app let through for a few minutes ----------------------------------------------
+
+    @Test
+    fun `an unfiltered window is only open until its moment`() {
+        val settings = MalachiSettings().withAppUnfiltered("com.shop", untilMs = 2_000, nowMs = 1_000)
+        assertEquals(2_000L, settings.unfilteredUntil("com.shop", nowMs = 1_999))
+        assertNull(settings.unfilteredUntil("com.shop", nowMs = 2_000))
+        assertNull(settings.unfilteredUntil("com.other", nowMs = 1_000))
+    }
+
+    @Test
+    fun `every write sweeps the windows that have closed`() {
+        val stale = MalachiSettings(unfilteredApps = mapOf("com.old" to 500L, "com.live" to 5_000L))
+        val added = stale.withAppUnfiltered("com.shop", untilMs = 3_000, nowMs = 1_000)
+        assertEquals(mapOf("com.live" to 5_000L, "com.shop" to 3_000L), added.unfilteredApps)
+        val removed = added.withoutAppUnfiltered("com.shop", nowMs = 1_000)
+        assertEquals(mapOf("com.live" to 5_000L), removed.unfilteredApps)
+        assertEquals(listOf("com.live" to 5_000L), removed.activeUnfiltered(nowMs = 1_000))
+    }
+
+    @Test
+    fun `tidying with nothing lapsed is not a write`() {
+        // DataStore skips a write whose value is unchanged, and the service's tidy-up relies on
+        // it: a wake a moment early must not rewrite the settings for nothing.
+        val live = MalachiSettings(unfilteredApps = mapOf("com.live" to 5_000L))
+        assertTrue(live.withoutLapsedUnfiltered(nowMs = 1_000) === live)
+        assertTrue(live.withoutLapsedUnfiltered(nowMs = 5_000).unfilteredApps.isEmpty())
+    }
+
+    @Test
+    fun `letting an app through never changes the shape of the tunnel`() {
+        val before = MalachiSettings()
+        val after = before.withAppUnfiltered("com.shop", untilMs = 2_000, nowMs = 1_000)
+        assertEquals(before.tunnelShape(), after.tunnelShape())
+    }
 }

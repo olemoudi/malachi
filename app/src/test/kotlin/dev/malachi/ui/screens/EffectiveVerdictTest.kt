@@ -79,4 +79,14 @@ class EffectiveVerdictTest {
 
         assertFalse(effectiveVerdict(logged, engine.decide(logged.domain, app)).blocked)
     }
+
+    @Test
+    fun `letting the app through turns every blocked line around at once`() {
+        val logged = record("ads.example.com", blocked = true, source = RuleSource.LIST, detail = "A list")
+        val engine = FilterEngine(unfilteredApps = mapOf(app to Long.MAX_VALUE))
+
+        val verdict = effectiveVerdict(logged, engine.decide(logged.domain, app))
+        assertFalse(verdict.blocked)
+        assertEquals(RuleSource.APP_UNFILTERED, verdict.source)
+    }
 }

@@ -1,6 +1,7 @@
 package dev.malachi.ui.screens
 
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,7 +78,16 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
     val settings by vm.settings.collectAsStateWithLifecycle()
     val refreshing by vm.refreshingLists.collectAsStateWithLifecycle()
     val queued by vm.listRefreshQueued.collectAsStateWithLifecycle()
+    val states by vm.listStates.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
+    val context = LocalContext.current
+    // What the subscribed lists cost the process that answers every lookup: eight bytes a domain,
+    // which is the number that says "turn everything on" is not free.
+    val memoryBytes = remember(settings.listChoices, states) {
+        BlocklistCatalog.enabled(settings.listChoices).sumOf { source ->
+            states[source.id]?.let { indexBytes(it) } ?: 0L
+        }
+    }
 
     // Above everything, because this is the screen somebody opens when an app has just broken —
     // and the answer to that is nearly always the list they turned on last. It is absent for
@@ -176,7 +187,12 @@ fun ListsScreen(vm: MalachiViewModel, onBack: () -> Unit, onOpenCategory: (Block
             item {
                 SectionHeader(
                     title = stringResource(R.string.lists_catalogue_title),
-                    supporting = stringResource(R.string.lists_catalogue_hint),
+                    supporting = if (memoryBytes > 0) {
+                        stringResource(R.string.lists_catalogue_hint) + " " +
+                            stringResource(R.string.lists_memory_total, Formatter.formatShortFileSize(context, memoryBytes))
+                    } else {
+                        stringResource(R.string.lists_catalogue_hint)
+                    },
                 )
             }
             item {
@@ -223,6 +239,7 @@ fun ListCategoryScreen(
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val states by vm.listStates.collectAsStateWithLifecycle()
+    val contributions by vm.listContributions.collectAsStateWithLifecycle()
     val spacing = Tokens.spacing
     val sources = BlocklistCatalog.inCategory(category)
 
@@ -272,6 +289,9 @@ fun ListCategoryScreen(
                                 approximateEntries = source.approximateEntries,
                                 enabled = BlocklistCatalog.isEnabled(source.id, settings.listChoices),
                                 enabledAtMs = settings.listEnabledAtMs[source.id],
+                                // Only meaningful against at least one other list: alone, a list
+                                // "adds" everything it has, which says nothing.
+                                ownEntries = if (contributions.size > 1) contributions[source.id] else null,
                                 onToggle = { vm.setListEnabled(source.id, it) },
                                 position = cardPosition(index, tier.size),
                             )
@@ -293,11 +313,14 @@ private fun ListRow(
     approximateEntries: Int,
     enabled: Boolean,
     enabledAtMs: Long?,
+    /** How many of its entries no other subscribed list carries, or null when that says nothing. */
+    ownEntries: Int?,
     onToggle: (Boolean) -> Unit,
     position: CardPosition,
 ) {
     val spacing = Tokens.spacing
     val numbers = NumberFormat.getInstance()
+    val context = LocalContext.current
     MalachiCard(onClick = { onToggle(!enabled) }, position = position) {
         Row(Modifier.padding(spacing.lg), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -328,6 +351,21 @@ private fun ListRow(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+                // What this list is worth next to the others, and what it costs. Somebody who has
+                // switched on every list in a category is shown which of them are almost entirely
+                // each other — each one eight bytes a domain in the process that answers every lookup.
+                if (enabled && state != null && state.isDownloaded) {
+                    val memory = Formatter.formatShortFileSize(context, indexBytes(state))
+                    Text(
+                        when (ownEntries) {
+                            null -> stringResource(R.string.lists_memory, memory)
+                            0 -> stringResource(R.string.lists_unique_none, memory)
+                            else -> stringResource(R.string.lists_unique, numbers.format(ownEntries), memory)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (ownEntries == 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 // When this one was switched on, so the list that broke something last week can be
                 // recognised without remembering the day it was added.
                 turnedOn(enabledAtMs)?.let { since ->
@@ -392,6 +430,9 @@ internal fun shortSource(url: String): String {
     val last = path.substringAfterLast('/')
     return if (path == last) "$host/$path" else "$host/…/$last"
 }
+
+/** What a compiled list holds in memory: one 64-bit hash per entry and per exception. */
+private fun indexBytes(state: ListState): Long = (state.entries.toLong() + state.exceptions) * 8
 
 /**
  * How many of the recently enabled lists the shortcut at the top shows.

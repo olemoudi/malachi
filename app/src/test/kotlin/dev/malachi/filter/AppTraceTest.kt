@@ -170,4 +170,37 @@ class AppTraceTest {
         assertNull(AppTraceState().packageName)
         assertTrue(AppTraceState().suspects(5).isEmpty())
     }
+
+    // ---- an ad that got through ---------------------------------------------------------------
+
+    @Test
+    fun `a mark points back at what was answered just before it, closest first`() {
+        AppTrace.answered("early.example.com", 1, "10.0.0.1", 20, nowMs = 1_000)
+        AppTrace.answered("cdn.example.com", 1, "10.0.0.1", 20, nowMs = 100_000)
+        AppTrace.blocked("ads.example.com", 1, "a list", RuleSource.LIST, nowMs = 110_000)
+        AppTrace.answered("video.example.net", 1, "10.0.0.1", 20, nowMs = 115_000)
+        AppTrace.answered("video.example.net", 28, "10.0.0.1", 20, nowMs = 116_000)
+        AppTrace.mark(nowMs = 120_000)
+        AppTrace.answered("after.example.com", 1, "10.0.0.1", 20, nowMs = 121_000)
+
+        val state = snapshot()
+        assertEquals(120_000L, state.markedAtMs)
+        val candidates = state.resolvedBefore(state.markedAtMs, windowMs = 60_000, limit = 10)
+        // Blocked names delivered nothing, the ones after the mark came too late to be the ad,
+        // and the one a minute and more before it is out of the window.
+        assertEquals(listOf("video.example.net", "cdn.example.com"), candidates.map { it.domain })
+        assertEquals(2, candidates.first().queries)
+        assertEquals(TraceOutcome.MARKED, state.events.first { it.outcome == TraceOutcome.MARKED }.outcome)
+    }
+
+    @Test
+    fun `a mark with nobody's session is not recorded`() {
+        AppTrace.stop()
+        AppTrace.watch(bank, nowMs = 1)
+        AppTrace.mark(nowMs = 2)
+        assertEquals(2L, snapshot().markedAtMs)
+        // Starting over forgets the mark with the rest.
+        AppTrace.clear(nowMs = 3)
+        assertEquals(0L, snapshot().markedAtMs)
+    }
 }

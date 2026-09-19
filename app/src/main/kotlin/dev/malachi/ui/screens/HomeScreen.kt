@@ -40,7 +40,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
+import android.os.Build
 import dev.malachi.data.BackupPolicy
+import dev.malachi.data.FilterStops
+import dev.malachi.lists.ListHealth
+import dev.malachi.lists.ListTrouble
 import dev.malachi.net.TunnelProblem
 import dev.malachi.net.VpnController
 import dev.malachi.ui.BackupMessage
@@ -111,6 +115,13 @@ fun HomeScreen(
     LaunchedEffect(status.tunnelUp) { vm.refreshStats() }
     val listedDomains by vm.listedDomains.collectAsStateWithLifecycle()
     val listProgress by vm.listProgress.collectAsStateWithLifecycle()
+    val listStates by vm.listStates.collectAsStateWithLifecycle()
+    // One instant per composition for every clock-based notice below, so two of them cannot
+    // disagree about whether a moment has passed.
+    val now = remember(settings, today) { System.currentTimeMillis() }
+    val listTrouble = remember(settings.listChoices, settings.listEnabledAtMs, listStates, now) {
+        ListHealth.check(settings.listChoices, settings.listEnabledAtMs, listStates, now)
+    }
     val alwaysOn by vm.alwaysOn.collectAsStateWithLifecycle()
     val anotherVpn by vm.anotherVpn.collectAsStateWithLifecycle()
     val backup = rememberBackupActions(vm)
@@ -262,6 +273,62 @@ fun HomeScreen(
                     onAction = { onOpen(Screen.Lists) },
                 )
             }
+        } else if (settings.filteringEnabled && !listTrouble.isEmpty) {
+            // "Every list is on" and "every list is working" are different sentences, and only the
+            // second one blocks anything. Reported from a phone whose owner had switched on every
+            // ad list; nothing outside the list screens could say whether they had arrived.
+            item {
+                Notice(
+                    tone = Tone.Problem,
+                    text = listTroubleText(listTrouble),
+                    action = stringResource(R.string.action_retry),
+                    onAction = vm::refreshLists,
+                    secondary = stringResource(R.string.home_open_lists),
+                    onSecondary = { onOpen(Screen.Lists) },
+                )
+            }
+        }
+
+        // The filter keeps being killed. Said here because nowhere else can say it: the query log
+        // died with the process, and the app looks perfect when opened, because opening it is what
+        // brought the filter back. Diagnosed from a phone where ads got through "now and then".
+        if (settings.filteringEnabled && FilterStops.noticeDue(settings, now)) {
+            item {
+                val stops = FilterStops.recent(settings, now)
+                Notice(
+                    tone = Tone.Problem,
+                    text = stringResource(
+                        R.string.home_filter_stops,
+                        pluralStringResource(R.plurals.home_filter_stops_count, stops.size, stops.size),
+                        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(stops.last())),
+                        stringResource(vendorAdvice(FilterStops.vendor(Build.MANUFACTURER))),
+                    ),
+                    action = stringResource(R.string.action_app_settings),
+                    onAction = vm::openOwnAppInfo,
+                    secondary = stringResource(R.string.action_got_it),
+                    onSecondary = vm::dismissFilterStops,
+                    tertiary = stringResource(R.string.action_open_vpn_settings),
+                    onTertiary = vm::openVpnSettings,
+                )
+            }
+        }
+
+        // An app let through for a while is said out loud for as long as it lasts, with the way
+        // back beside it: a filter quietly not filtering one app is exactly the kind of thing that
+        // gets forgotten, and the whole point of a window is that it is temporary.
+        settings.activeUnfiltered(now).forEach { (packageName, untilMs) ->
+            item(key = "unfiltered-$packageName") {
+                Notice(
+                    tone = Tone.Suggestion,
+                    text = stringResource(
+                        R.string.home_app_unfiltered,
+                        vm.labelFor(packageName),
+                        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(untilMs)),
+                    ),
+                    action = stringResource(R.string.action_filter_again),
+                    onAction = { vm.refilterApp(packageName) },
+                )
+            }
         }
         // Offered only once the filter actually works: always-on is what survives a reboot and
         // stops another VPN quietly taking the tunnel, and it is the last thing to set up rather
@@ -411,6 +478,29 @@ private fun PauseDialog(onDismiss: () -> Unit, onPause: (Int) -> Unit) {
 }
 
 private val PAUSE_CHOICES = listOf(5, 15, 60, 180)
+
+/** Which lists are on without working, in one sentence per kind of trouble. */
+@Composable
+private fun listTroubleText(trouble: ListTrouble): String {
+    val parts = mutableListOf<String>()
+    if (trouble.missing.isNotEmpty()) {
+        parts += stringResource(R.string.home_lists_missing, trouble.missing.joinToString(", ") { it.title })
+    }
+    if (trouble.stale.isNotEmpty()) {
+        parts += stringResource(R.string.home_lists_stale, trouble.stale.joinToString(", ") { it.title })
+    }
+    return parts.joinToString("\n\n")
+}
+
+/** Where each vendor hides the switch that stops it killing Malachi. */
+private fun vendorAdvice(vendor: FilterStops.Vendor) = when (vendor) {
+    FilterStops.Vendor.XIAOMI -> R.string.filter_stops_xiaomi
+    FilterStops.Vendor.SAMSUNG -> R.string.filter_stops_samsung
+    FilterStops.Vendor.HUAWEI -> R.string.filter_stops_huawei
+    FilterStops.Vendor.OPPO -> R.string.filter_stops_oppo
+    FilterStops.Vendor.VIVO -> R.string.filter_stops_vivo
+    FilterStops.Vendor.OTHER -> R.string.filter_stops_other
+}
 
 /** "Today: Instagram, 412 blocked", or null before anything has been refused today. */
 @Composable

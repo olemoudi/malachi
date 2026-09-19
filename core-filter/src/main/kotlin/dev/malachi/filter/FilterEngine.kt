@@ -13,6 +13,12 @@ enum class RuleSource {
 
     /** A subscribed public list. [Verdict.detail] names which one. */
     LIST,
+
+    /**
+     * The user let this whole app through for a few minutes, above every rule and list. Checked
+     * on the wall clock per lookup, so the window closes on time whatever else is asleep.
+     */
+    APP_UNFILTERED,
 }
 
 /**
@@ -63,6 +69,11 @@ data class CompiledList(
  *
  * Per-app rules sit above both. They exist for the case the query log surfaces — one app abusing
  * a domain every other app needs — and would be pointless if a global rule could override them.
+ *
+ * Above everything, an app the user has let through unfiltered for a few minutes: "is it Malachi
+ * at all?" is a question about the whole app, and a per-app rule written against a parent name
+ * would still be answering a narrower one. It is the only input read against the clock, and
+ * [clock] is a parameter so a test can hold it still.
  */
 class FilterEngine(
     private val userBlock: DomainIndex = DomainIndex.EMPTY,
@@ -70,6 +81,9 @@ class FilterEngine(
     private val appRules: List<AppDomainRule> = emptyList(),
     private val lists: List<CompiledList> = emptyList(),
     private val connectivityChecks: DomainIndex = CONNECTIVITY_CHECK_INDEX,
+    /** Package → the wall-clock moment its unfiltered window closes. */
+    private val unfilteredApps: Map<String, Long> = emptyMap(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
     /** Total domains across every subscribed list, before de-duplication between lists. */
@@ -84,6 +98,13 @@ class FilterEngine(
 
     fun decide(host: String, packageName: String?): Verdict {
         val h = DomainIndex.normalizeHost(host) ?: return Verdict.ALLOWED
+
+        // One emptiness check for every lookup on a phone where nobody has let an app through,
+        // which is nearly always; the clock is only read for the app that was.
+        if (packageName != null && unfilteredApps.isNotEmpty()) {
+            val until = unfilteredApps[packageName]
+            if (until != null && clock() < until) return Verdict(blocked = false, source = RuleSource.APP_UNFILTERED)
+        }
 
         appVerdict(h, packageName)?.let { return it }
 
@@ -138,6 +159,18 @@ class FilterEngine(
             blocking = lists.filter { it.block.matches(h) }.map { it.title },
             allowing = lists.filter { it.allow.matches(h) }.map { it.title },
         )
+    }
+
+    /**
+     * Whether [host] is one of the phone's own connectivity probes, which no list may refuse.
+     *
+     * [decide] answers those as plainly allowed, which is right for a verdict and useless for an
+     * explanation: somebody asking why a listed name gets through deserves to be told it is the
+     * probe Android uses to decide whether their Wi-Fi works, not that nothing matched.
+     */
+    fun isConnectivityCheck(host: String): Boolean {
+        val h = DomainIndex.normalizeHost(host) ?: return false
+        return connectivityChecks.matches(DomainIndex.suffixHashes(h))
     }
 
     /**

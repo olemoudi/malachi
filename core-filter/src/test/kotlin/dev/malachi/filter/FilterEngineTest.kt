@@ -206,6 +206,56 @@ class FilterEngineTest {
     }
 
     @Test
+    fun `the connectivity checks are recognised as themselves and nothing near them`() {
+        val filter = engine()
+        assertTrue(filter.isConnectivityCheck("connectivitycheck.gstatic.com"))
+        assertTrue(filter.isConnectivityCheck("CONNECT.ROM.MIUI.COM."))
+        assertFalse(filter.isConnectivityCheck("gstatic.com"))
+        assertFalse(filter.isConnectivityCheck("ads.example.com"))
+        assertFalse(filter.isConnectivityCheck("not a host"))
+    }
+
+    // ---- an app let through for a few minutes ----------------------------------------------
+
+    private fun unfiltered(untilMs: Long, nowMs: Long, appRules: List<AppDomainRule> = emptyList()) = FilterEngine(
+        userBlock = DomainIndex.of(listOf("mine.example")),
+        appRules = appRules,
+        lists = listOf(adsList),
+        unfilteredApps = mapOf("com.shop.app" to untilMs),
+        clock = { nowMs },
+    )
+
+    @Test
+    fun `an unfiltered app is let through above every rule and list`() {
+        val rules = listOf(AppDomainRule("tracker.net", "com.shop.app", block = true))
+        val filter = unfiltered(untilMs = 2_000, nowMs = 1_000, appRules = rules)
+        // A list, the user's own global block and a per-app block alike: the question being asked
+        // is "is it Malachi at all?", and a rule left standing would answer a different one.
+        listOf("ads.example.com", "mine.example", "tracker.net").forEach { host ->
+            val verdict = filter.decide(host, "com.shop.app")
+            assertFalse(verdict.blocked, host)
+            assertEquals(RuleSource.APP_UNFILTERED, verdict.source)
+        }
+    }
+
+    @Test
+    fun `an unfiltered app does not open the filter for anybody else`() {
+        val filter = unfiltered(untilMs = 2_000, nowMs = 1_000)
+        assertTrue(filter.decide("ads.example.com", "com.other.app").blocked)
+        // Nor for a lookup nobody could attribute: guessing whose it was would be letting through
+        // an app the user never chose.
+        assertTrue(filter.decide("ads.example.com", null).blocked)
+    }
+
+    @Test
+    fun `the window closes on the clock, without anything having to rebuild the filter`() {
+        val filter = unfiltered(untilMs = 2_000, nowMs = 2_000)
+        val verdict = filter.decide("ads.example.com", "com.shop.app")
+        assertTrue(verdict.blocked)
+        assertEquals(RuleSource.LIST, verdict.source)
+    }
+
+    @Test
     fun `match depth is by label`() {
         assertEquals(0, FilterEngine.matchDepth("example.com", "example.com"))
         assertEquals(1, FilterEngine.matchDepth("ads.example.com", "example.com"))

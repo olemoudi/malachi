@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.listSaver
@@ -250,6 +251,17 @@ fun MalachiApp(vm: MalachiViewModel, onRequestVpnConsent: () -> Unit) {
     }
 
     BackHandler(enabled = stack.size > 1) { back() }
+
+    // A launcher shortcut names a destination before there is anything to navigate. It lands on
+    // top of Home rather than on top of wherever the app was left, so back from it goes home —
+    // which is where somebody who arrived by a shortcut expects back to go.
+    val pending by vm.pendingScreen.collectAsStateWithLifecycle()
+    LaunchedEffect(pending) {
+        val target = pending ?: return@LaunchedEffect
+        vm.consumePendingScreen()
+        while (stack.size > 1) back()
+        if (target != Screen.Home) go(target)
+    }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         val motion = Tokens.motion

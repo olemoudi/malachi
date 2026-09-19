@@ -33,9 +33,10 @@ internal data class EngineInputs(
     val userBlocked: Set<String>,
     val userAllowed: Set<String>,
     val appRules: List<AppRule>,
+    val unfilteredApps: Map<String, Long>,
 )
 
-internal fun MalachiSettings.engineInputs() = EngineInputs(userBlocked, userAllowed, appRules)
+internal fun MalachiSettings.engineInputs() = EngineInputs(userBlocked, userAllowed, appRules, unfilteredApps)
 
 /**
  * The live filter: the user's rules plus the compiled lists, assembled into one [FilterEngine]
@@ -73,6 +74,18 @@ class FilterRepository(
     private val _listProgress = MutableStateFlow<ListProgress?>(null)
     val listProgress: StateFlow<ListProgress?> = _listProgress.asStateFlow()
 
+    /**
+     * Per subscribed list, how many of its entries no other subscribed list carries.
+     *
+     * The number that says whether a list is earning its memory. Somebody who switches on every
+     * list in a category — which is what "block more" looks like from the outside — ends up with
+     * several that are almost entirely each other, each costing eight bytes a domain in the
+     * process that answers every lookup. Computed when the set of lists is loaded, never per
+     * lookup, and by a merge that visits each entry once (see [DomainIndex.uniqueCounts]).
+     */
+    private val _listContributions = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val listContributions: StateFlow<Map<String, Int>> = _listContributions.asStateFlow()
+
     init {
         // Deliberately not read here and now: this runs inside Application.onCreate, and reading
         // a file on the main thread at process start is how an app earns a slow cold launch.
@@ -97,7 +110,7 @@ class FilterRepository(
         // that answered badly for one moment — and every rule the user writes from then on is
         // saved, displayed, and never consulted. Nothing about the app would look broken.
         //
-        // Narrowed to the three fields the engine is made of, which is a battery fix and not
+        // Narrowed to the fields the engine is made of, which is a battery fix and not
         // tidiness. The settings blob emits on *every* write, and most writes have nothing to do
         // with filtering: a pause, the diagnostics deadline being pushed back, a step of the
         // guided search, a dismissed tip, a backup reminder. Each of those used to sort the
@@ -125,6 +138,10 @@ class FilterRepository(
         DebugLog.i(TAG, "loaded ${loaded.size}/${sources.size} lists, ${loaded.sumOf { it.block.size }} domains")
         compiledLists.value = loaded
         _listStates.value = blocklistStore.states()
+        _listContributions.value = withContext(Dispatchers.Default) {
+            val unique = DomainIndex.uniqueCounts(loaded.map { it.block })
+            loaded.mapIndexed { index, list -> list.id to unique[index] }.toMap()
+        }
     }
 
     /**
@@ -190,6 +207,7 @@ class FilterRepository(
                 userAllow = DomainIndex.of(inputs.userAllowed),
                 appRules = inputs.appRules.map { it.toDomainRule() },
                 lists = lists,
+                unfilteredApps = inputs.unfilteredApps,
             )
         }
 

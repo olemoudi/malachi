@@ -22,7 +22,10 @@ enum class TraceOutcome {
     /** A rule the user wrote while watching, so the timeline reads as an experiment. */
     RULE_ALLOWED,
     RULE_BLOCKED,
-    RULE_REMOVED;
+    RULE_REMOVED,
+
+    /** "An ad just got through": a moment the user marked, to read what was resolved before it. */
+    MARKED;
 
     /** True for the four that describe a lookup rather than an edit. */
     val isLookup: Boolean
@@ -92,7 +95,36 @@ data class AppTraceState(
     val blocked: Int = 0,
     val answered: Int = 0,
     val stalled: Int = 0,
+    /** The last moment the user marked as "an ad just got through", or 0. */
+    val markedAtMs: Long = 0,
 ) {
+    /**
+     * The names that were *answered* in the [windowMs] before [markAtMs], closest to it first — the
+     * shortlist when the question is the opposite of the usual one: not "what did the filter break"
+     * but "what did it let through".
+     *
+     * An advert arrives by way of a lookup that succeeded, a few seconds before it is drawn, and
+     * somebody who has just watched one has a minute's walk back to this screen at most. So the
+     * candidates are the answered names in that minute or two, most recent first, which is the
+     * order an ad's own lookups come in. Blocked names are left out: they did not deliver anything.
+     */
+    fun resolvedBefore(markAtMs: Long, windowMs: Long, limit: Int): List<TraceSuspect> =
+        events.asSequence()
+            .filter { it.outcome == TraceOutcome.ANSWERED && it.atMs <= markAtMs && markAtMs - it.atMs <= windowMs }
+            .groupBy { it.domain }
+            .map { (domain, rows) ->
+                TraceSuspect(
+                    domain = domain,
+                    queries = rows.maxOf { it.attempt },
+                    detail = rows.first().detail,
+                    source = RuleSource.NONE,
+                    lastAtMs = rows.maxOf { it.atMs },
+                )
+            }
+            .sortedByDescending { it.lastAtMs }
+            .take(limit)
+            .toList()
+
     /**
      * The blocked domains, most-asked-for first — the shortlist of things to try exempting.
      *
@@ -178,6 +210,7 @@ object AppTrace {
     @Volatile private var blocked = 0
     @Volatile private var answered = 0
     @Volatile private var stalled = 0
+    @Volatile private var markedAtMs = 0L
     @Volatile private var lastPublishedNanos = 0L
 
     private val _state = MutableStateFlow(AppTraceState())
@@ -246,6 +279,7 @@ object AppTrace {
         blocked = 0
         answered = 0
         stalled = 0
+        markedAtMs = 0
     }
 
     fun blocked(domain: String, type: Int, detail: String, source: RuleSource, nowMs: Long = System.currentTimeMillis()) {
@@ -275,6 +309,22 @@ object AppTrace {
         if (owner == null) return
         synchronized(lock) {
             append(TraceEvent(atMs = nowMs, domain = domain, outcome = outcome))
+        }
+        publish()
+    }
+
+    /**
+     * Marks this moment as the one an ad got through.
+     *
+     * Like a rule edit, recorded whenever the buffer belongs to an app, including after its window
+     * has closed: the lookups it points back at are already in the buffer, and the mark is what
+     * makes them findable.
+     */
+    fun mark(nowMs: Long = System.currentTimeMillis()) {
+        if (owner == null) return
+        synchronized(lock) {
+            append(TraceEvent(atMs = nowMs, domain = "", outcome = TraceOutcome.MARKED))
+            markedAtMs = nowMs
         }
         publish()
     }
@@ -344,6 +394,7 @@ object AppTrace {
                 blocked = blocked,
                 answered = answered,
                 stalled = stalled,
+                markedAtMs = markedAtMs,
             )
         }
     }

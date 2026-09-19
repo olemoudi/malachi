@@ -79,10 +79,14 @@ object TunnelPolicy {
      * A per-app diagnosis needs it too, and needs it even with the log switched off — which is
      * precisely the configuration somebody debugging one app on a phone they keep private would
      * be in. It costs what it costs for as long as that window is open, and the window shuts
-     * itself.
+     * itself. So does an app let through unfiltered: letting one app through is a decision about
+     * one app, and without knowing who asked it would be a decision about none of them.
      */
     fun attributionNeeded(settings: MalachiSettings): Boolean =
-        settings.queryLogEnabled || settings.appRules.isNotEmpty() || settings.diagnoseApp.isNotEmpty()
+        settings.queryLogEnabled ||
+            settings.appRules.isNotEmpty() ||
+            settings.diagnoseApp.isNotEmpty() ||
+            settings.unfilteredApps.isNotEmpty()
 
     /** True on the edge where the user switches the query log off, which has to forget it too. */
     fun forgetsQueryLog(previous: MalachiSettings, next: MalachiSettings): Boolean =

@@ -20,7 +20,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,10 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.malachi.R
 import dev.malachi.data.DomainInput
+import dev.malachi.data.SocialNetwork
+import dev.malachi.data.SocialPreset
 import dev.malachi.filter.QueryRecord
 import dev.malachi.filter.RuleSource
 import dev.malachi.filter.Verdict
@@ -49,7 +54,10 @@ import dev.malachi.lists.BlocklistCatalog
 import dev.malachi.lists.BreakageRisk
 import dev.malachi.ui.MalachiViewModel
 import dev.malachi.ui.rememberRuleAnnouncer
+import dev.malachi.ui.components.ActionChoices
 import dev.malachi.ui.components.AppIcon
+import dev.malachi.ui.components.SecondaryAction
+import dev.malachi.ui.components.ValueRow
 import dev.malachi.ui.components.CardGroup
 import dev.malachi.ui.components.ChoiceRow
 import dev.malachi.ui.components.MalachiFilterChip
@@ -68,6 +76,8 @@ import dev.malachi.ui.components.shortDuration
 import dev.malachi.ui.components.MalachiIcons
 import dev.malachi.ui.theme.MonoSmall
 import dev.malachi.ui.theme.Tokens
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * One app: whether it is filtered at all, the rules that apply only to it, and what it has
@@ -124,8 +134,15 @@ fun AppDetailScreen(
     var draft by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<PendingRule?>(null) }
+    var choosingUnfiltered by remember { mutableStateOf(false) }
+    var choosingSocial by remember { mutableStateOf(false) }
     val undo = rememberUndoBar()
     val announcer = rememberRuleAnnouncer(undo)
+    val socialUpdated = stringResource(R.string.social_updated, label)
+
+    val unfilteredUntil = remember(settings, packageName) { settings.unfilteredUntil(packageName) }
+    val socialBlocked = remember(settings, packageName) { SocialPreset.blockedIn(settings, packageName) }
+    val socialOffered = remember(packageName) { SocialPreset.offeredFor(packageName) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -153,14 +170,38 @@ fun AppDetailScreen(
                 }
 
                 item {
+                    val rows = 5
                     CardGroup {
                         SwitchRow(
                             title = stringResource(R.string.app_detail_filtered),
                             subtitle = stringResource(R.string.app_detail_filtered_subtitle),
                             checked = settings.covers(packageName),
                             onCheckedChange = { vm.setAppCovered(packageName, it) },
-                            position = cardPosition(0, 3),
+                            position = cardPosition(0, rows),
                         )
+                        // The temporary version of the switch above, and the one to reach for first:
+                        // "does this app work without Malachi?" is answered in a minute, and the
+                        // answer does not stay behind afterwards, forgotten, the way an exclusion does.
+                        if (unfilteredUntil != null) {
+                            ValueRow(
+                                title = stringResource(
+                                    R.string.app_detail_unfiltered_until,
+                                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(unfilteredUntil)),
+                                ),
+                                subtitle = stringResource(R.string.app_detail_unfiltered_hint),
+                                value = stringResource(R.string.action_filter_again),
+                                onClick = { vm.refilterApp(packageName) },
+                                position = cardPosition(1, rows),
+                            )
+                        } else {
+                            NavRow(
+                                icon = MalachiIcons.HourglassEmpty,
+                                title = stringResource(R.string.app_detail_unfilter),
+                                subtitle = stringResource(R.string.app_detail_unfilter_hint),
+                                onClick = { choosingUnfiltered = true },
+                                position = cardPosition(1, rows),
+                            )
+                        }
                         // The list below says what this app has resolved; this says what happened
                         // to each lookup, in order. It is the answer to the one thing this screen
                         // cannot show — an app that hangs, where the domain that breaks it was
@@ -170,7 +211,21 @@ fun AppDetailScreen(
                             title = stringResource(R.string.app_detail_diagnose),
                             subtitle = stringResource(R.string.app_detail_diagnose_hint),
                             onClick = onDiagnose,
-                            position = cardPosition(1, 3),
+                            position = cardPosition(2, rows),
+                        )
+                        // Social networks are the one thing no list can refuse — refusing
+                        // facebook.com breaks Facebook for everyone — and the easiest thing to refuse
+                        // inside one app. Written as ordinary per-app rules, listed below.
+                        NavRow(
+                            icon = MalachiIcons.Block,
+                            title = stringResource(R.string.app_detail_social),
+                            subtitle = if (socialBlocked.isEmpty()) {
+                                stringResource(R.string.app_detail_social_hint)
+                            } else {
+                                socialOffered.filter { it.id in socialBlocked }.joinToString(", ") { it.name }
+                            },
+                            onClick = { choosingSocial = true },
+                            position = cardPosition(3, rows),
                         )
                         // "Is this app eating my battery" is the question that brings people to
                         // a screen like this, and it is one Malachi cannot answer — a DNS lookup
@@ -182,7 +237,7 @@ fun AppDetailScreen(
                             title = stringResource(R.string.app_detail_system_info),
                             subtitle = stringResource(R.string.app_detail_system_info_hint),
                             onClick = { vm.openAppInfo(packageName) },
-                            position = cardPosition(2, 3),
+                            position = cardPosition(4, rows),
                         )
                     }
                 }
@@ -364,6 +419,30 @@ fun AppDetailScreen(
         UndoBarHost(undo, Modifier.align(Alignment.BottomCenter).padding(spacing.md))
     }
 
+    if (choosingUnfiltered) {
+        UnfilterDialog(
+            appLabel = label,
+            onDismiss = { choosingUnfiltered = false },
+            onChoose = { minutes ->
+                vm.unfilterApp(packageName, minutes)
+                choosingUnfiltered = false
+            },
+        )
+    }
+
+    if (choosingSocial) {
+        SocialDialog(
+            appLabel = label,
+            networks = socialOffered,
+            blocked = socialBlocked,
+            onDismiss = { choosingSocial = false },
+            onConfirm = { chosen ->
+                vm.setSocialBlocked(packageName, chosen)?.let { undo.show(socialUpdated, it.undo) }
+                choosingSocial = false
+            },
+        )
+    }
+
     pending?.let { rule ->
         DomainScopeDialog(
             domain = rule.domain,
@@ -380,6 +459,103 @@ fun AppDetailScreen(
             },
         )
     }
+}
+
+/** How long an app can be let through for; the same short, round choices as a pause. */
+private val UNFILTER_CHOICES = listOf(5, 15, 60)
+
+@Composable
+private fun UnfilterDialog(appLabel: String, onDismiss: () -> Unit, onChoose: (Int) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.unfilter_title, appLabel)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.unfilter_body, appLabel),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.padding(top = Tokens.spacing.md))
+                ActionChoices {
+                    UNFILTER_CHOICES.forEach { minutes ->
+                        SecondaryAction(
+                            text = shortDuration(minutes * 60_000L),
+                            onClick = { onChoose(minutes) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}
+
+/**
+ * Which social networks to refuse inside one app, as a set of ticks.
+ *
+ * Ticks rather than one button because the answer differs per app: a news app that embeds posts
+ * may be worth keeping X for and not Facebook. Nothing already blocked starts ticked — or everything
+ * does, on the first visit, because "block the social networks" is what somebody opening this came
+ * to do.
+ */
+@Composable
+private fun SocialDialog(
+    appLabel: String,
+    networks: List<SocialNetwork>,
+    blocked: Set<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit,
+) {
+    var chosen by remember(blocked) {
+        mutableStateOf(if (blocked.isEmpty()) networks.map { it.id }.toSet() else blocked)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.social_title, appLabel)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    stringResource(R.string.social_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.padding(top = Tokens.spacing.sm))
+                networks.forEach { network ->
+                    val on = network.id in chosen
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = on, role = Role.Checkbox, onValueChange = {
+                                chosen = if (it) chosen + network.id else chosen - network.id
+                            })
+                            .padding(vertical = Tokens.spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = on, onCheckedChange = null)
+                        Spacer(Modifier.width(Tokens.spacing.sm))
+                        Column {
+                            Text(network.name, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                network.domains.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(chosen) }) { Text(stringResource(R.string.action_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
 }
 
 /** How the domains an app has asked for are ordered, and which of them are shown at all. */
@@ -423,7 +599,12 @@ private data class PendingRule(val domain: String, val block: Boolean)
  * the recorded one; a list's verdict is left alone as the history it is.
  */
 internal fun effectiveVerdict(record: QueryRecord, current: Verdict): Verdict =
-    if (current.source == RuleSource.APP_RULE || current.source == RuleSource.USER_RULE) {
+    if (current.source == RuleSource.APP_RULE ||
+        current.source == RuleSource.USER_RULE ||
+        // Letting the whole app through is the user's decision too, and it is the one they came
+        // to this screen to make — every line has to say so the moment it is made.
+        current.source == RuleSource.APP_UNFILTERED
+    ) {
         current
     } else {
         Verdict(record.blocked, record.source, record.detail)

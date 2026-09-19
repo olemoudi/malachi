@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Long-press the launcher icon. Three things somebody does without wanting to open the whole app
+  first: stand the filter down for a moment, see what an app has been asking for, and start
+  watching one. The actions are spelled out again in MainActivity, which is what handles them;
+  the package is fixed because a static shortcut cannot name its target any other way.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="pause"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_pause"
+        android:shortcutShortLabel="@string/shortcut_pause_short"
+        android:shortcutLongLabel="@string/shortcut_pause_long">
+        <intent
+            android:action="dev.malachi.action.PAUSE"
+            android:targetPackage="dev.malachi"
+            android:targetClass="dev.malachi.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="activity"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_activity"
+        android:shortcutShortLabel="@string/shortcut_activity_short"
+        android:shortcutLongLabel="@string/shortcut_activity_long">
+        <intent
+            android:action="dev.malachi.action.ACTIVITY"
+            android:targetPackage="dev.malachi"
+            android:targetClass="dev.malachi.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="diagnose"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_diagnose"
+        android:shortcutShortLabel="@string/shortcut_diagnose_short"
+        android:shortcutLongLabel="@string/shortcut_diagnose_long">
+        <intent
+            android:action="dev.malachi.action.DIAGNOSE"
+            android:targetPackage="dev.malachi"
+            android:targetClass="dev.malachi.MainActivity" />
+    </shortcut>
+</shortcuts>

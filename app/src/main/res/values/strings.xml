@@ -604,4 +604,107 @@
     <string name="welcome_start">Turn on filtering</string>
     <string name="welcome_later">Look around first</string>
 
+    <!-- Quality-of-life additions: ad hunting, domain check, bulk rules, social networks,
+         letting one app through, stopped-filter and list-health notices, tile and shortcuts -->
+    <string name="diagnose_filter_answered">Answered</string>
+    <string name="diagnose_ad_title">Did an ad get through?</string>
+    <string name="diagnose_ad_body">Use %1$s until the ad appears, then come back here and press the button. Malachi will list what the app looked up in the two minutes before, and you can block any of it in this app alone.</string>
+    <string name="diagnose_ad_marked">Marked at %1$s. These are the addresses answered in the two minutes before, most recent first. Switch one on to block it in this app only; tap a row to cover a parent domain.</string>
+    <string name="diagnose_ad_mark">I just saw an ad</string>
+    <string name="diagnose_ad_mark_again">Mark another one</string>
+    <string name="diagnose_ad_none">Nothing was answered in the two minutes before the mark. Press the button straight after the next ad appears.</string>
+    <plurals name="diagnose_ad_seconds_before">
+        <item quantity="one">%d second before</item>
+        <item quantity="other">%d seconds before</item>
+    </plurals>
+    <string name="trace_marked">You saw an ad here</string>
+
+    <string name="action_retry">Try again</string>
+    <string name="home_lists_missing">Switched on but never downloaded, so they block nothing: %1$s.</string>
+    <string name="home_lists_stale">Failing to update for more than three days: %1$s.</string>
+    <string name="home_filter_stops">Something stopped Malachi %1$s, most recently %2$s. Each time, apps were unfiltered until it came back, which is how ads get through now and then. %3$s</string>
+    <plurals name="home_filter_stops_count">
+        <item quantity="one">once in the last seven days</item>
+        <item quantity="other">%d times in the last seven days</item>
+    </plurals>
+    <string name="filter_stops_xiaomi">On Xiaomi, open the app settings, turn on Autostart and set Battery saver to No restrictions, and lock Malachi with the padlock in recent apps. Setting it as the always-on VPN helps most.</string>
+    <string name="filter_stops_samsung">On Samsung, open the app settings, set Battery to Unrestricted and make sure Malachi is not among the sleeping apps. Setting it as the always-on VPN helps most.</string>
+    <string name="filter_stops_huawei">On Huawei and Honor, open the app settings and, under App launch, manage Malachi manually with everything allowed. Setting it as the always-on VPN helps most.</string>
+    <string name="filter_stops_oppo">On OPPO, realme and OnePlus, open the app settings, allow background activity and auto-launch, and turn off battery optimisation. Setting it as the always-on VPN helps most.</string>
+    <string name="filter_stops_vivo">On vivo, open the app settings and allow high background power use and auto-start. Setting it as the always-on VPN helps most.</string>
+    <string name="filter_stops_other">Open the app settings and take Malachi out of battery optimisation. Setting it as the always-on VPN helps most.</string>
+    <string name="action_app_settings">App settings</string>
+    <string name="home_app_unfiltered">%1$s is unfiltered until %2$s.</string>
+    <string name="action_filter_again">Filter again</string>
+
+    <string name="app_detail_unfilter">Let it through for a while</string>
+    <string name="app_detail_unfilter_hint">Unfiltered for a few minutes, then filtered again by itself. The quickest way to find out whether Malachi is what breaks it.</string>
+    <string name="app_detail_unfiltered_until">Unfiltered until %1$s</string>
+    <string name="app_detail_unfiltered_hint">Everything this app looks up is allowed until then.</string>
+    <string name="unfilter_title">Let %1$s through for how long?</string>
+    <string name="unfilter_body">Everything %1$s looks up will be allowed, and nothing else on the phone changes. It is filtered again by itself when the time is up.</string>
+    <string name="app_detail_social">Block social networks here</string>
+    <string name="app_detail_social_hint">Facebook, X, LinkedIn and more. No list can block them without breaking them for everyone, but inside one app it is safe.</string>
+    <string name="social_title">Social networks in %1$s</string>
+    <string name="social_body">The ticked ones are blocked in this app only, as rules you can see and remove below. Logins and posts embedded from them will stop working here.</string>
+    <string name="social_updated">Social networks updated in %1$s</string>
+    <string name="action_save">Save</string>
+    <string name="verdict_allowed_unfiltered">Allowed: this app is let through for now</string>
+
+    <string name="rules_paste_many">Paste several at once</string>
+    <plurals name="rules_pasted_blocked">
+        <item quantity="one">%d domain blocked</item>
+        <item quantity="other">%d domains blocked</item>
+    </plurals>
+    <plurals name="rules_pasted_allowed">
+        <item quantity="one">%d domain allowed</item>
+        <item quantity="other">%d domains allowed</item>
+    </plurals>
+    <string name="check_blocked">Blocked</string>
+    <string name="check_allowed">Allowed</string>
+    <plurals name="check_lists_blocking">
+        <item quantity="one">On %1$d list: %2$s</item>
+        <item quantity="other">On %1$d lists: %2$s</item>
+    </plurals>
+    <string name="check_lists_allowing">With an exception in: %1$s</string>
+    <string name="check_app_rules_title">Rules for particular apps</string>
+    <string name="check_app_rule_blocked">Blocked in %1$s (rule for %2$s)</string>
+    <string name="check_app_rule_allowed">Allowed in %1$s (rule for %2$s)</string>
+    <string name="check_reason_your_block">Your rule for %1$s blocks it.</string>
+    <string name="check_reason_your_allow">Your rule for %1$s allows it.</string>
+    <string name="check_reason_list">%1$s blocks it.</string>
+    <string name="check_reason_exception">%1$s has an exception for it, and an exception on any list wins over every block.</string>
+    <string name="check_reason_connectivity">Android uses this address to check that a network works, so no list is allowed to block it.</string>
+    <string name="check_reason_nothing">None of your lists or global rules mention it.</string>
+    <string name="paste_title">Paste several rules</string>
+    <string name="paste_hint">One per line: domains, web addresses, a hosts file or Adblock rules. Lines that are not a domain are left out.</string>
+    <plurals name="paste_domains">
+        <item quantity="one">%d domain</item>
+        <item quantity="other">%d domains</item>
+    </plurals>
+    <plurals name="paste_skipped">
+        <item quantity="one">%d line left out</item>
+        <item quantity="other">%d lines left out</item>
+    </plurals>
+    <string name="paste_truncated">Only the first %1$d are kept. For a whole list, the blocklists are the better place.</string>
+    <string name="paste_allow_all">Allow all</string>
+    <string name="paste_block_all">Block all</string>
+
+    <string name="lists_memory_total">Together they take %1$s of memory.</string>
+    <string name="lists_memory">%1$s of memory</string>
+    <string name="lists_unique">%1$s of them on none of your other lists · %2$s of memory</string>
+    <string name="lists_unique_none">Adds nothing your other lists don\'t already have · %1$s of memory</string>
+
+    <string name="tile_on">On</string>
+    <string name="tile_off">Off</string>
+    <string name="tile_starting">Starting…</string>
+    <string name="tile_paused_until">Paused until %1$s</string>
+
+    <string name="shortcut_pause_short">Pause 5 min</string>
+    <string name="shortcut_pause_long">Pause for 5 minutes</string>
+    <string name="shortcut_activity_short">Activity</string>
+    <string name="shortcut_activity_long">What apps looked up</string>
+    <string name="shortcut_diagnose_short">Diagnose</string>
+    <string name="shortcut_diagnose_long">Diagnose an app</string>
+
 </resources>
