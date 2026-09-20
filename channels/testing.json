@@ -1,9 +1,6 @@
 {
-  "versionCode": 63,
-  "versionName": "1.10.0-alpha",
-  "apk": "https://github.com/olemoudi/malachi/releases/download/v1.10.0-alpha/malachi.apk",
-  "notes": {
-    "en": "Easier to use, and more honest about what gets through.\n\n• A quick-settings tile turns filtering on and off from anywhere.\n• Long-press the icon to pause for 5 minutes, open Activity or diagnose an app.\n• Let one app through for a few minutes without pausing everything else.\n• Block Facebook, X, LinkedIn and other social networks inside a single app.\n• Did an ad get through? Diagnose the app, press \"I just saw an ad\" and block what it loaded.\n• Check any domain in My rules to see whether it is blocked and why, and paste many rules at once.\n• The home screen warns when something keeps stopping Malachi, with the setting that fixes it on your phone, and when a list you switched on never downloaded.\n• Each list shows how much it adds that your other lists don't have, and the memory it takes.",
-    "es": "Más cómoda, y más clara sobre lo que se cuela.\n\n• Un botón en los ajustes rápidos enciende y apaga el filtro desde cualquier sitio.\n• Mantén pulsado el icono para pausar 5 minutos, abrir la actividad o diagnosticar una app.\n• Deja una app sin filtro unos minutos sin pausar todo lo demás.\n• Bloquea Facebook, X, LinkedIn y otras redes sociales dentro de una sola app.\n• ¿Se ha colado un anuncio? Diagnostica la app, pulsa «Acabo de ver un anuncio» y bloquea lo que cargó.\n• Comprueba cualquier dominio en Mis reglas para ver si está bloqueado y por qué, y pega muchas reglas de una vez.\n• La pantalla principal avisa cuando algo detiene Malachi una y otra vez, con el ajuste que lo arregla en tu móvil, y cuando una lista que activaste no se ha descargado nunca.\n• Cada lista muestra cuánto aporta que no tengan ya tus otras listas, y la memoria que ocupa."
-  }
+  "versionCode": 65,
+  "versionName": "1.11.0-alpha",
+  "apk": "https://github.com/olemoudi/malachi/releases/download/v1.11.0-alpha/malachi.apk",
+  "notes": {}
 }
