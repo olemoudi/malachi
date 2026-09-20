@@ -13,8 +13,8 @@ android {
         applicationId = "dev.malachi"
         minSdk = 29
         targetSdk = 35
-        versionCode = 63
-        versionName = "1.10.0-alpha"
+        versionCode = 64
+        versionName = "1.10.0-beta"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
